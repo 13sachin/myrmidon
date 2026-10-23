@@ -1,0 +1,52 @@
+# Q1 — repeat-until: build the box and equilibrate it under NPT until
+# the density has stopped drifting. plan_write's parameters, as the planning conversation
+# would write them. Roles the researcher brings are named as files under 01_input/.
+question: Build the acetone box and equilibrate it under NPT until the density has stopped drifting
+system: acetone in water, the MiMiC tutorial box
+given: [structure, topology]
+steps:
+- name: box
+  tool: gmx_editconf
+  cites: inputset:box_qmmm_solute@v2
+  needs: [structure]
+  produces: [structure_boxed]
+  values: {structure: 01_input/conf.gro, distance_nm: 1.0}
+- name: solvate
+  tool: gmx_solvate
+  needs: [structure_boxed, topology]
+  produces: [structure_solvated]
+  values: {structure: structure_boxed, topology: 01_input/topol.top}
+- name: minimise_prep
+  tool: gmx_grompp
+  cites: inputset:em_solute_in_water@v1
+  needs: [structure_solvated, topology]
+  produces: [tpr_minimise]
+  values: {structure: structure_solvated, topology: 01_input/topol.top}
+- name: minimise_run
+  tool: gmx_mdrun
+  needs: [tpr_minimise]
+  produces: [structure_minimised]
+  values: {tpr: tpr_minimise, deffnm: em, ntasks: 1, cpus_per_task: 1, walltime_min: 10}
+- name: heat_prep
+  tool: gmx_grompp
+  cites: inputset:npt_equilibration_solute_in_water@v2
+  needs: [structure_minimised, topology]
+  produces: [tpr_heat]
+  # the first segment: 200 ps at dt = 2 fs. The length is the model's proposal from the
+  # input set's basis; the researcher sees it in the plan
+  values: {structure: structure_minimised, topology: 01_input/topol.top, nsteps: 100000}
+- name: heat_run
+  tool: gmx_mdrun
+  needs: [tpr_heat]
+  produces: [structure_equilibrated, checkpoint_equilibrated, energy_equilibrated]
+  values: {tpr: tpr_heat, deffnm: npt, ntasks: 1, cpus_per_task: 1, walltime_min: 20}
+until:
+  criterion: the density has stopped drifting
+  check: series_convergence
+  repeats: heat_run
+  ceiling: 5
+  # the researcher's tolerance: drift of the settled part and the agreement of its halves
+  values: {series: [Density], max_drift_per_ns: 5.0, max_halves_sigma: 2.0}
+  # each further segment: 200 ps from the checkpoint, the same booking
+  extend: {extend_ps: 200, ntasks: 1, cpus_per_task: 1, walltime_min: 20}
+envelope: {rerun_on_failure: 1}

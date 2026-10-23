@@ -1,0 +1,24 @@
+; Include forcefield parameters
+#include "amber03.ff/forcefield.itp"
+; GAFF atomtypes live in the .top (not the molecule .itp) so that
+; mimicpy fm's generated non_bonded_*.itp replacement keeps them defined
+[ atomtypes ]
+;name  bond_type    mass    charge   ptype          sigma      epsilon
+c3            c3      0.0000  0.0000  A   3.39967e-01  4.57730e-01
+hc           hc      0.0000  0.0000  A   2.64953e-01  6.56888e-02
+c              c      0.0000  0.0000  A   3.39967e-01  3.59824e-01
+o              o      0.0000  0.0000  A   2.95992e-01  8.78640e-01
+
+#include "acetone.itp"
+
+; Include SPC water topology — the molecules are added by gmx_solvate, but the
+; moleculetype has to be defined before grompp reads the [ molecules ] it writes
+#include "amber03.ff/spc.itp"
+
+[ system ]
+; Name
+Acetone molecule (stage A entry)
+
+[ molecules ]
+; Compound        #mols
+ACT                1

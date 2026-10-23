@@ -1,0 +1,322 @@
+id: mimic_qmmm_solvated_solute
+system_class: a solute treated quantum-mechanically in a classical water box, closed-shell, light elements; the estimates were measured on a box of about 1500 atoms with a 10-atom QM region and scale with both
+aliases:
+- mimic_qmmm_acetone
+title: MiMiC QM/MM of a small solute in water — the MiMiC project's pipeline
+scope: engine
+applicability: 'The reference MiMiC QM/MM sequence: minimise and equilibrate classically, pick the
+  QM region, then four coupled runs — anneal, check NVE, heat, produce. Start from it for a small
+  solute treated quantum-mechanically in a classical box. It is a starting point and not a rule: bring
+  an equilibrated box and skip the first half, or build a different sequence entirely — that is what
+  experimenting is.'
+given:
+- structure
+- topology
+steps:
+- name: box
+  tool: gmx_editconf
+  cites: inputset:box_qmmm_solute@v2
+  needs:
+  - structure
+  produces:
+  - structure_boxed
+  values:
+    structure: structure
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: solvate
+  tool: gmx_solvate
+  needs:
+  - structure_boxed
+  - topology
+  produces:
+  - structure_solvated
+  values:
+    structure: structure_boxed
+    topology: topology
+  note: writes the solvent count back into the topology, so the topology role carries on
+    from here
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: minimise_prep
+  tool: gmx_grompp
+  cites: inputset:em_solute_in_water@v1
+  needs:
+  - structure_solvated
+  - topology
+  produces:
+  - tpr_minimise
+  values:
+    structure: structure_solvated
+    topology: topology
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: minimise_run
+  tool: gmx_mdrun
+  needs:
+  - tpr_minimise
+  produces:
+  - structure_minimised
+  values:
+    tpr: tpr_minimise
+  estimate_core_h: 8.0
+  estimate_basis: 10 min walltime on a 48-core node, as booked for a box of about 1500 atoms
+- name: heat_prep
+  tool: gmx_grompp
+  cites: inputset:npt_equilibration_solute_in_water@v2
+  needs:
+  - structure_minimised
+  - topology
+  produces:
+  - tpr_heat
+  values:
+    structure: structure_minimised
+    topology: topology
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: heat_run
+  tool: gmx_mdrun
+  needs:
+  - tpr_heat
+  produces:
+  - structure_equilibrated
+  - checkpoint_equilibrated
+  values:
+    tpr: tpr_heat
+  note: NPT, for as long as the researcher asks; this is the classical equilibration every
+    later step depends on
+  estimate_core_h: 16.0
+  estimate_basis: 20 min walltime on a 48-core node, as booked for 200 ps of a box of about
+    1500 atoms; scales with the length asked for and the system's size
+- name: cpmd_template
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_template@v1
+  produces:
+  - cpmd_template
+  note: the method — &CPMD, &DFT, &SYSTEM — with no atoms; prepqm writes the system into it
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: qm_region
+  tool: mimic_select_qm
+  cites: inputset:mimic_qm_region@v3
+  needs:
+  - structure_equilibrated
+  - topology
+  - cpmd_template
+  produces:
+  - index_qm
+  - cpmd_input_qm
+  values:
+    coords: structure_equilibrated
+    topology: topology
+    template: cpmd_template
+  note: which atoms are quantum is the researcher's; for a solute in water it is the whole
+    solute and cuts no bond, which is the only case this sequence was measured on
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: mimic_prep
+  tool: gmx_grompp
+  cites: inputset:mimic_mm_mdp@v1
+  needs:
+  - structure_equilibrated
+  - topology
+  - index_qm
+  produces:
+  - tpr_mimic
+  values:
+    structure: structure_equilibrated
+    topology: topology
+    index: index_qm
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: annealing_method
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_annealing@v2
+  produces:
+  - cpmd_method_annealing
+  note: the stage's method — &CPMD, &DFT, the method keys of &SYSTEM and &MIMIC — with no atoms
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: annealing_input
+  tool: mimic_prepare
+  needs:
+  - cpmd_input_qm
+  - cpmd_method_annealing
+  produces:
+  - cpmd_input_annealing
+  values:
+    cpmd_input: cpmd_input_qm
+    method: cpmd_method_annealing
+  note: the stage's method on the system the QM selection made once; the charge and the
+    multiplicity are the researcher's, confirmed against the selection's report
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: annealing
+  tool: mimic_run
+  needs:
+  - tpr_mimic
+  - cpmd_input_annealing
+  produces:
+  - cpmd_restart_annealed
+  values:
+    tpr: tpr_mimic
+    cpmd_input: cpmd_input_annealing
+  estimate_core_h: 54.0
+  estimate_basis: one of four coupled runs that booked 216.0 core-h together for a 10-atom QM
+    region in a box of about 1500 atoms; scales with the QM atom count and the cutoff
+- name: nve_test_method
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_nve_test@v2
+  produces:
+  - cpmd_method_nve_test
+  note: the stage's method — &CPMD, &DFT, the method keys of &SYSTEM and &MIMIC — with no atoms
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: nve_test_input
+  tool: mimic_prepare
+  needs:
+  - cpmd_input_qm
+  - cpmd_method_nve_test
+  produces:
+  - cpmd_input_nve_test
+  values:
+    cpmd_input: cpmd_input_qm
+    method: cpmd_method_nve_test
+  note: the stage's method on the system the QM selection made once; the charge and the
+    multiplicity are the researcher's, confirmed against the selection's report
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: nve_test
+  tool: mimic_run
+  needs:
+  - tpr_mimic
+  - cpmd_input_nve_test
+  - cpmd_restart_annealed
+  produces:
+  - cpmd_restart_nve
+  values:
+    tpr: tpr_mimic
+    cpmd_input: cpmd_input_nve_test
+    restart_from: cpmd_restart_annealed
+  note: conserves energy or the setup is wrong; no trajectory is written
+  estimate_core_h: 54.0
+  estimate_basis: one of four coupled runs that booked 216.0 core-h together for a 10-atom QM
+    region in a box of about 1500 atoms; scales with the QM atom count and the cutoff
+- name: heating_method
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_heating@v3
+  produces:
+  - cpmd_method_heating
+  note: the stage's method — &CPMD, &DFT, the method keys of &SYSTEM and &MIMIC — with no atoms
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: heating_input
+  tool: mimic_prepare
+  needs:
+  - cpmd_input_qm
+  - cpmd_method_heating
+  produces:
+  - cpmd_input_heating
+  values:
+    cpmd_input: cpmd_input_qm
+    method: cpmd_method_heating
+  note: the stage's method on the system the QM selection made once; the charge and the
+    multiplicity are the researcher's, confirmed against the selection's report
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: heating
+  tool: mimic_run
+  needs:
+  - tpr_mimic
+  - cpmd_input_heating
+  - cpmd_restart_nve
+  produces:
+  - cpmd_restart_heated
+  - trajectory_heating
+  values:
+    tpr: tpr_mimic
+    cpmd_input: cpmd_input_heating
+    restart_from: cpmd_restart_nve
+  estimate_core_h: 54.0
+  estimate_basis: one of four coupled runs that booked 216.0 core-h together for a 10-atom QM
+    region in a box of about 1500 atoms; scales with the QM atom count and the cutoff
+- name: production_method
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_production@v3
+  produces:
+  - cpmd_method_production
+  note: the stage's method — &CPMD, &DFT, the method keys of &SYSTEM and &MIMIC — with no atoms
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: production_input
+  tool: mimic_prepare
+  needs:
+  - cpmd_input_qm
+  - cpmd_method_production
+  produces:
+  - cpmd_input_production
+  values:
+    cpmd_input: cpmd_input_qm
+    method: cpmd_method_production
+  note: the stage's method on the system the QM selection made once; the charge and the
+    multiplicity are the researcher's, confirmed against the selection's report
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: production
+  tool: mimic_run
+  needs:
+  - tpr_mimic
+  - cpmd_input_production
+  - cpmd_restart_heated
+  produces:
+  - trajectory_qmmm
+  - dipole_series
+  values:
+    tpr: tpr_mimic
+    cpmd_input: cpmd_input_production
+    restart_from: cpmd_restart_heated
+  estimate_core_h: 54.0
+  estimate_basis: one of four coupled runs that booked 216.0 core-h together for a 10-atom QM
+    region in a box of about 1500 atoms; scales with the QM atom count and the cutoff
+invariants:
+- id: DYNAMICS_TIMESTEP_IS_THE_CPMD_ONE
+  not_equal:
+  - $mimic_prep.dt
+  - $production_method.&CPMD/TIMESTEP
+  message: the GROMACS dt and the CPMD TIMESTEP are in different units and are not the same number;
+    the mdp dt is inert in a MiMiC run and the CPMD one is what advances time
+sources:
+- kind: tutorial
+  text: 'MiMiC acetone-in-water tutorial, the input archive published by the MiMiC project. Downloaded
+    with the command the tutorial gives; template.inp, mini.mdp, heat.mdp, mimic.mdp, sele.dat
+    and pp_info.dat are copied verbatim into tests/fixtures/mimic_tutorial/. sha256 is of template.inp.
+
+    '
+  locator: https://gitlab.com/mimic-project/mimic-docs/-/tree/main/docs/tutorials/AcetoneTutorial
+  sha256: 51e3952370e541dac4f2da20dd526cceba4aa016117daa62878bb73dbe425440
+- kind: url
+  text: 'The tutorial page itself, which prints the per-stage &CPMD blocks the reader edits the template
+    into. The archive ships the template only, so the four dynamics stages cite the page.
+
+    '
+  locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
+pitfalls:
+- CPMD_MULTIPLICITY_WITHOUT_LSD
+- CPMD_SHAKE_WRONG_GEOMETRY
+validated_by:
+- src/myrmidon/knowledge/protocols.py (a protocol that cannot run in its own order is refused at load)
+notes: 'Distilled from the eight stages of the MiMiC project''s acetone-in-water tutorial: the
+  sequence is knowledge, one study''s instance of it is not. The two gmx_mdrun steps are stated here
+  because the input sets hold only the input-preparation calls; without them no later step''s inputs
+  are satisfiable. The estimates are what one CPU cluster booked for the tutorial''s own runs — a
+  default for a machine like it, not a promise about yours. The sequence starts at the box and
+  solvate steps because the two values that build a box — the cell type and the solute-to-box
+  clearance — are values, and a value lives in an input set, not in a skill''s prose. Both cost
+  nothing. The CPMD template is rendered by its own step,
+  and the qm_region step cites mimic_qm_region (whose selection is the researcher''s). Each
+  coupled stage is three steps: its method rendered from its input set, that method put on
+  the system the selection made once (mimic_prepare, which also takes the confirmed charge and
+  multiplicity), and the run continuing from the previous stage''s restart. Each step''s values wire the roles
+  it needs to its tool''s parameters; the values themselves are the input sets'' and the
+  researcher''s.'
+version: 5

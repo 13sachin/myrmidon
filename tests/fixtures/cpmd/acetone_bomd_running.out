@@ -1,0 +1,190 @@
+ compiler version: Intel(R) Fortran Compiler for applications running on Intel(R) 64, Version 2024.2.0 Build 20240602
+ compiler options: -I. -I/opt/cpmd/include -I/opt/cpmd/jsonfortran-intelllvm-8.4.0/lib -I/opt/cpmd/jsonfortran-intelllvm-8.4.0/lib -I/opt/cpmd/jsonfortran-intelllvm-8.4.0/lib -I/opt/cpmd/jsonfortran-intelllvm-8.4.0/lib -I/opt/cpmd/jsonfortran-intelllvm-8.4.0/lib -I/opt/cpmd/jsonfortran-intelllvm-8.4.0/lib -I/opt/cpmd/jsonfortran-intelllvm-8.4.0/lib -I/opt/src/cpmd/src -I/opt/src/cpmd/build/obj -I/opt/stack/psmpi/5.10.0-1-intel-compilers-2024.2.0/include -I/opt/stack/psmpi/5.10.0-1-intel-compilers-2024.2.0/include -reentrancy threaded -c -xHost -O2 -qopenmp -o machine.mod.o
+ MPI version of the library: === ParaStation MPI 5.10.0-1 ===
+Version(PSMPI): Oct 30 2024 (5.10.0-1)+confset(intel)+cuda+pmix
+MPICH Version:      4.1.2
+MPICH Release date: Wed Jun  7 15:22:45 CDT 2023
+MPICH ABI:          15:1:3
+MPICH Device:       psp
+MPICH configure:    --prefix=/opt/stack/psmpi/5.10.0-1-intel-compilers-2024.2.0 --build=x86_64-pc-linux-gnu --host=x86_64-pc-linux-gnu --with-cuda --with-confset=intel --with-mpichconf=--enable-static --with-file-system=ufs+gpfs --enable-romio --with-pmix=/opt/stack/PMIx/5.0.3-GCCcore-13.3.0 build_alias=x86_64-pc-linux-gnu host_alias=x86_64-pc-linux-gnu CC=icx --with-device=psp --enable-cache --disable-static --enable-shared --enable-romio --enable-fast=O3,ndebug --enable-lib-depend --disable-rpath --enable-cxx
+ MPI version of the standard: 4.0
+ cp_groups: we are using a 1 x 1 grid (groups x nprocs).
+ PROGRAM CPMD STARTED AT: 2026-08-31 15:18:35.169   
+ SETCNST| USING: CODATA 2006 UNITS
+
+
+               ******  ******    ****  ****  ******   
+              *******  *******   **********  *******  
+             ***       **   ***  ** **** **  **   *** 
+             **        **   ***  **  **  **  **    ** 
+             **        *******   **      **  **    ** 
+             ***       ******    **      **  **   *** 
+              *******  **        **      **  *******  
+               ******  **        **      **  ******   
+
+                          VERSION 4.3-rUnversioned directory
+
+                            COPYRIGHT
+                      IBM RESEARCH DIVISION
+                MPI FESTKOERPERFORSCHUNG STUTTGART
+
+                       The CPMD consortium
+                  Home Page: http://www.cpmd.org
+               Mailing List: cpmd-list@cpmd.org
+                     E-mail: cpmd@cpmd.org
+
+
+                  ***  Apr 14 2026 -- 16:00:39  ***
+
+ THE INPUT FILE IS: /work/myrmidon/debug/cpmd_run.inp
+ THIS JOB RUNS ON:                               node024.cluster
+ THE CURRENT DIRECTORY IS: 
+ /work/myrmidon/debug
+ THE TEMPORARY DIRECTORY IS: 
+ /work/myrmidon/debug
+ THE PROCESS ID IS:                                       2021494
+ THE JOB WAS SUBMITTED BY:                                    xxx
+ 
+ CONTROL| FFT_N_DEVICES_PER_TASK            1 
+  is greater than zero and CPMD was not compiled with -D__HAS_CUDA
+ CONTROL| reset FFT_N_DEVICES_PER_TASK to zero
+ CONTROL| BLAS_N_DEVICES_PER_TASK            1 
+  is greater than zero and CPMD was not compiled with -D__HAS_CUDA
+ CONTROL| reset BLAS_N_DEVICES_PER_TASK to zero
+
+ BORN-OPPENHEIMER MOLECULAR DYNAMICS
+
+ USING SEED       123456 TO INIT. PSEUDO RANDOM NUMBER GEN.
+ PATH TO THE RESTART FILES:                                    ./
+ GRAM-SCHMIDT ORTHOGONALIZATION
+ MAXIMUM NUMBER OF STEPS:                                20 STEPS
+ MAXIMUM NUMBER OF ITERATIONS FOR SC:                 10000 STEPS
+ PRINT INTERMEDIATE RESULTS EVERY                     10001 STEPS
+ STORE INTERMEDIATE RESULTS EVERY                        10 STEPS
+ STORE INTERMEDIATE RESULTS EVERY     10001 SELF-CONSISTENT STEPS
+ NUMBER OF DISTINCT RESTART FILES:                              1
+ TEMPERATURE IS CALCULATED ASSUMING AN ISOLATED MOLECULE 
+ FICTITIOUS ELECTRON MASS:                               400.0000
+ TIME STEP FOR ELECTRONS:                                 10.0000
+ TIME STEP FOR IONS:                                      10.0000
+ TRAJECTORIES ARE SAVED ON FILE EVERY                    10 STEPS
+ ELECTRON DYNAMICS: THE TEMPERATURE IS NOT CONTROLLED
+ ION DYNAMICS:      THE TEMPERATURE IS NOT CONTROLLED
+ SPLINE INTERPOLATION IN G-SPACE FOR PSEUDOPOTENTIAL FUNCTIONS
+    NUMBER OF SPLINE POINTS:                                 5000
+ 
+ EXCHANGE-CORRELATION FUNCTIONALS:
+ 
+    100.0% CP    GGA_XC_BLYP
+           GC-CUTOFF VALUE FOR GRADIENT SMOOTHING:     1.0000E-08
+ ---------------------------------------------------------------------
+ MiMiC: a framework for multiscale modeling in computational chemistry
+ 
+ Version: 0.2.0
+ 
+ Using QM/MM module of MiMiC
+ 
+ Please cite the following papers:
+ J. Chem. Theory Comput. 2019, 15, 6, 3810–3823 
+ J. Chem. Theory Comput. 2019, 15, 10, 5601–5613
+ ---------------------------------------------------------------------
+
+ ***************************** ATOMS ****************************
+   NR   TYPE        X(BOHR)        Y(BOHR)        Z(BOHR)     MBL
+    1      C      22.903481      23.886138      22.695611       3
+    2      C      23.092453      21.448392      24.188494       3
+    3      C      25.057768      25.738070      22.865686       3
+    4      H      22.620022      19.766535      23.111351       3
+    5      H      24.963282      21.183830      25.019974       3
+    6      H      21.807439      21.448392      25.794762       3
+    7      H      26.323885      24.831001      21.523981       3
+    8      H      24.547542      27.533310      21.996412       3
+    9      H      25.700275      25.945940      24.831001       3
+   10      O      20.975960      24.471953      21.599570       3
+ ****************************************************************
+
+ NUMBER OF STATES:                                             12
+ NUMBER OF ELECTRONS:                                    24.00000
+ CHARGE:                                                  0.00000
+ ELECTRON TEMPERATURE(KELVIN):                            0.00000
+ OCCUPATION
+  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0
+ 
+    ============================================================  
+    |    Pseudopotential Report     Tue Jan 14 09:55:25 1997   |  
+    ------------------------------------------------------------  
+    |  Atomic Symbol                   :   C                   |  
+    |  Atomic Number                   :   6                   |  
+    |  Number of core states           :   1                   |  
+    |  Number of valence states        :   2                   |  
+    |  Exchange-Correlation Functional :                       |  
+    |     Slater exchange :   .6667                            |  
+    |     LDA correlation : Lee-Yang-Parr                      |  
+    |     Exchange GC     : Becke (1988)                       |  
+    |     Correlation GC  : Lee-Yang-Parr                      |  
+    |  Electron Configuration :   N   L  Occupation            |  
+    |                             1   S    2.0000              |  
+    |                             2   S    2.0000              |  
+    |                             2   P    2.0000              |  
+    |  Full Potential Total Energy   -37.702121                |  
+    |  Trouiller-Martins normconserving PP                     |  
+    |     n    l        rc       energy                        |  
+    |     2    S    1.2300      -.49630                        |  
+    |     2    P    1.2300      -.19186                        |  
+    |     3    D     .7159      -.19186                        |  
+    |  Number of Mesh Points :   615                           |  
+    |  Pseudoatom Total Energy   -5.370516                     |  
+    ============================================================  
+ 
+    ============================================================  
+    |    Pseudopotential Report     Thu Nov 30 13:17:19 1995   |  
+ ... [trimmed] ...
+ ****************************************************************
+       1       C           9.503260      11.511204       8.261226
+       2       C           9.692248       9.073444       9.754031
+       3       C          11.657514      13.363117       8.431198
+       4       H           9.219702       7.391495       8.676658
+       5       H          11.563116       8.808974      10.585379
+       6       H           8.406973       9.073612      11.360404
+       7       H          12.924306      12.456052       7.089596
+       8       H          11.147197      15.158505       7.562054
+       9       H          12.300255      13.570926      10.396384
+      10       O           7.575694      12.097022       7.165044
+ ****************************************************************
+
+
+ TOTAL INTEGRATED ELECTRONIC DENSITY
+    IN G-SPACE =                                    24.0000000000
+    IN R-SPACE =                                    24.0000000000
+
+ (K+E1+L+N+X+MM+QM/MM)  TOTAL ENERGY =          -44.61803468 A.U.
+ (K+E1+L+N+X)        TOTAL QM ENERGY =          -36.48854335 A.U.
+ (MM)                TOTAL MM ENERGY =           -8.08784121 A.U.
+ (QM/MM)          TOTAL QM/MM ENERGY =           -0.04165012 A.U.
+ (K)                  KINETIC ENERGY =           27.88943082 A.U.
+ (E1=A-S+R)     ELECTROSTATIC ENERGY =          -27.49199170 A.U.
+ (S)                           ESELF =           29.92067103 A.U.
+ (R)                             ESR =            1.79699040 A.U.
+ (L)    LOCAL PSEUDOPOTENTIAL ENERGY =          -29.74534099 A.U.
+ (N)      N-L PSEUDOPOTENTIAL ENERGY =            3.64737538 A.U.
+ (X)     EXCHANGE-CORRELATION ENERGY =          -10.78801685 A.U.
+          GRADIENT CORRECTION ENERGY =          -10.78801685 A.U.
+ 
+       NFI   TEMPP           EKS      ECLASSIC         DIS    TCPU
+         1     0.1     -44.61803     -44.61749   0.557E-04   71.89
+        SHAKE CONVERGED AFTER   3 ITERATIONS. TCPU =         0.00
+        INFR         GEMAX            ETOT         DETOT     TCPU
+           1     5.153E-05      -36.530293     0.000E+00    31.66
+           2     3.369E-05      -36.530298    -5.587E-06     1.22
+           3     2.783E-05      -36.530299    -3.966E-07     1.21
+           4     2.359E-05      -36.530299    -8.532E-08     1.22
+           5     9.846E-06      -36.530299    -1.839E-08     1.23
+        SUBSYSTEM TEMPERATURES:
+        T(QM) =                                              2.81
+        T(MM) =                                              0.42
+         2     0.4     -44.61965     -44.61750   0.577E-04   70.59
+        SHAKE CONVERGED AFTER   3 ITERATIONS. TCPU =         0.00
+        INFR         GEMAX            ETOT         DETOT     TCPU
+           1     8.505E-05      -36.530453     0.000E+00    31.63
+           2     5.018E-05      -36.530469    -1.539E-05     1.22
+           3     4.105E-05      -36.530470    -1.098E-06     1.22

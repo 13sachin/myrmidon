@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Mock scancel: marks the job cancelled and kills it if running."""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+state_dir = Path(os.environ["MOCK_SLURM_DIR"])
+job_id = sys.argv[1]
+(state_dir / f"{job_id}.cancelled").touch()
+meta_file = state_dir / f"{job_id}.json"
+if meta_file.exists():
+    meta = json.loads(meta_file.read_text())
+    subprocess.run(["pkill", "-f", meta["script"]], capture_output=True)

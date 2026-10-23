@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""Mock MiMiCPy: prepqm reads selection commands from stdin until 'q', applies them to
+the atoms of the -coords file, and writes index.ndx and a MiMiC-style cpmd.inp holding
+exactly the selected atoms. MOCK_MIMICPY_FAIL=1 exits 1.
+
+Selections: ``add SEL``, ``delete SEL`` and ``clear``, where SEL is ``FIELD is VALUE``
+clauses (FIELD: resname, resid, name, id) joined by ``and`` / ``or`` (``and`` binds
+tighter). Anything else is refused, loudly: a mock that answered a fixed selection
+whatever was asked would tell a model something false about every system but one.
+
+&SYSTEM CHARGE is what real prepqm writes (mimicpy/core/prepare.py): the selected atoms'
+[ atoms ] charges summed and rounded, with a warning on stderr when the sum is not an integer
+to two decimals (tests/fixtures/mimicpy/prepqm_lys_side_chain.err). A selected atom whose
+charge the mock cannot read stops it: the real prepqm reads the whole topology first.
+"""
+
+import os
+import sys
+
+BOHR_PER_NM = 18.897261246
+
+
+def read_gro(path):
+    """(resid, resname, name, serial, x, y, z in nm) per atom, from GROMACS' fixed columns."""
+    with open(path) as fh:
+        lines = fh.read().splitlines()
+    n = int(lines[1].split()[0])
+    atoms = []
+    for i, line in enumerate(lines[2:2 + n]):
+        atoms.append((int(line[0:5]), line[5:10].strip(), line[10:15].strip(), i + 1,
+                      float(line[20:28]), float(line[28:36]), float(line[36:44])))
+    if len(atoms) != n:
+        raise ValueError(f"{path}: header says {n} atoms, file has {len(atoms)}")
+    return atoms
+
+
+FIELDS = {"resid": 0, "resname": 1, "name": 2, "id": 3}
+
+
+class SelectionError(Exception):
+    """What MiMiCPy raises for a selection it cannot apply; prepqm prints it and goes on."""
+
+
+def _molecule_atoms(path, search, seen, types):
+    """moleculetype name -> its [ atoms ] charges in order, following #include from the
+    includer's directory, then the -ff directory."""
+    path = os.path.abspath(path)
+    if path in seen:
+        return
+    seen.add(path)
+    section, current = None, None
+    for ln in open(path):
+        line = ln.split(";")[0].strip()
+        if line.startswith("#include"):
+            name = line.split(None, 1)[1].strip().strip('"\'')
+            for base in [os.path.dirname(path)] + search:
+                if os.path.exists(os.path.join(base, name)):
+                    _molecule_atoms(os.path.join(base, name), search, seen, types)
+                    break
+            continue
+        if line.startswith("["):
+            section = line.strip("[] ").replace(" ", "")
+            continue
+        if not line or line.startswith("#"):
+            continue
+        cols = line.split()
+        if section == "moleculetype":
+            current = cols[0]
+            types[current] = []
+        elif section == "atoms" and current and len(cols) >= 7:
+            types[current].append(float(cols[6]))
+
+
+def atom_charges(topology, ff_dir):
+    """Per-atom charges in system order, as far as the [ molecules ] list can be followed;
+    the name of the first molecule whose charges are unknown, or None."""
+    types = {}
+    _molecule_atoms(topology, [ff_dir] if ff_dir else [], set(), types)
+    charges, in_molecules = [], False
+    for ln in open(topology):
+        line = ln.split(";")[0].strip()
+        if line.startswith("["):
+            in_molecules = line.replace(" ", "") == "[molecules]"
+            continue
+        cols = line.split()
+        if in_molecules and len(cols) == 2 and cols[1].isdigit():
+            if cols[0] not in types:
+                return charges, cols[0]
+            charges += types[cols[0]] * int(cols[1])
+    return charges, None
+
+
+def matches(atom, sel):
+    """Evaluate ``a is x and b is y or c is z`` on one atom, with MiMiCPy's messages for
+    what it cannot read (mimicpy/topology/mpt.py)."""
+    for alternative in sel.split(" or "):
+        ok = True
+        for clause in alternative.split(" and "):
+            words = clause.split()
+            if not words or words[0] not in FIELDS:
+                raise SelectionError(f"'{words[0] if words else ''}' is not a valid "
+                                     "selection keyword")
+            if len(words) != 3 or words[1] != "is":
+                raise SelectionError(f"'{words[-1]}' is not a valid logical operator")
+            value = atom[FIELDS[words[0]]]
+            ok = ok and str(value) == words[2]
+        if ok:
+            return True
+    return False
+
+
+def select(atoms, commands):
+    """Apply prepqm's commands in order. A command it cannot apply is printed after its
+    prompt and skipped, as the real prompt does (tests/fixtures/mimicpy/
+    prepqm_rejected_commands.out)."""
+    chosen = set()
+    for cmd in commands:
+        print("> ", end="")
+        verb, _, sel = cmd.partition(" ")
+        verb = verb.lower()
+        if verb == "clear":
+            chosen.clear()
+        elif verb in ("add", "add-bound", "delete"):
+            try:
+                if not sel.strip():
+                    raise SelectionError("The selection cannot be empty")
+                hit = {a[3] for a in atoms if matches(a, sel)}
+                if not hit:
+                    raise SelectionError("The selection did not return any atoms")
+            except SelectionError as exc:
+                print(exc)
+                continue
+            chosen = chosen - hit if verb == "delete" else chosen | hit
+        else:
+            print(f"{verb} is an invalid command! Please try again. Type 'help' for more "
+                  "information.")
+    print("> ", end="")  # the prompt that reads 'q'
+    return [a for a in atoms if a[3] in chosen]
+
+
+def main():
+    if os.environ.get("MOCK_MIMICPY_FAIL"):
+        sys.stderr.write("mimicpy: error: could not parse topology\n")
+        return 1
+    sub = sys.argv[1]
+
+    def arg(flag, default=None):
+        return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
+
+    if sub == "h5info":
+        print("HDF5 File Information:")
+        print("Configurations: 12")
+        print("  config_0: 30 atoms (5 QM, 25 MM)")
+        return 0
+    if sub == "json2h5":
+        out = arg("-o") or arg("-i").rsplit(".", 1)[0] + ".h5"
+        try:
+            import h5py
+            import numpy as np
+        except ImportError:
+            with open(out, "w") as fh:
+                fh.write("MOCKH5\n")
+            return 0
+        # a real (tiny) h5 mirroring the mock cpmd's two FM configurations
+        dtype = np.dtype([("id", "i4"), ("region", "i4"), ("coordinate", "f8", (3,)),
+                          ("force", "f8", (3,))])
+        with h5py.File(out, "w") as fh:
+            for i in range(2):
+                atoms = np.zeros(1, dtype=dtype)
+                atoms["id"] = [1]
+                atoms["region"] = [1]
+                fh.create_group(f"config_{i}").create_dataset("atoms", data=atoms)
+        return 0
+    if sub == "fmcheck":
+        desync = os.environ.get("MOCK_FMCHECK_DESYNC")
+        out = arg("-o")
+        n = arg("-e", "12")
+        if out:  # writing mode always produces an aligned pair
+            for ext in (".trr", ".h5"):
+                with open(out + ext, "w") as fh:
+                    fh.write("MOCK ALIGNED\n")
+        print("----- trr/h5 compatibility report -----")
+        print("  trr frames        : 12")
+        print("  h5 configs        : 12")
+        print(f"  requested frames  : {n}")
+        print(f"  status            : {'remapped' if desync and not out else 'aligned'}")
+        print(f"  aligned (index)   : {'0' if desync and not out else n}")
+        if desync and not out:
+            print(f"  remapped (coord)  : {n} (offset +1..+1)")
+        print("  dropped (no twin) : 0")
+        print(f"  matched total     : {n}")
+        print("---------------------------------------")
+        if desync and not out:
+            print("trr and h5 are NOT index-aligned. Re-run with `-o PREFIX` to write "
+                  "an aligned pair (PREFIX.trr + PREFIX.h5).")
+        return 0
+    if sub == "fm":
+        if os.environ.get("MOCK_FM_FAIL"):
+            with open("fm.log", "w") as fh:
+                fh.write("Number of snapshots used for fitting: 10\n"
+                         "        success: False \n"
+                         "        message: `xtol` termination condition NOT satisfied. \n")
+            sys.stderr.write("mock fm: optimization failed\n")
+            return 1
+        with open("opt_mock.itp", "w") as fh:
+            fh.write("; Created by mimicpy (mock)\n[ moleculetype ]\n ACT 3\n\n[ atoms ]\n"
+                     " 1 c  1 ACT C1 1  0.75000 12.0\n"
+                     " 2 o  1 ACT O1 2 -0.60000 16.0\n"
+                     " 3 hc 1 ACT H1 3  0.12500  1.0\n")
+        with open("validation_force_residuals.csv", "w") as fh:
+            fh.write("frame_index,gmx_id,name,type,resname,resid,element,is_bound,"
+                     "res_x,res_y,res_z,ref_x,ref_y,ref_z\n")
+            rows = [(3, 1, "C1", "c", 3.0, 4.0, 0.0), (3, 2, "O1", "o", 0.0, 0.0, 1.0),
+                    (3, 3, "H1", "hc", 0.0, 0.0, 0.0), (9, 1, "C1", "c", 0.0, 0.0, 0.0),
+                    (9, 2, "O1", "o", 0.0, 0.0, 1.0), (9, 3, "H1", "hc", 2.0, 0.0, 0.0)]
+            for fr, gid, name, typ, x, y, z in rows:
+                el = name[0]
+                fh.write(f"{fr},{gid},{name},{typ},ACT,1,{el},0,{x:.6f},{y:.6f},{z:.6f},"
+                         "2.000000,2.000000,2.000000\n")
+        with open("optimization_results.txt", "w") as fh:
+            fh.write("1.0 0.5\n0.9 0.4\n\n# VALIDATION RESULTS\n"
+                     "# Validation SDB: 0.412345\n# Validation cost: 0.098765\n"
+                     "# Validation configurations: 2\n")
+        with open("fm.log", "w") as fh:
+            fh.write(
+                "Running Force matching in MiMiCPy\n"
+                "Number of snapshots used for fitting: 10\n"
+                "QM total charge: 0.0\n"
+                "Running DRESP optimization\n"
+                "DRESP optimization completed.\n"
+                "Split 10 configurations into 8 training and 2 validation\n"
+                "Validation SDB: 0.412345\n"
+                "Validation cost: 0.098765\n"
+                "Output from optimization: \n"
+                "        status: 2 \n"
+                "        message: `ftol` termination condition is satisfied. \n"
+                "        success: True \n"
+                "Force field parameter optimization completed.\n"
+                "Successfully wrote .itp files for molecules containing QM atoms: opt_mock.itp\n"
+                "MiMiCPy Force matching workflow completed 1970-01-01 00:00:00.\n"
+                "wall time: 0:00:03.500000\n"
+            )
+        print("mock fm done")
+        return 0
+    if sub != "prepqm":
+        sys.stderr.write(f"mock mimicpy: unknown subcommand {sub}\n")
+        return 2
+    path = "/tmp/mimic-run"
+    if "-path" in sys.argv:
+        path = sys.argv[sys.argv.index("-path") + 1]
+    selections = []
+    for line in sys.stdin:
+        cmd = line.strip()
+        if cmd in ("q", "quit"):
+            break
+        if cmd:
+            selections.append(cmd)
+    try:
+        atoms = read_gro(arg("-coords"))
+    except (OSError, ValueError, IndexError, TypeError) as exc:
+        sys.stderr.write(f"mimicpy prepqm: error: {exc}\n")
+        return 1
+    print("Please enter selection below. For more information type 'help'")
+    qm = select(atoms, selections)
+    if not qm:  # prepqm writes nothing for an empty region, and exits 0
+        print("\n=====> Done <=====")
+        return 0
+    charges, unknown = atom_charges(arg("-top"), arg("-ff"))
+    if max(a[3] for a in qm) > len(charges):
+        sys.stderr.write(f"mock mimicpy: no [ atoms ] charges read for molecule {unknown}\n")
+        return 1
+    total = sum(charges[a[3] - 1] for a in qm)
+    if not round(total, 2).is_integer():
+        sys.stderr.write(f"Total charge of QM region is {round(total, 4)}, "
+                         "Rounding to integer\n")
+    with open(arg("-ndx", "index.ndx"), "w") as fh:
+        fh.write(f"[ {arg('-qma', 'QMatoms')} ]\n" + " ".join(str(a[3]) for a in qm) + "\n")
+    # one &ATOMS block per element (the atom name's first letter), coordinates in bohr
+    elements = {}
+    for a in qm:
+        elements.setdefault(a[2][0].upper(), []).append(a)
+    blocks = ""
+    for el, members in elements.items():
+        blocks += f"*{el}_MT_BLYP.psp\n LMAX={'S' if el == 'H' else 'P'}\n {len(members)}\n"
+        blocks += "".join(f"  {a[4] * BOHR_PER_NM:.4f} {a[5] * BOHR_PER_NM:.4f} "
+                          f"{a[6] * BOHR_PER_NM:.4f}\n" for a in members)
+    with open(arg("-out", "cpmd.inp"), "w") as fh:
+        fh.write(
+            "&MIMIC\n"
+            "PATHS\n"
+            "1\n"
+            f"{path}\n"
+            "BOX\n"
+            "  30.0 30.0 30.0\n"
+            "&END\n"
+            "\n"
+            "&CPMD\n"
+            "MIMIC\n"
+            "MOLECULAR DYNAMICS BO\n"
+            "&END\n"
+            "\n"
+            "&DFT\n"
+            "FUNCTIONAL BLYP\n"
+            "&END\n"
+            "\n"
+            "&SYSTEM\n"
+            "    CHARGE\n"
+            f"        {round(total)}\n"
+            "&END\n"
+            "\n"
+            "&ATOMS\n"
+            + blocks +
+            "&END\n"
+        )
+    print("MDP file not passed! Skipping generation of GROMACS TPR file\n\n=====> Done <=====")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

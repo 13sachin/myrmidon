@@ -1,0 +1,47 @@
+# Q3 — sweep with a join: one QM/MM single point per sampled frame,
+# the first checked before the rest are spent, the reference forces merged into one dataset.
+# The frames are the researcher's (sampled from Q2's production trajectory); here three.
+question: Reference forces on three frames of the production trajectory, merged into one dataset
+system: acetone in water, the whole solute as the QM region
+given: [frames, topology, tpr]
+steps:
+- name: cpmd_template
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_template@v1
+  produces: [cpmd_template]
+- name: qm_region
+  tool: mimic_select_qm
+  needs: [frames, topology, cpmd_template]
+  produces: [index_qm, cpmd_input_qm]
+  # `coords` is the varied key: each arm takes one frame
+  values:
+    coords: 01_input/frame_1.gro
+    topology: 01_input/topol.top
+    template: cpmd_template
+    selections: [add resname is ACT]
+    padding_nm: 0.4
+- name: sp_input
+  tool: mimic_prepare
+  needs: [cpmd_input_qm]
+  produces: [cpmd_input_sp]
+  values: {cpmd_input: cpmd_input_qm, total_charge: 0, multiplicity: 1, fm_pace: 1, maxsteps: 5}
+- name: sp
+  tool: mimic_run
+  needs: [tpr, cpmd_input_sp]
+  produces: [reference_forces, trajectory_mm]
+  values: {tpr: 01_input/mimic.tpr, cpmd_input: cpmd_input_sp, cpmd_ranks: 1, gromacs_ranks: 1, walltime_min: 10}
+  sentinels:
+  - {check: finished_normally, args: {}}
+  deadline_min: 45
+- name: merge
+  tool: fm_merge
+  needs: [reference_forces, trajectory_mm]
+  produces: [fm_dataset_json, trajectory_merged]
+  # a parameter that takes a list joins the arms
+  values: {fm_jsons: reference_forces, trajectories: trajectory_mm}
+arms:
+  varies: coords
+  over: [01_input/frame_1.gro, 01_input/frame_2.gro, 01_input/frame_3.gro]
+  because: one single point per sampled frame of the reference trajectory
+# a known failure signature on at most a third of the points is dropped and recorded
+envelope: {rerun_on_failure: 1, drop_fraction: 0.34, on_deadline: park}

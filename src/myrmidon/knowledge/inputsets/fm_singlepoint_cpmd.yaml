@@ -1,0 +1,96 @@
+id: fm_singlepoint_cpmd
+system_class: a closed-shell QM region of light elements under BLYP/MT at 70 Ry; the QM total charge is the researcher's, and an open-shell or metal-containing region needs LSD, a multiplicity and its own cutoff
+title: MiMiC force-matching single point — cpmd input
+scope: engine
+applicability: 'The CPMD half of a MiMiC single-point run that writes reference forces for force matching:
+  one SCF per sampled frame, FORCE_MATCHING at the frame pace.'
+renders: cpmd_inp
+parameters:
+  '&CPMD/PCG MINIMIZE':
+    value: true
+    rationale: preconditioned conjugate gradient wavefunction optimizer
+    source: 0
+  '&CPMD/MIMIC':
+    value: true
+    source: 1
+  '&CPMD/WAVEFUNCTION OPTIMIZATION':
+    value: true
+    rationale: a single point, not dynamics
+    source: 0
+  '&CPMD/NEW CONSTRAINTS':
+    value: true
+    source: 1
+  '&CPMD/ISOLATED MOLECULE':
+    value: true
+    source: 1
+  '&CPMD/FORCE_MATCHING':
+    value: 1
+    rationale: 'pace: write the reference forces every step. 1 means every frame.'
+    source: 0
+  '&SYSTEM/POISSON SOLVER TUCKERMAN':
+    value: true
+    source: 1
+  '&SYSTEM/SYMMETRY':
+    value: 0
+    source: 1
+  '&SYSTEM/CUTOFF':
+    value: '70.'
+    rationale: Ry; converged for MT BLYP pseudopotentials
+    source: 1
+  '&SYSTEM/CHARGE':
+    required_from_user: true
+    derivable: sum of the topology charges over the QM selection
+  '&DFT/XC_DRIVER':
+    value: true
+    rationale: libxc, so the functional name is the libxc one
+    source: 0
+  '&DFT/FUNCTIONAL GGA_XC_BLYP':
+    value: true
+    source: 1
+  '&MIMIC/LONG-RANGE COUPLING':
+    value: true
+    source: 1
+  '&MIMIC/FRAGMENT SORTING ATOM-WISE UPDATE':
+    value: 100
+    source: 1
+  '&MIMIC/CUTOFF DISTANCE':
+    value: 20.0
+    rationale: 'bohr; the MiMiC tutorial''s value. Beyond it the MM charges enter as multipoles, so
+      it must comfortably exceed the QM region''s own extent plus its first solvation shells: a
+      protein active site needs more than a single solute does.
+
+      '
+    source: 0
+  '&MIMIC/MULTIPOLE ORDER':
+    value: 3
+    source: 1
+sources:
+- kind: in_house
+  text: 'The acetone force-matching reference pair generated through the harness with MiMiC-enabled
+    CPMD and GROMACS on a SLURM cluster. Inputs kept verbatim in tests/fixtures/acetone/ as
+    fm_singlepoint_template.inp and mimic_fm.mdp; the pace/nstxout rule is stated in that mdp''s
+    own comments.
+
+    '
+  locator: tests/fixtures/acetone/fm_singlepoint_template.inp
+  evidence:
+  - tests/fixtures/acetone/mimic_fm.mdp
+- kind: tutorial
+  text: 'Everything not changed here is inherited from the acetone tutorial input sets, which are distilled
+    from the MiMiC project''s acetone-in-water tutorial.
+
+    '
+  locator: inputset:mimic_cpmd_template
+pitfalls:
+- CPMD_MULTIPLICITY_WITHOUT_LSD
+- FM_RERUN_MDP_IS_MIMIC
+notes: 'Derived from the acetone tutorial input sets. What inputset_apply writes for a cpmd_inp input set is
+  a template: &MIMIC PATHS/BOX/OVERLAPS, &SYSTEM CELL and &ATOMS are written per system by mimicpy''s
+  prepqm. Charge is never supplied here; mimic_prepare requires it confirmed. The classical rerun
+  that the fit subtracts is a DIFFERENT mdp — see fm_classical_rerun, and do not reuse this one for
+  it.
+
+  '
+validated_by:
+- tests/unit/test_mimic_inputsets.py::test_fm_protocols_match_the_harness_fixtures
+version: 1

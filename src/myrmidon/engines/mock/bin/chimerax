@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Mock ChimeraX for unit tests.
+
+Emulates the two behaviors myrmidon uses: ``--version`` output and the REST
+control interface (``remotecontrol rest start port N json true``). Response
+shapes are ChimeraX 1.12's:
+
+    {"json values": [...], "python values": [...],
+     "log messages": {"note": [...], "warning": [...], "error": [...], "bug": [...]},
+     "error": null | {"type": "UserError", "message": "..."}}
+
+``open`` really parses the PDB it is given, so reported atom/chain/ligand
+counts are truthful. The server exits after 120 s idle so failed tests never
+leave orphans. MOCK_CHIMERAX_FAIL=save makes ``save`` fail like a full disk.
+"""
+
+import base64
+import json
+import os
+import re
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+# 1x1 gray pixel
+PNG_1PX = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNiAAAABgADNjd8qAAAAABJRU5ErkJggg=="
+)
+
+STATE = {"models": [], "last_request": time.time()}
+
+OK_PREFIXES = (
+    "set", "lighting", "graphics", "color", "style", "show", "hide",
+    "transparency", "select", "cartoon", "surface", "turn", "zoom", "close",
+)
+
+
+def response(json_values=None, notes=None, error=None):
+    return {
+        "json values": json_values if json_values is not None else [None],
+        "python values": [None],
+        "log messages": {
+            "note": notes or [],
+            "warning": [],
+            "error": [],
+            "bug": [],
+        },
+        "error": error,
+    }
+
+
+def user_error(message):
+    return response(json_values=[], error={"type": "UserError", "message": message})
+
+
+def parse_pdb(path):
+    atoms, chains, hetero = 0, {}, []
+    try:
+        with open(path) as fh:
+            for line in fh:
+                record = line[:6].strip()
+                if record in ("ATOM", "HETATM"):
+                    atoms += 1
+                    chain = line[21].strip() or "A"
+                    resnum = line[22:26].strip()
+                    resname = line[17:20].strip()
+                    chains.setdefault(chain, set()).add(resnum)
+                    if record == "HETATM" and resname != "HOH":
+                        spec = f"/{chain}:{resnum}"
+                        if spec not in (h[0] for h in hetero):
+                            hetero.append((spec, resname))
+    except OSError:
+        return None
+    return atoms, chains, hetero
+
+
+def handle_command(cmd):
+    cmd = cmd.strip()
+    if cmd == "version":
+        return response(notes=["UCSF ChimeraX version: 1.12-mock\n"])
+    if cmd == "exit":
+        # real --nogui 1.12 aborts (SIGABRT, core dump) on a REST `exit`;
+        # exit 134 stands in for that without dumping core in the test tree
+        code = 134 if "--nogui" in sys.argv else 0
+        threading.Thread(target=lambda: (time.sleep(0.2), os._exit(code))).start()
+        return response()
+    if cmd == "close session":
+        STATE["models"] = []
+        return response()
+    if cmd.startswith("open "):
+        path = cmd[5:].strip().strip('"')
+        parsed = parse_pdb(path)
+        if parsed is None:
+            return user_error(f"Cannot open file {path}")
+        atoms, chains, hetero = parsed
+        spec = f"#{len(STATE['models']) + 1}"
+        STATE["models"].append(
+            {"spec": spec, "name": os.path.basename(path), "atoms": atoms,
+             "chains": chains, "hetero": hetero}
+        )
+        return response(
+            json_values=[json.dumps({"model specs": [spec]})],
+            notes=[f"Chain information for {os.path.basename(path)} {spec}\n"],
+        )
+    if cmd == "info models attribute num_atoms":
+        payload = [
+            {"spec": m["spec"], "class": "AtomicStructure",
+             "attribute": "num_atoms", "present": True, "value": m["atoms"]}
+            for m in STATE["models"]
+        ]
+        return response(json_values=[json.dumps(payload)])
+    if cmd == "info chains":
+        payload = []
+        for m in STATE["models"]:
+            for chain, residues in m["chains"].items():
+                payload.append(
+                    {"spec": f"/{chain}", "attribute": "chain_id",
+                     "residues": [f"/{chain}:{r}" for r in sorted(residues)],
+                     "polymer type": "protein", "present": True, "value": chain}
+                )
+        return response(json_values=[json.dumps(payload)])
+    if cmd == "info residues ligand":
+        # real 1.12 reports attribute "name" by default
+        payload = [
+            {"spec": spec, "attribute": "name", "present": True, "value": resname}
+            for m in STATE["models"] for spec, resname in m["hetero"]
+        ]
+        return response(json_values=[json.dumps(payload)])
+    if cmd.startswith("color ") and re.search(r"\bgr[ae]y\d+\b", cmd):
+        # real ChimeraX 1.12 has no X11 'gray70'-style names
+        return user_error(
+            "Expected a color or one of 'byatom', 'bychain', 'byelement', "
+            "'byhetero', 'byidentity', 'bymodel', 'bynucleotide', 'bypolymer', "
+            "'fromatoms', 'fromcartoons', 'fromribbons', or 'random' or a keyword"
+        )
+    if cmd.split(None, 1)[0] in ("color", "transparency") and " targets " in f" {cmd} ":
+        # real ChimeraX: the keyword is `target`; `targets` parses as a spec
+        return user_error(
+            "Expected a collection of one of 'All', 'atoms', 'bonds', 'cartoons', "
+            "'labels', 'models', 'pseudobonds', 'ribbons', 'rings', or 'surfaces' "
+            "or a keyword"
+        )
+    if cmd == "view matrix":
+        return response(notes=["view matrix camera 1,0,0,-0.33,0,1,0,2.08,0,0,1,44.2\n"])
+    if cmd.startswith("save "):
+        if os.environ.get("MOCK_CHIMERAX_FAIL") == "save":
+            return user_error("Cannot save image: disk full")
+        m = re.match(r'save\s+("[^"]+"|\S+)', cmd)
+        path = m.group(1).strip('"')
+        with open(path, "wb") as fh:
+            fh.write(PNG_1PX)
+        return response()
+    if cmd.split(None, 1)[0] in OK_PREFIXES:
+        return response()
+    return user_error(f"Unknown command: {cmd.split(None, 1)[0]}")
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _respond(self, command):
+        STATE["last_request"] = time.time()
+        body = json.dumps(handle_command(command)).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _command_from_query(self):
+        # Real ChimeraX only reads the query string — a urlencoded POST body is
+        # ignored and answered with a log-level '"command" parameter missing'
+        # error while the top-level "error" stays null. Mirror that exactly.
+        query = parse_qs(urlparse(self.path).query)
+        return query.get("command", [None])[0]
+
+    def _missing_command(self):
+        resp = response(json_values=[])
+        resp["log messages"]["error"] = ['"command" parameter missing\n']
+        STATE["last_request"] = time.time()
+        body = json.dumps(resp).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        command = self._command_from_query()
+        if command is None:
+            self._missing_command()
+        else:
+            self._respond(command)
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        self.rfile.read(length)  # drain; real ChimeraX ignores the body
+        command = self._command_from_query()
+        if command is None:
+            self._missing_command()
+        else:
+            self._respond(command)
+
+    def log_message(self, *args):
+        pass
+
+
+def main():
+    argv = sys.argv[1:]
+    if "--version" in argv:
+        print("UCSF ChimeraX version: 1.12-mock")
+        return 0
+    cmd_arg = argv[argv.index("--cmd") + 1] if "--cmd" in argv else ""
+    m = re.search(r"remotecontrol rest start port (\d+)", cmd_arg)
+    if not m:
+        print("mock chimerax: nothing to do", file=sys.stderr)
+        return 1
+    server = ThreadingHTTPServer(("127.0.0.1", int(m.group(1))), Handler)
+
+    if "--nogui" in argv:
+        # Real --nogui ChimeraX reads commands from stdin and exits with code 0
+        # on EOF (chimerax.core.nogui._Input) — a closed/devnull stdin kills the
+        # REST server immediately. Replicate it.
+        def stdin_reader():
+            for _ in sys.stdin:
+                pass
+            os._exit(0)
+
+        threading.Thread(target=stdin_reader, daemon=True).start()
+
+    def reaper():
+        while True:
+            time.sleep(5)
+            if time.time() - STATE["last_request"] > 120:
+                os._exit(0)
+
+    threading.Thread(target=reaper, daemon=True).start()
+    server.serve_forever()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

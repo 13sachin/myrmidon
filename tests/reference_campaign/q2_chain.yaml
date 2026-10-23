@@ -1,0 +1,109 @@
+# Q2 — chain: from the equilibrated box, the staged QM/MM run —
+# anneal, NVE check, heat to 300 K, produce — restarts recorded, each stage watched by a
+# sentinel. The second half of protocol mimic_qmmm_solvated_solute@v5, with the values the
+# planning conversation collects. The heating ramp is deliberately slow (0.1 K per step over
+# 1500 steps cannot reach 300 K from an annealed box): the planted method fault of the
+# reference campaign, which the heating sentinel catches and the envelope answers with one
+# more segment from the run's own restart.
+question: "From this box, run the staged QM/MM: anneal, NVE check, heat to 300 K, 1000 steps of production. I want the dipole series."
+system: acetone in water, the whole solute as the QM region (10 atoms, no bond cut), BLYP, 70 Ry
+given: [structure_equilibrated, topology]
+steps:
+- name: cpmd_template
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_template@v1
+  produces: [cpmd_template]
+- name: qm_region
+  tool: mimic_select_qm
+  cites: inputset:mimic_qm_region@v3
+  needs: [structure_equilibrated, topology, cpmd_template]
+  produces: [index_qm, cpmd_input_qm]
+  values:
+    coords: 01_input/conf.gro
+    topology: 01_input/topol.top
+    template: cpmd_template
+    selections: [add resname is ACT]
+    padding_nm: 0.4
+- name: mimic_prep
+  tool: gmx_grompp
+  cites: inputset:mimic_mm_mdp@v1
+  needs: [structure_equilibrated, topology, index_qm]
+  produces: [tpr_mimic]
+  values: {structure: 01_input/conf.gro, topology: 01_input/topol.top, index: index_qm}
+- name: annealing_method
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_annealing@v2
+  produces: [cpmd_method_annealing]
+- name: annealing_input
+  tool: mimic_prepare
+  needs: [cpmd_input_qm, cpmd_method_annealing]
+  produces: [cpmd_input_annealing]
+  values: {cpmd_input: cpmd_input_qm, method: cpmd_method_annealing, total_charge: 0, multiplicity: 1}
+- name: annealing
+  tool: mimic_run
+  needs: [tpr_mimic, cpmd_input_annealing]
+  produces: [cpmd_restart_annealed]
+  values: {tpr: tpr_mimic, cpmd_input: cpmd_input_annealing, cpmd_ranks: 1, gromacs_ranks: 1, walltime_min: 10}
+  sentinels:
+  - {check: final_temperature_below, args: {limit_k: 5.0}}
+  deadline_min: 150
+- name: nve_test_method
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_nve_test@v2
+  produces: [cpmd_method_nve_test]
+- name: nve_test_input
+  tool: mimic_prepare
+  needs: [cpmd_input_qm, cpmd_method_nve_test]
+  produces: [cpmd_input_nve_test]
+  values: {cpmd_input: cpmd_input_qm, method: cpmd_method_nve_test, total_charge: 0, multiplicity: 1}
+- name: nve_test
+  tool: mimic_run
+  needs: [tpr_mimic, cpmd_input_nve_test, cpmd_restart_annealed]
+  produces: [cpmd_restart_nve]
+  values: {tpr: tpr_mimic, cpmd_input: cpmd_input_nve_test, restart_from: cpmd_restart_annealed, cpmd_ranks: 1, gromacs_ranks: 1, walltime_min: 10}
+  sentinels:
+  - {check: conserved_energy_drift_under, args: {limit_ha_per_ps: 0.001}}
+  deadline_min: 150
+- name: heating_method
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_heating@v3
+  produces: [cpmd_method_heating]
+  # T_init is a fact about the annealing run, parsed from its log once it has completed
+  values:
+    "&CPMD/TEMPERATURE RAMP": "${annealing.final_temperature_k} 300 0.1"
+    "&CPMD/BERENDSEN IONS": "${annealing.final_temperature_k} 5000"
+- name: heating_input
+  tool: mimic_prepare
+  needs: [cpmd_input_qm, cpmd_method_heating]
+  produces: [cpmd_input_heating]
+  values: {cpmd_input: cpmd_input_qm, method: cpmd_method_heating, total_charge: 0, multiplicity: 1}
+- name: heating
+  tool: mimic_run
+  needs: [tpr_mimic, cpmd_input_heating, cpmd_restart_nve]
+  produces: [cpmd_restart_heated, trajectory_heating]
+  values: {tpr: tpr_mimic, cpmd_input: cpmd_input_heating, restart_from: cpmd_restart_nve, cpmd_ranks: 1, gromacs_ranks: 1, walltime_min: 10}
+  sentinels:
+  - {check: t_qm_tail_in_range, args: {target_k: 300, tolerance_k: 10}}
+  deadline_min: 150
+- name: production_method
+  tool: inputset_apply
+  cites: inputset:mimic_cpmd_production@v3
+  produces: [cpmd_method_production]
+  values: {"&CPMD/MAXSTEP": 1000}
+- name: production_input
+  tool: mimic_prepare
+  needs: [cpmd_input_qm, cpmd_method_production]
+  produces: [cpmd_input_production]
+  values: {cpmd_input: cpmd_input_qm, method: cpmd_method_production, total_charge: 0, multiplicity: 1}
+- name: production
+  tool: mimic_run
+  needs: [tpr_mimic, cpmd_input_production, cpmd_restart_heated]
+  produces: [trajectory_qmmm, dipole_series]
+  values: {tpr: tpr_mimic, cpmd_input: cpmd_input_production, restart_from: cpmd_restart_heated, cpmd_ranks: 1, gromacs_ranks: 1, walltime_min: 10}
+  sentinels:
+  - {check: t_qm_tail_in_range, args: {target_k: 300, tolerance_k: 10}}
+  - {check: no_nan, args: {}}
+  deadline_min: 150
+# the envelope the researcher approves: one rerun of identical inputs on a failure with no
+# matched signature, one more segment of a stage whose sentinel fails; a deadline parks
+envelope: {rerun_on_failure: 1, extend_segments: 1, on_deadline: park}

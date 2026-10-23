@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Mock sacct: terminal states with exit codes, parsable with -P (pipe sep).
+
+Two field sets are served, matching the real queries the backend makes:
+``State,ExitCode`` (poll) and ``AllocNodes,AllocCPUS,ElapsedRaw`` (usage —
+AllocCPUS counts hardware threads, 96 per 48-core node).
+"""
+
+import os
+import sys
+from pathlib import Path
+
+state_dir = Path(os.environ["MOCK_SLURM_DIR"])
+job_id = sys.argv[sys.argv.index("-j") + 1]
+fields = sys.argv[sys.argv.index("-o") + 1] if "-o" in sys.argv else "State,ExitCode"
+
+if (state_dir / f"{job_id}.cancelled").exists():
+    print("CANCELLED by 1000|0:0" if fields.startswith("State") else "1|96|5")
+    sys.exit(0)
+
+# a walltime kill: the state SLURM reports, which is not FAILED
+if (state_dir / f"{job_id}.timeout").exists():
+    print("TIMEOUT|0:15" if fields.startswith("State") else "1|96|600")
+    sys.exit(0)
+
+exit_file = state_dir / f"{job_id}.exit"
+if exit_file.exists():
+    code = int(exit_file.read_text().strip())
+    if fields.startswith("State"):
+        state = "COMPLETED" if code == 0 else "FAILED"
+        print(f"{state}|{code}:0")
+    else:
+        print("1|96|120")  # one node, 96 threads, 120 s
+# still running / unknown: print nothing (accounting lag)

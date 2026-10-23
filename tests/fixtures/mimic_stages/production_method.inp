@@ -1,0 +1,51 @@
+&INFO
+ written by myrmidon protocol_apply — do not edit by hand
+ protocol: mimic_acetone_tutorial v2 stage production
+ each value names its origin; the machine-readable map is in production_template.inp.myrmidon.json
+&END
+
+&CPMD
+ RESTART COORDINATES VELOCITIES WAVEFUNCTION GEOFILE
+ MIMIC
+ MOLECULAR DYNAMICS BO
+ DIPOLE DYNAMICS
+ NEW CONSTRAINTS
+ ISOLATED MOLECULE
+ NOSE IONS
+  300 4000
+ TIMESTEP
+  10.0
+ MAXSTEP
+  1000
+ TRAJECTORY SAMPLE
+  100
+ STORE
+  100
+ RESTFILE
+  10
+&END
+
+&SYSTEM
+ POISSON SOLVER TUCKERMAN
+ SYMMETRY
+  0
+ CUTOFF
+  70.
+ CHARGE
+  0.0
+&END
+
+&DFT
+ XC_DRIVER
+ FUNCTIONAL GGA_XC_BLYP
+&END
+
+&MIMIC
+ LONG-RANGE COUPLING
+ FRAGMENT SORTING ATOM-WISE UPDATE
+  100
+ CUTOFF DISTANCE
+  20.0
+ MULTIPOLE ORDER
+  3
+&END

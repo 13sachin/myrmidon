@@ -1,0 +1,95 @@
+Running Force matching in MiMiCPy 2025-11-21 16:01:40.513687
+Loading FM data from /work/fm/acetone_water/fmdata/FMTRAJECTORY.h5
+
+Some atom types had no atom number information.
+They were guessed as follows:
+
++---------------------+
+| Atom Type | Element |
++---------------------+
+|     c     |    C    |
++---------------------+
+|     c3    |    C    |
++---------------------+
+|     o     |    O    |
++---------------------+
+|     hc    |    H    |
++---------------------+
+|   OW_spc  |    O    |
++---------------------+
+|   HW_spc  |    H    |
++---------------------+
+Successfully loaded topology from acetone.top
+Reading selections from /work/fm/acetone_water/fmdata/sele.dat
+Added atoms to QM region using selection: resname is ACT
+Extracted QM interactions: 9 bonds, 15 angles, 13 dihedrals
+Generated equivalent atom mappings for 4 atom types
+Stride: [1000, 2000, 1]
+Equivalent atoms in gmx index: use_atomtypes
+Reference charges: ff_charges
+Number of snapshots used for fitting: 1000
+Skipping solvent optimization
+Creating charge group constraints
+Charge group ACT with 10 atoms: target charge = -0.000000
+QM total charge: 8.326672684688674e-17
+Running DRESP optimization
+Single DRESP run: wv=1, we=0.01, wh=0.01
+DRESP optimized charges:
+  0.831756
+ -0.430329
+ -0.430329
+ -0.779672
+  0.134763
+  0.134763
+  0.134763
+  0.134763
+  0.134763
+  0.134763
+# Sum of the charges:   0.000000
+# Standard deviations of potential: 0.11480006693434493
+# Standard deviations of electric field: 0.34127662637096706
+DRESP optimization completed.
+Starting Non-bonded force calculation.
+
+Writing non-bonded topology.
+Successfully wrote .itp files for molecules containing QM atoms: non_bonded_acetone.itp
+Starting Non-bonded force calculation.
+
+Writing non-bonded topology.
+Successfully wrote .itp files for molecules containing QM atoms: non_bonded_acetone.itp
+Non-bonded topology written.
+Non-bonded topology written.
+Running Non-bonded force calculation.
+
+Running command: gmx_mpi_d grompp -f /work/fm/acetone_water/fmdata/mimic.mdp -c /work/fm/acetone_water/fmdata/heat.gro -p rerun_acetone.top -n /work/fm/acetone_water/fmdata/index.ndx -o rerun_nonb.tpr -quiet
+Running command: gmx_mpi_d mdrun -s rerun_nonb.tpr -rerun /work/fm/acetone_water/fmdata/mimic_traj.trr -o rerun_nonb.trr -e rerun_non.edr -g rerun_nonb.log -ntomp 12 -quiet
+Non-bonded force calculation Completed.
+
+Running force field parameter optimization.
+Gromacs version   : b'VERSION 2020.7-UNCHECKED'
+tpx version       : 119
+tpx generation    : 27
+tpx precision     : 8
+tpx file_tag      : b'release'
+tpx natoms        : 1528
+tpx ngtc          : 1
+tpx fep_state     : 0
+tpx lambda        : 0.0
+The attribute(s) types, masses have already been read from the topology file. The guesser will only guess empty values for this attribute, if any exists. To overwrite it by completely guessed values, you can pass the attribute to the force_guess parameter instead of the to_guess one
+There is no empty types values. Guesser did not guess any new values for types attribute
+There is no empty masses values. Guesser did not guess any new values for masses attribute
+Using optimization method: simultaneous
+Using 12 processes for parallel computation
+Split 1000 configurations into 900 training and 100 validation
+Validation SDB: 0.655820
+Validation cost: 0.118034
+Output from optimization: 
+        status: 2 
+        message: `ftol` termination condition is satisfied. 
+        success: True 
+Force field parameter optimization completed.
+Writing optimized force parameters to file.
+Successfully updated topology with optimized QM interaction parameters
+Successfully wrote .itp files for molecules containing QM atoms: opt_acetone.itp
+MiMiCPy Force matching workflow completed 2025-11-21 16:02:11.613726.
+wall time: 0:00:31.100105

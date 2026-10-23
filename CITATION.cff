@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use Myrmidon in your research, please cite it."
+title: "Myrmidon: an agent harness for molecular dynamics and QM/MM simulation research"
+abstract: >-
+  Myrmidon sits between an AI agent and the simulation programs it drives. It owns the
+  tools the agent may call, the checks that run before expensive work, and an append-only
+  record of everything that happened, so that no number comes from the language model,
+  every setting names its source, and a finished study can be replayed from its own
+  ledger. It drives GROMACS and MiMiC-coupled CPMD/GROMACS QM/MM, and the force-matching
+  tools of MiMiCPy, on a workstation or on a batch cluster.
+type: software
+authors:
+  - family-names: Shivakumar
+    given-names: Sachin
+version: 1.0.0
+date-released: "2026-10-23"
+license: Apache-2.0
+repository-code: "https://github.com/13sachin/myrmidon"
+url: "https://github.com/13sachin/myrmidon"
+keywords:
+  - molecular dynamics
+  - QM/MM
+  - force matching
+  - AI agents
+  - reproducibility
+  - provenance
+  - GROMACS
+  - MiMiC

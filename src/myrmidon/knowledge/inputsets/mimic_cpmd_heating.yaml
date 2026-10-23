@@ -1,0 +1,127 @@
+id: mimic_cpmd_heating
+system_class: a closed-shell QM region of light elements under BLYP/MT at 70 Ry, after the NVE check
+aliases:
+- mimic_acetone_heating
+title: Berendsen heating of a coupled MiMiC system
+scope: engine
+applicability: Berendsen heating of a coupled MiMiC system from the temperature its annealing run
+  ended at up to the target, before production sampling.
+renders: cpmd_inp
+parameters:
+  '&CPMD/RESTART COORDINATES VELOCITIES WAVEFUNCTION':
+    value: true
+    source: 2
+  '&CPMD/MIMIC':
+    value: true
+    source: 2
+  '&CPMD/MOLECULAR DYNAMICS BO':
+    value: true
+    source: 2
+  '&CPMD/NEW CONSTRAINTS':
+    value: true
+    source: 2
+  '&CPMD/ISOLATED MOLECULE':
+    value: true
+    source: 2
+  '&CPMD/TEMPERATURE RAMP':
+    required_from_user: true
+    derivable: '''<T_init> <T_target> <rate>'', where T_init is the temperature the annealing run
+      ended at and T_target the one production samples at. The tutorial prints T_init as a placeholder
+      for exactly this reason: it is a fact about the annealing run, not a constant. In a plan, name
+      it as that run''s fact — ''${annealing.final_temperature_k} <T_target> <rate>'', or
+      tail_mean_temperature_k for the mean over its last 10 % of steps — and it is parsed from the
+      annealing log once that run has completed.
+
+      '
+  '&CPMD/BERENDSEN IONS':
+    required_from_user: true
+    derivable: '''<T_init> 5000'', the same starting temperature and a 5000 a.u. coupling time —
+      in a plan, the same reference to the annealing run''s fact as the ramp'
+  '&CPMD/TIMESTEP':
+    value: 10.0
+    source: 2
+  '&CPMD/MAXSTEP':
+    value: 1500
+    source: 2
+  '&CPMD/TRAJECTORY SAMPLE':
+    value: 1
+    source: 2
+  '&SYSTEM/POISSON SOLVER TUCKERMAN':
+    value: true
+    source: 4
+  '&SYSTEM/SYMMETRY':
+    value: 0
+    source: 0
+  '&SYSTEM/CUTOFF':
+    value: '70.'
+    source: 5
+  '&DFT/XC_DRIVER':
+    value: true
+    source: 0
+  '&DFT/FUNCTIONAL GGA_XC_BLYP':
+    value: true
+    source: 6
+  '&MIMIC/LONG-RANGE COUPLING':
+    value: true
+    source: 1
+  '&MIMIC/FRAGMENT SORTING ATOM-WISE UPDATE':
+    value: 100
+    source: 0
+  '&MIMIC/CUTOFF DISTANCE':
+    value: 20.0
+    rationale: bohr; beyond it the MM charges enter as multipoles. Right for a QM region of a few
+      tens of atoms; a larger region needs it beyond its own extent (mimic_select_qm's
+      qm_extent_bohr) plus the first solvation shells
+    source: 0
+  '&MIMIC/MULTIPOLE ORDER':
+    value: 3
+    source: 0
+sources:
+- kind: tutorial
+  text: 'MiMiC acetone-in-water tutorial, the input archive published by the MiMiC project. Downloaded
+    with the command the tutorial gives; template.inp, mini.mdp, heat.mdp, mimic.mdp, sele.dat
+    and pp_info.dat are copied verbatim into tests/fixtures/mimic_tutorial/. sha256 is of template.inp.
+
+    '
+  locator: https://gitlab.com/mimic-project/mimic-docs/-/tree/main/docs/tutorials/AcetoneTutorial
+  sha256: 51e3952370e541dac4f2da20dd526cceba4aa016117daa62878bb73dbe425440
+- kind: doi
+  text: Olsen, Bolnykh, Meloni, Ippoliti, Bircher, Carloni, Rothlisberger, J. Chem. Theory Comput.
+    15, 3810 (2019) — MiMiC, the multiscale coupling framework. doi:10.1021/acs.jctc.9b00093
+  locator: doi:10.1021/acs.jctc.9b00093
+- kind: url
+  text: 'The tutorial page itself, which prints the per-stage &CPMD blocks the reader edits the template
+    into. The archive ships the template only, so the four dynamics stages cite the page.
+
+    '
+  locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
+- kind: doi
+  text: Bussi, Donadio, Parrinello, J. Chem. Phys. 126, 014101 (2007) — the velocity-rescaling thermostat
+    used in the classical equilibration. doi:10.1063/1.2408420
+  locator: doi:10.1063/1.2408420
+- kind: doi
+  text: Martyna, Tuckerman, J. Chem. Phys. 110, 2810 (1999) — reciprocal-space Poisson solver for
+    isolated systems. doi:10.1063/1.477923
+  locator: doi:10.1063/1.477923
+- kind: doi
+  text: Troullier, Martins, Phys. Rev. B 43, 1993 (1991) — efficient norm-conserving pseudopotentials.
+    doi:10.1103/PhysRevB.43.1993
+  locator: doi:10.1103/PhysRevB.43.1993
+- kind: doi
+  text: Becke, Phys. Rev. A 38, 3098 (1988) and Lee, Yang, Parr, Phys. Rev. B 37, 785 (1988) — the
+    BLYP exchange-correlation functional. doi:10.1103/PhysRevA.38.3098
+  locator: doi:10.1103/PhysRevA.38.3098
+- kind: doi
+  text: Nose, J. Chem. Phys. 81, 511 (1984); Hoover, Phys. Rev. A 31, 1695 (1985) — the Nose-Hoover
+    thermostat. doi:10.1063/1.447334
+  locator: doi:10.1063/1.447334
+pitfalls:
+- CPMD_MULTIPLICITY_WITHOUT_LSD
+- CPMD_SHAKE_WRONG_GEOMETRY
+notes: 'An input set supplies the method, never the system. &MIMIC PATHS, BOX and OVERLAPS, the QM cell
+  and the whole &ATOMS block are written per system by mimicpy''s prepqm, so what inputset_apply renders
+  for a cpmd_inp input set is a template, not a runnable input. &SYSTEM CHARGE is deliberately not
+  supplied: it is chemistry, and mimic_prepare requires it confirmed.'
+validated_by:
+- tests/unit/test_mimic_inputsets.py::test_tutorial_protocol_reproduces_the_published_inputs
+version: 3

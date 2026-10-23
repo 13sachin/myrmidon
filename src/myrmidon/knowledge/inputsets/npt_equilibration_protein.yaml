@@ -1,0 +1,34 @@
+id: npt_equilibration_protein
+system_class: a solvated protein or protein-ligand complex with an Amber-family force field and TIP3P water, after NVT
+title: NPT equilibration for solvated proteins
+scope: engine
+applicability: >
+  Solvated biomolecular systems after NVT equilibration, to relax the density
+  at constant pressure before production runs.
+parameters:
+  integrator: md
+  dt: 0.002
+  constraints: h-bonds
+  tcoupl: v-rescale
+  tc_grps: System
+  tau_t: 0.1
+  ref_t: 300
+  pcoupl: c-rescale
+  tau_p: 5.0
+  ref_p: 1.0
+  compressibility: 4.5e-5
+  coulombtype: PME
+  rcoulomb: 1.0
+  rvdw: 1.0
+  continuation: "yes"
+citations:
+  - "Bernetti, Bussi, J. Chem. Phys. 153, 114107 (2020) — c-rescale barostat. doi:10.1063/5.0020514"
+  - "Bussi, Donadio, Parrinello, J. Chem. Phys. 126, 014101 (2007) — v-rescale thermostat. doi:10.1063/1.2408420"
+notes: >
+  One heat bath for the whole system (tc_grps = System), which GROMACS accepts for
+  any system; separate baths (e.g. Protein Non-Protein) are an override, and need one
+  tau_t and ref_t per group; grompp refuses a thermostat with no tc_grps.
+  Continue from the NVT state (continuation = yes, no velocity regeneration).
+  c-rescale gives correct ensemble sampling; Parrinello-Rahman is fine for
+  production once the box has relaxed.
+version: 2

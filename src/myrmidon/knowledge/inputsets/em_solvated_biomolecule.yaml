@@ -1,0 +1,68 @@
+id: em_solvated_biomolecule
+system_class: a solvated biomolecule (protein, nucleic acid, complex) with an Amber-family force field and 1.0 nm cutoffs, or single frames of one
+title: Steepest-descent energy minimization for a solvated biomolecular system
+scope: engine
+version: 1
+applicability: 'Relaxing close contacts in a solvated biomolecular system before dynamics, and minimizing
+  single frames pulled from a trajectory (the geometry-relaxation metric in fm_validate). Verlet cutoffs
+  at 1.0 nm with PME, which is the Amber-family convention the equilibration input sets continue from.
+
+  '
+parameters:
+  integrator:
+    value: steep
+    rationale: steepest descent is robust to the bad contacts minimization exists to fix
+    source: 2
+  nsteps:
+    value: 1000
+    rationale: 'an upper bound, not a target: steep stops at emtol. Raise it for a system straight
+      out of solvate/genion, lower it for single frames off a trajectory.
+
+      '
+    source: 2
+  emtol:
+    value: 50.0
+    rationale: 'kJ/mol/nm on the maximum force. Tight enough that a minimized frame is a well-defined
+      geometry to measure, loose enough to reach on a solvated box.
+
+      '
+    source: 2
+  cutoff-scheme:
+    value: Verlet
+    rationale: the only supported scheme since GROMACS 2020
+    source: 1
+  rcoulomb:
+    value: 1.0
+    source: 0
+  rvdw:
+    value: 1.0
+    source: 0
+  coulombtype:
+    value: PME
+    rationale: minimize under the same electrostatics the dynamics will use
+    source: 1
+  pbc:
+    value: xyz
+    source: 1
+sources:
+- kind: doi
+  text: Lindorff-Larsen et al., Proteins 78, 1950 (2010) — amber99sb-ildn, the force field whose 1.0
+    nm cutoff convention this follows. doi:10.1002/prot.22711
+  locator: doi:10.1002/prot.22711
+- kind: doi
+  text: Abraham et al., SoftwareX 1-2, 19 (2015) — GROMACS 5.0, Verlet scheme and PME defaults. doi:10.1016/j.softx.2015.06.001
+  locator: doi:10.1016/j.softx.2015.06.001
+- kind: in_house
+  text: 'The integrator/nsteps/emtol of myrmidon''s own minimized-geometry validation metric
+    (fm_validate M5), which engines/mimic/validate_driver.py renders from this input set.
+
+    '
+  locator: src/myrmidon/engines/mimic/validate_driver.py
+notes: 'Constrain h-bonds during minimization too when the topology has softened hydrogen force constants:
+  an unconstrained proton can be pulled to a neighbouring acceptor during EM. That is a property of
+  the topology, not of this input set, so it is an override (constraints = h-bonds, constraint-algorithm
+  = lincs) rather than a default here.
+
+  '
+validated_by:
+- tests/unit/test_inputsets_continue.py::test_shipped_protocols_render_to_valid_mdp

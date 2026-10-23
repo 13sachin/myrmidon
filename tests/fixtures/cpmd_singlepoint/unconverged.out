@@ -1,0 +1,459 @@
+ compiler version: GCC version 14.3.0
+ compiler options: -I . -I /workspace/acetone-stageC/sp -I /workspace/acetone-stageC/sp -I /workspace/acetone-stageC/sp -I /workspace/acetone-stageC/sp -I /workspace/acetone-stageC/sp -I /workspace/acetone-stageC/sp -march=skylake-avx512 -mmmx -mpopcnt -msse -msse2 -msse3 -mssse3 -msse4.1 -msse4.2 -mavx -mavx2 -mno-sse4a -mno-fma4 -mno-xop -mfma -mavx512f -mbmi -mbmi2 -maes -mpclmul -mavx512vl -mavx512bw -mavx512dq -mavx512cd -mno-avx512vbmi -mno-avx512ifma -mno-avx512vpopcntdq -mno-avx512vbmi2 -mno-gfni -mno-vpclmulqdq -mno-avx512vnni -mno-avx512bitalg -mno-avx512bf16 -mno-avx512vp2intersect -mno-3dnow -madx -mabm -mno-cldemote -mclflushopt -mclwb -mno-clzero -mcx16 -mno-enqcmd -mf16c -mfsgsbase -mfxsr -mhle -msahf -mno-lwp -mlzcnt -mmovbe -mno-movdir64b -mno-movdiri -mno-mwaitx -mno-pconfig -mpku -mprfchw -mno-ptwrite -mno-rdpid -mrdrnd -mrdseed -mrtm -mno-serialize -mno-sgx -mno-sha -mno-shstk -mno-tbm -mno-tsxldtrk -mno-vaes -mno-waitpkg -mno-wbnoinvd -mxsave -mxsavec -mxsaveopt -mxsaves -mno-amx-tile -mno-amx-int8 -mno-amx-bf16 -mno-uintr -mno-hreset -mno-kl -mno-widekl -mno-avxvnni -mno-avx512fp16 -mno-avxifma -mno-avxvnniint8 -mno-avxneconvert -mno-cmpccxadd -mno-amx-fp16 -mno-prefetchi -mno-raoint -mno-amx-complex -mno-avxvnniint16 -mno-sm3 -mno-sha512 -mno-sm4 -mno-apxf -mno-usermsr --param=l1-cache-size=32 --param=l1-cache-line
+ MPI version of the library: === ParaStation MPI 5.13.0-1 ===
+Version(PSMPI): Oct  8 2025 (5.13.0-1)+confset(gcc)+cuda+pmix+ucc+pscom-6.0.0-1+cuda
+MPICH Version:      4.2.3
+MPICH Release date: Wed Oct  2 09:35:21 AM CDT 2024
+MPICH ABI:          15:1:3
+MPICH Device:       psp
+MPICH configure:    --prefix=/workspace/acetone-stageC/sp --build=x86_64-pc-linux-gnu --host=x86_64-pc-linux-gnu --with-ucc=/workspace/acetone-stageC/sp --with-cuda-sm=70,60 --with-cuda --with-confset=gcc --with-mpichconf=--enable-static --with-file-system=ufs+gpfs --enable-romio --with-pmix=/workspace/acetone-stageC/sp build_alias=x86_64-pc-linux-gnu host_alias=x86_64-pc-linux-gnu CC=gcc --with-device=psp --enable-cache --disable-sta
+ MPI version of the standard: 4.1
+ cp_groups: we are using a 1 x 4 grid (groups x nprocs).
+ PROGRAM CPMD STARTED AT: 2026-09-19 10:52:34.361   
+ SETCNST| USING: CODATA 2006 UNITS
+
+
+               ******  ******    ****  ****  ******   
+              *******  *******   **********  *******  
+             ***       **   ***  ** **** **  **   *** 
+             **        **   ***  **  **  **  **    ** 
+             **        *******   **      **  **    ** 
+             ***       ******    **      **  **   *** 
+              *******  **        **      **  *******  
+               ******  **        **      **  ******   
+
+                          VERSION 4.3-rUnversioned directory
+
+                            COPYRIGHT
+                      IBM RESEARCH DIVISION
+                MPI FESTKOERPERFORSCHUNG STUTTGART
+
+                       The CPMD consortium
+                  Home Page: http://www.cpmd.org
+               Mailing List: cpmd-list@cpmd.org
+                     E-mail: cpmd@cpmd.org
+
+
+                  ***  Aug 31 2026 -- 17:21:02  ***
+
+ THE INPUT FILE IS: /workspace/acetone-stageC/sp
+ THIS JOB RUNS ON:                               node.juwels
+ THE CURRENT DIRECTORY IS: 
+ /workspace/acetone-stageC/sp
+ THE TEMPORARY DIRECTORY IS: 
+ /workspace/acetone-stageC/sp
+ THE PROCESS ID IS:                                       1645447
+ THE JOB WAS SUBMITTED BY:                                    xxx
+
+
+ ******************************************************************************
+ * INFO - INFO - INFO - INFO - INFO - INFO - INFO - INFO - INFO - INFO - INFO *
+ ******************************************************************************
+ *     written by myrmidon protocol_apply — do not edit by hand             *
+ *     protocol: mimic_singlepoint_fm v1 stage cpmd_input                     *
+ *     each value names its origin; the machine-readable map is in fm_singlep *
+ ******************************************************************************
+ CONTROL| FFT_N_DEVICES_PER_TASK            1  is greater than zero and CPMD was not compiled with -D__HAS_CUDA
+ CONTROL| reset FFT_N_DEVICES_PER_TASK to zero
+ CONTROL| BLAS_N_DEVICES_PER_TASK            1  is greater than zero and CPMD was not compiled with -D__HAS_CUDA
+ CONTROL| reset BLAS_N_DEVICES_PER_TASK to zero
+
+ SINGLE POINT DENSITY OPTIMIZATION
+
+ USING SEED       123456 TO INIT. PSEUDO RANDOM NUMBER GEN.
+ PATH TO THE RESTART FILES:                                    ./
+ GRAM-SCHMIDT ORTHOGONALIZATION
+ MAXIMUM NUMBER OF STEPS:                                 1 STEPS
+ MAXIMUM NUMBER OF ITERATIONS FOR SC:                     1 STEPS
+ PRINT INTERMEDIATE RESULTS EVERY                     10001 STEPS
+ STORE INTERMEDIATE RESULTS EVERY                     10001 STEPS
+ NUMBER OF DISTINCT RESTART FILES:                              1
+ TEMPERATURE IS CALCULATED ASSUMING AN ISOLATED MOLECULE 
+ FICTITIOUS ELECTRON MASS:                               400.0000
+ TIME STEP FOR ELECTRONS:                                  5.0000
+ TIME STEP FOR IONS:                                       5.0000
+ CONVERGENCE CRITERIA FOR WAVEFUNCTION OPTIMIZATION:   1.0000E-05
+ WAVEFUNCTION OPTIMIZATION BY PRECONDITIONED CG
+ THRESHOLD FOR THE HESSIAN IS                              0.5000
+ PERFORM QUADRATIC LINE SEARCH
+ FULL ELECTRONIC GRADIENT IS USED 
+ SPLINE INTERPOLATION IN G-SPACE FOR PSEUDOPOTENTIAL FUNCTIONS
+    NUMBER OF SPLINE POINTS:                                 5000
+
+ EXCHANGE-CORRELATION FUNCTIONALS:
+
+    100.0% CP    GGA_XC_BLYP
+           GC-CUTOFF VALUE FOR GRADIENT SMOOTHING:     1.0000E-08
+ ---------------------------------------------------------------------
+ MiMiC: a framework for multiscale modeling in computational chemistry
+
+ Version: 0.2.0
+
+ Using QM/MM module of MiMiC
+
+ Please cite the following papers:
+ J. Chem. Theory Comput. 2019, 15, 6, 3810–3823 
+ J. Chem. Theory Comput. 2019, 15, 10, 5601–5613
+ ---------------------------------------------------------------------
+
+ ***************************** ATOMS ****************************
+   NR   TYPE        X(BOHR)        Y(BOHR)        Z(BOHR)     MBL
+    1      C      24.415262      25.549097      23.734960       3
+    2      C      26.323885      26.569549      21.864131       3
+    3      C      21.920823      24.793207      22.525535       3
+    4      H      25.549097      28.213611      20.881474       3
+    5      H      28.138022      26.947495      22.771200       3
+    6      H      26.626241      25.133357      20.371248       3
+    7      H      22.147590      23.016864      21.467289       3
+    8      H      20.390145      24.585337      23.905035       3
+    9      H      21.448392      26.286090      21.164933       3
+   10      O      24.812104      25.454611      26.021529       3
+ ****************************************************************
+
+ NUMBER OF STATES:                                             12
+ NUMBER OF ELECTRONS:                                    24.00000
+ CHARGE:                                                  0.00000
+ ELECTRON TEMPERATURE(KELVIN):                            0.00000
+ OCCUPATION
+  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0
+
+    ============================================================  
+    |    Pseudopotential Report     Tue Jan 14 09:55:25 1997   |  
+    ------------------------------------------------------------  
+    |  Atomic Symbol                   :   C                   |  
+    |  Atomic Number                   :   6                   |  
+    |  Number of core states           :   1                   |  
+    |  Number of valence states        :   2                   |  
+    |  Exchange-Correlation Functional :                       |  
+    |     Slater exchange :   .6667                            |  
+    |     LDA correlation : Lee-Yang-Parr                      |  
+    |     Exchange GC     : Becke (1988)                       |  
+    |     Correlation GC  : Lee-Yang-Parr                      |  
+    |  Electron Configuration :   N   L  Occupation            |  
+    |                             1   S    2.0000              |  
+    |                             2   S    2.0000              |  
+    |                             2   P    2.0000              |  
+    |  Full Potential Total Energy   -37.702121                |  
+    |  Trouiller-Martins normconserving PP                     |  
+    |     n    l        rc       energy                        |  
+    |     2    S    1.2300      -.49630                        |  
+    |     2    P    1.2300      -.19186                        |  
+    |     3    D     .7159      -.19186                        |  
+    |  Number of Mesh Points :   615                           |  
+    |  Pseudoatom Total Energy   -5.370516                     |  
+    ============================================================  
+
+    ============================================================  
+    |    Pseudopotential Report     Thu Nov 30 13:17:19 1995   |  
+    ------------------------------------------------------------  
+    |  Atomic Symbol                   :   H                   |  
+    |  Atomic Number                   :   1                   |  
+    |  Number of core states           :   0                   |  
+    |  Number of valence states        :   1                   |  
+    |  Exchange-Correlation Functional :                       |  
+    |     Slater exchange :   .6667                            |  
+    |     LDA correlation : Lee-Yang-Parr                      |  
+    |     Exchange GC     : Becke (1988)                       |  
+    |     Correlation GC  : Lee-Yang-Parr                      |  
+    |  Electron Configuration :   N   L  Occupation            |  
+    |                             1   S    1.0000              |  
+    |  Full Potential Total Energy     -.462611                |  
+    |  Trouiller-Martins normconserving PP                     |  
+    |     n    l        rc       energy                        |  
+    |     1    S     .5000      -.24002                        |  
+    |     2    P     .5000      -.24002                        |  
+    |  Number of Mesh Points :   511                           |  
+    |  Pseudoatom Total Energy    -.462591                     |  
+    ============================================================  
+
+    ============================================================  
+    |    Pseudopotential Report     Thu Nov 30 13:19:26 1995   |  
+    ------------------------------------------------------------  
+    |  Atomic Symbol                   :   O                   |  
+    |  Atomic Number                   :   8                   |  
+    |  Number of core states           :   1                   |  
+    |  Number of valence states        :   2                   |  
+    |  Exchange-Correlation Functional :                       |  
+    |     Slater exchange :   .6667                            |  
+    |     LDA correlation : Lee-Yang-Parr                      |  
+    |     Exchange GC     : Becke (1988)                       |  
+    |     Correlation GC  : Lee-Yang-Parr                      |  
+    |  Electron Configuration :   N   L  Occupation            |  
+    |                             1   S    2.0000              |  
+    |                             2   S    2.0000              |  
+    |                             2   P    4.0000              |  
+    |  Full Potential Total Energy   -75.023693                |  
+    |  Trouiller-Martins normconserving PP                     |  
+    |     n    l        rc       energy                        |  
+    |     2    S    1.0500      -.87404                        |  
+    |     2    P    1.0500      -.33186                        |  
+    |     3    D    1.0500      -.33186                        |  
+    |  Number of Mesh Points :   631                           |  
+    |  Pseudoatom Total Energy  -15.775323                     |  
+    ============================================================  
+
+ ****************************************************************
+ *   ATOM       MASS   RAGGIO NLCC              PSEUDOPOTENTIAL *
+ *      C    12.0112   1.2000  NO     KLEINMAN      S  NONLOCAL *
+ *                                                  P     LOCAL *
+ *      H     1.0080   1.2000  NO                   S     LOCAL *
+ *      O    15.9994   1.2000  NO     KLEINMAN      S  NONLOCAL *
+ *                                                  P     LOCAL *
+ ****************************************************************
+
+
+ PARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARA
+  NCPU     NGW     NHG  PLANES  GXRAYS  HXRAYS ORBITALS Z-PLANES
+     0    9289   74227      28     498    1994       3       1
+     1    9291   74210      28     498    1996       3       1
+     2    9289   74216      28     498    1996       3       1
+     3    9283   74157      28     499    1995       3       1
+                G=0 COMPONENT ON PROCESSOR :     3
+ PARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARA
+
+
+ OPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPEN
+ OMP: NUMBER OF CPUS PER TASK                                   1
+ OMP: omp_get_nested                                            F
+ OMP: omp_get_dynamic                                           F
+ OMP: omp_get_max_active_levels                                 1
+ OMP: MPI local 0 global 0
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 1 global 1
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 2 global 2
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 3 global 3
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPEN
+
+
+ ************************** SUPERCELL ***************************
+ THIS IS AN ISOLATED SYSTEM CALCULATION
+ POISSON EQUATION SOLVER  :                   TUCKERMAN & MARTYNA
+ SHORT RANGE POTENTIAL LENGTH * BOX LENGTH                  7.000
+ SYMMETRY:                                           ORTHORHOMBIC
+ LATTICE CONSTANT(a.u.):                                 21.00000
+ CELL DIMENSION:  21.0000  0.9000  0.9000  0.0000  0.0000  0.0000
+ VOLUME(OMEGA IN BOHR^3):                              7501.41000
+ LATTICE VECTOR A1(BOHR):           21.0000     0.0000     0.0000
+ LATTICE VECTOR A2(BOHR):            0.0000    18.9000     0.0000
+ LATTICE VECTOR A3(BOHR):            0.0000     0.0000    18.9000
+ RECIP. LAT. VEC. B1(2Pi/BOHR):      0.0476     0.0000     0.0000
+ RECIP. LAT. VEC. B2(2Pi/BOHR):      0.0000     0.0529     0.0000
+ RECIP. LAT. VEC. B3(2Pi/BOHR):      0.0000     0.0000     0.0529
+ REAL SPACE MESH:                   112          108          108
+ WAVEFUNCTION CUTOFF(RYDBERG):                           70.00000
+ DENSITY CUTOFF(RYDBERG):          (DUAL= 4.00)         280.00000
+ NUMBER OF PLANE WAVES FOR WAVEFUNCTION CUTOFF:             37152
+ NUMBER OF PLANE WAVES FOR DENSITY CUTOFF:                 296810
+ ****************************************************************
+
+
+ GENERATE ATOMIC BASIS SET
+      C        SLATER ORBITALS
+        2S        ALPHA=   1.6083      OCCUPATION= 2.00
+        2P        ALPHA=   1.5679      OCCUPATION= 2.00
+      H        SLATER ORBITALS
+        1S        ALPHA=   1.0000      OCCUPATION= 1.00
+      O        SLATER ORBITALS
+        2S        ALPHA=   2.2458      OCCUPATION= 2.00
+        2P        ALPHA=   2.2266      OCCUPATION= 4.00
+
+
+ INITIALIZATION TIME:                                0.70 SECONDS
+
+        SORTING MM ATOMS INTO SHORT- AND LONG-RANGE DOMAINS
+        SHORT-RANGE ATOMS PER PROCESS GROUP:                  500
+        SHORT-RANGE ATOMS PER PROCESS:                        125
+        LONG-RANGE ATOMS PER PROCESS GROUP:                  1025
+        LONG-RANGE ATOMS PER PROCESS:                         257
+ NOTE: ATOMIC GUESS USING DISTRIBUTED LINALG WITH LANCZOS
+ ATRHO| CHARGE(R-SPACE):   24.000000 (G-SPACE):   24.000000
+
+   ATOM          COORDINATES            GRADIENTS (-FORCES)
+   1  C 10.6512  9.3839  9.9886   0.000E+00  0.000E+00  0.000E+00
+   2  C 12.5598 10.4043  8.1177   0.000E+00  0.000E+00  0.000E+00
+   3  C  8.1567  8.6280  8.7791   0.000E+00  0.000E+00  0.000E+00
+   4  H 11.7850 12.0484  7.1351   0.000E+00  0.000E+00  0.000E+00
+   5  H 14.3739 10.7823  9.0248   0.000E+00  0.000E+00  0.000E+00
+   6  H 12.8622  8.9681  6.6249   0.000E+00  0.000E+00  0.000E+00
+   7  H  8.3835  6.8516  7.7209   0.000E+00  0.000E+00  0.000E+00
+   8  H  6.6261  8.4201 10.1586   0.000E+00  0.000E+00  0.000E+00
+   9  H  7.6843 10.1209  7.4185   0.000E+00  0.000E+00  0.000E+00
+  10  O 11.0480  9.2894 12.2751   0.000E+00  0.000E+00  0.000E+00
+
+ TIME FOR WAVEFUNCTION INITIALIZATION:               1.14 SECONDS
+ EWALD| SUM IN REAL SPACE OVER                      1* 1* 1 CELLS
+ LINE SEARCH : LAMBDA=.281     PREDICTED ENERGY = -35.96010555296    
+
+ TOTAL INTEGRATED ELECTRONIC DENSITY
+    IN G-SPACE =                                    24.0000000000
+    IN R-SPACE =                                    24.0000000000
+
+ (K+E1+L+N+X+MM+QM/MM)  TOTAL ENERGY =          -35.73279762 A.U.
+ (K+E1+L+N+X)        TOTAL QM ENERGY =          -35.86045492 A.U.
+ (MM)                TOTAL MM ENERGY =            0.00000000 A.U.
+ (QM/MM)          TOTAL QM/MM ENERGY =           -0.02897772 A.U.
+ (K)                  KINETIC ENERGY =           25.47939515 A.U.
+ (E1=A-S+R)     ELECTROSTATIC ENERGY =          -27.31643035 A.U.
+ (S)                           ESELF =           29.92067103 A.U.
+ (R)                             ESR =            1.71992001 A.U.
+ (L)    LOCAL PSEUDOPOTENTIAL ENERGY =          -27.59138412 A.U.
+ (N)      N-L PSEUDOPOTENTIAL ENERGY =            4.32016162 A.U.
+ (X)     EXCHANGE-CORRELATION ENERGY =          -10.59536334 A.U.
+          GRADIENT CORRECTION ENERGY =          -10.59536334 A.U.
+
+ NFI      GEMAX       CNORM           ETOT        DETOT      TCPU
+   1  3.442E-02   4.304E-03     -35.732798    0.000E+00      0.66
+
+ RESTART INFORMATION WRITTEN ON FILE                  ./RESTART.1
+ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+ !! RWFOPT| THE MAXIMUM NUMBER OF STEP IS REACHED              !!
+ !!         BUT NO CONVERGENCE (DRHOMAX=  0.034419)            !!
+ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+ ****************************************************************
+ *                                                              *
+ *                        FINAL RESULTS                         *
+ *                                                              *
+ ****************************************************************
+
+   ATOM          COORDINATES            GRADIENTS (-FORCES)
+   1  C 10.6512  9.3839  9.9886   0.000E+00  0.000E+00  0.000E+00
+   2  C 12.5598 10.4043  8.1177   0.000E+00  0.000E+00  0.000E+00
+   3  C  8.1567  8.6280  8.7791   0.000E+00  0.000E+00  0.000E+00
+   4  H 11.7850 12.0484  7.1351   0.000E+00  0.000E+00  0.000E+00
+   5  H 14.3739 10.7823  9.0248   0.000E+00  0.000E+00  0.000E+00
+   6  H 12.8622  8.9681  6.6249   0.000E+00  0.000E+00  0.000E+00
+   7  H  8.3835  6.8516  7.7209   0.000E+00  0.000E+00  0.000E+00
+   8  H  6.6261  8.4201 10.1586   0.000E+00  0.000E+00  0.000E+00
+   9  H  7.6843 10.1209  7.4185   0.000E+00  0.000E+00  0.000E+00
+  10  O 11.0480  9.2894 12.2751   0.000E+00  0.000E+00  0.000E+00
+
+ ****************************************************************
+
+
+ ELECTRONIC GRADIENT:
+    MAX. COMPONENT =    3.44192E-02         NORM =    4.30414E-03
+ NUCLEAR GRADIENT:
+    MAX. COMPONENT =    0.00000E+00         NORM =    0.00000E+00
+
+
+ TOTAL INTEGRATED ELECTRONIC DENSITY
+    IN G-SPACE =                                    24.0000000000
+    IN R-SPACE =                                    24.0000000000
+
+ (K+E1+L+N+X+MM+QM/MM)  TOTAL ENERGY =          -35.73279762 A.U.
+ (K+E1+L+N+X)        TOTAL QM ENERGY =          -35.86045492 A.U.
+ (MM)                TOTAL MM ENERGY =           -8.42133807 A.U.
+ (QM/MM)          TOTAL QM/MM ENERGY =           -0.02897772 A.U.
+ (K)                  KINETIC ENERGY =           25.47939515 A.U.
+ (E1=A-S+R)     ELECTROSTATIC ENERGY =          -27.31643035 A.U.
+ (S)                           ESELF =           29.92067103 A.U.
+ (R)                             ESR =            1.71992001 A.U.
+ (L)    LOCAL PSEUDOPOTENTIAL ENERGY =          -27.59138412 A.U.
+ (N)      N-L PSEUDOPOTENTIAL ENERGY =            4.32016162 A.U.
+ (X)     EXCHANGE-CORRELATION ENERGY =          -10.59536334 A.U.
+          GRADIENT CORRECTION ENERGY =          -10.59536334 A.U.
+
+ ****************************************************************
+
+
+
+ ********************************************************************************
+ *                                                                              *
+ *                                    TIMING                                    *
+ *                                                                              *
+ ********************************************************************************
+ SUBROUTINE                       CALLS             SELF TIME          TOTAL TIME
+                                            AVERAGE   MAXIMUM   AVERAGE   MAXIMUM
+ cpmd                                 1        0.05      0.05      2.22      2.25
+ wfopts                               1        0.00      0.00      1.83      1.86
+ rwfopt                               1        0.03      0.03      1.82      1.85
+ vofrho                               4        0.00      0.00      1.24      1.24
+ initrun                              1        0.00      0.02      1.07      1.08
+ rinitwf                              1        0.00      0.00      1.07      1.07
+ ATOMWF                               1        0.00      0.00      1.06      1.06
+ vofrhot                              4        0.00      0.00      0.71      0.71
+ updwf                                1        0.00      0.00      0.66      0.66
+ EEXT                                 4        0.00      0.00      0.65      0.65
+ mimic_ifc_compute_potential          1        0.61      0.62      0.61      0.62
+ rscpot                               3        0.00      0.00      0.58      0.58
+ vofrhob                              4        0.01      0.01      0.53      0.53
+ invfftn                             55        0.40      0.41      0.40      0.41
+ pcgrad                               1        0.00      0.00      0.39      0.39
+ fwfftn                              41        0.28      0.30      0.28      0.30
+ gcener                               4        0.03      0.03      0.29      0.29
+ forcedr                              1        0.00      0.00      0.27      0.27
+ forces                               1        0.00      0.00      0.27      0.27
+ vpsi                                11        0.02      0.02      0.22      0.22
+ forces_a                             1        0.00      0.00      0.20      0.20
+ dist_ksmat                           1        0.00      0.00      0.17      0.17
+ rinit                                1        0.00      0.00      0.15      0.15
+ rggen                                1        0.00      0.00      0.15      0.15
+ graden                               4        0.03      0.03      0.15      0.15
+ loadpa                               1        0.01      0.02      0.15      0.15
+ cp_xc_compute                        4        0.00      0.00      0.14      0.15
+ cp_xc_compute_internal               4        0.14      0.15      0.14      0.15
+ rhoofr                               3        0.02      0.02      0.13      0.13
+ ATRHO                                1        0.09      0.09      0.11      0.11
+ loadpa_b                             1        0.08      0.08      0.08      0.08
+ RINFORCE                             1        0.00      0.00      0.07      0.07
+ mimic_ifc_compute_energy             1        0.04      0.06      0.04      0.06
+ mimic_ifc_request_sizes              2        0.04      0.05      0.04      0.05
+ mimic_ifc_handshake                  1        0.01      0.05      0.01      0.05
+ NLIN                                 3        0.04      0.05      0.04      0.05
+ mimic_ifc_init                       1        0.04      0.04      0.04      0.04
+ loadpa_c                             1        0.04      0.04      0.04      0.04
+ initclust                            1        0.01      0.01      0.03      0.03
+ SCREENB                              1        0.02      0.02      0.02      0.02
+ mimic_fm_parameters                  1        0.01      0.02      0.01      0.02
+ NUMPW                                1        0.02      0.02      0.02      0.02
+ FORMFN                               3        0.01      0.01      0.01      0.01
+ eicalc                               4        0.01      0.01      0.01      0.01
+ loadpa_a                             1        0.01      0.01      0.01      0.01
+ zhwwf                                1        0.00      0.00      0.01      0.01
+ w_wfnio                              1        0.00      0.01      0.01      0.01
+ PUTPS                                1        0.01      0.01      0.01      0.01
+ mimic_send_coordinates               1        0.00      0.01      0.00      0.01
+ LOADC                               10        0.01      0.01      0.01      0.01
+ GSDISORTHO                           1        0.00      0.01      0.00      0.01
+ setbasis                             1        0.00      0.00      0.00      0.00
+ ppener                               4        0.00      0.00      0.00      0.00
+ fft_init                             1        0.00      0.00      0.00      0.00
+ gorder                               1        0.00      0.00      0.00      0.00
+ fnonloc                             11        0.00      0.00      0.00      0.00
+ wrwfns                               1        0.00      0.00      0.00      0.00
+ rnlsm                               13        0.00      0.00      0.00      0.00
+ rnlsm1                              13        0.00      0.00      0.00      0.00
+ forces_b                             1        0.00      0.00      0.00      0.00
+ ortho                                3        0.00      0.00      0.00      0.00
+ rgs                                  3        0.00      0.00      0.00      0.00
+ ovlap2                              10        0.00      0.00      0.00      0.00
+ ********************************************************************************
+
+       CPU TIME :    0 HOURS  0 MINUTES  2.45 SECONDS     
+   ELAPSED TIME :    0 HOURS  0 MINUTES  2.56 SECONDS     
+
+ PROGRAM CPMD ENDED AT:   2026-09-19 10:52:36.614   
+
+ ================================================================
+ = COMMUNICATION TASK  AVERAGE MESSAGE LENGTH  NUMBER OF CALLS  =
+ = SEND/RECEIVE                   0. BYTES                  3.  =
+ = BROADCAST                      0. BYTES                  1.  =
+ = GLOBAL SUMMATION               0. BYTES                  1.  =
+ = GLOBAL MULTIPLICATION          0. BYTES                  1.  =
+ = ALL TO ALL COMM                0. BYTES                  1.  =
+ =                             PERFORMANCE          TOTAL TIME  =
+ = SEND/RECEIVE                0.000  MB/S           0.001 SEC  =
+ = BROADCAST                   0.000  MB/S           0.001 SEC  =
+ = GLOBAL SUMMATION            0.000  MB/S           0.001 SEC  =
+ = GLOBAL MULTIPLICATION       0.000  MB/S           0.001 SEC  =
+ = ALL TO ALL COMM             0.000  MB/S           0.001 SEC  =
+ = SYNCHRONISATION                                   0.000 SEC  =
+ ================================================================

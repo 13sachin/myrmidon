@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Mock sbatch: assigns a job id, runs the script detached, tracks state in
+$MOCK_SLURM_DIR/<id>.{json,exit}. MOCK_SLURM_HOLD=1 keeps the job PENDING
+(never started) so tests can exercise queued states and cancellation.
+
+MOCK_SLURM_CLOCK=K is the logical clock: the script runs to completion before sbatch
+returns, and the job is then reported RUNNING for exactly K squeue queries before it
+lands, so how many polls a run makes does not depend on the host's speed."""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+state_dir = Path(os.environ["MOCK_SLURM_DIR"])
+state_dir.mkdir(parents=True, exist_ok=True)
+
+counter = state_dir / "counter"
+job_id = int(counter.read_text()) + 1 if counter.exists() else 4242
+counter.write_text(str(job_id))
+
+script = Path(sys.argv[-1]).resolve()
+meta = {"script": str(script), "cwd": os.getcwd(), "held": bool(os.environ.get("MOCK_SLURM_HOLD"))}
+(state_dir / f"{job_id}.json").write_text(json.dumps(meta))
+
+clock = os.environ.get("MOCK_SLURM_CLOCK")
+if clock is not None and not meta["held"]:
+    rc = subprocess.run(["sh", str(script)], cwd=os.getcwd(), stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL).returncode
+    (state_dir / f"{job_id}.exit.pending").write_text(f"{rc}\n")
+    (state_dir / f"{job_id}.clock").write_text(str(int(clock)))
+elif not meta["held"]:
+    exit_file = state_dir / f"{job_id}.exit"
+    wrapper = f"sh {script}; echo $? > {exit_file}"
+    subprocess.Popen(
+        ["sh", "-c", wrapper],
+        cwd=os.getcwd(),
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+print(f"Submitted batch job {job_id}")

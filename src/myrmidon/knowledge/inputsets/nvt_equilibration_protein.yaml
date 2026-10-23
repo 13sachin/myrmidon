@@ -1,0 +1,32 @@
+id: nvt_equilibration_protein
+system_class: a solvated protein or protein-ligand complex with an Amber-family force field and TIP3P water, after minimisation
+title: NVT equilibration for solvated proteins (Amber-family force fields)
+scope: engine
+applicability: >
+  Solvated protein or protein-ligand systems with an Amber-family force field
+  (e.g. amber99sb-ildn) and TIP3P water, after energy minimization.
+parameters:
+  integrator: md
+  dt: 0.002
+  constraints: h-bonds
+  constraint_algorithm: lincs
+  tcoupl: v-rescale
+  tc_grps: System
+  tau_t: 0.1
+  ref_t: 300
+  coulombtype: PME
+  rcoulomb: 1.0
+  rvdw: 1.0
+  gen_vel: "yes"
+  gen_temp: 300
+citations:
+  - "Bussi, Donadio, Parrinello, J. Chem. Phys. 126, 014101 (2007) — v-rescale thermostat. doi:10.1063/1.2408420"
+  - "Lindorff-Larsen et al., Proteins 78, 1950 (2010) — amber99sb-ildn. doi:10.1002/prot.22711"
+  - "Hess, J. Chem. Theory Comput. 4, 116 (2008) — P-LINCS constraints. doi:10.1021/ct700200b"
+notes: >
+  One heat bath for the whole system (tc_grps = System), which GROMACS accepts for
+  any system; separate baths (e.g. Protein Non-Protein) are an override, and need one
+  tau_t and ref_t per group; grompp refuses a thermostat with no tc_grps.
+  2 fs timestep requires h-bond constraints. Equilibrate 100 ps NVT before
+  any NPT stage; velocities generated at the target temperature.
+version: 2

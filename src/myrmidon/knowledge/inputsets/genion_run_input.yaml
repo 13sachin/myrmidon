@@ -1,0 +1,58 @@
+id: genion_run_input
+system_class: any solvated system gmx_genion neutralises or salts; none of these values reach
+  the simulated system
+title: The run input genion reads
+scope: engine
+applicability: 'The .mdp a solvated system is preprocessed with so that gmx_genion has a run
+  input to read. genion takes only the coordinates, the topology and the box from it, so these
+  values never shape a simulation: they are what lets grompp write that run input. A plain
+  cut-off keeps a charged system from being refused before it is neutralised, where Ewald
+  electrostatics would make the net charge a warning. gmx_genion renders it itself when it is
+  given a structure instead of a .tpr.'
+renders: mdp
+parameters:
+  integrator:
+    value: steep
+    source: 0
+  emtol:
+    value: 1000.0
+    source: 0
+  emstep:
+    value: 0.01
+    source: 0
+  nsteps:
+    value: 50000
+    rationale: never run; genion reads the run input and nothing integrates it
+    source: 0
+  nstlist:
+    value: 1
+    source: 0
+  cutoff-scheme:
+    value: Verlet
+    source: 0
+  coulombtype:
+    value: cutoff
+    rationale: with a plain cut-off GROMACS reports a net charge as a note, so the system can
+      be preprocessed before it is neutral; with Ewald it is a warning grompp refuses on
+      (tests/fixtures/gromacs/grompp_netcharge_cutoff.err, grompp_netcharge_pme.err)
+    source: 0
+  rcoulomb:
+    value: 1.0
+    source: 0
+  rvdw:
+    value: 1.0
+    source: 0
+  pbc:
+    value: xyz
+    source: 0
+sources:
+- kind: doi
+  text: 'Lemkul, From Proteins to Perturbed Hamiltonians: A Suite of Tutorials for the GROMACS-2018
+    Molecular Simulation Package, LiveCoMS 1, 5068 (2019) — the lysozyme-in-water tutorial, whose
+    ions.mdp this is. doi:10.33011/livecoms.1.1.5068'
+  locator: doi:10.33011/livecoms.1.1.5068
+- kind: in_house
+  text: 'GROMACS 2021.6: a +1 protein in water preprocessed with these values succeeds with the net
+    charge as a note, and with coulombtype PME it is refused on the Ewald net-charge warning.'
+  locator: tests/fixtures/gromacs/grompp_netcharge_cutoff.err
+version: 1

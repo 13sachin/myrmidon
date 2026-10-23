@@ -1,0 +1,89 @@
+id: em_solute_in_water
+system_class: a small solute in explicit water with a force field whose cutoffs are 1.0 nm
+aliases:
+- mimic_acetone_minimise
+title: Steepest-descent minimisation of a solute in water
+scope: engine
+applicability: Steepest-descent energy minimisation of a small solute solvated in water, before classical
+  equilibration. The values are the MiMiC tutorial's mini.mdp.
+renders: mdp
+parameters:
+  integrator:
+    value: steep
+    source: 0
+  emtol:
+    value: 100.0
+    source: 0
+  emstep:
+    value: 0.01
+    source: 0
+  nsteps:
+    value: 50000
+    rationale: an upper bound; steep stops at emtol
+    source: 0
+  nstlist:
+    value: 1
+    source: 0
+  cutoff-scheme:
+    value: Verlet
+    source: 0
+  ns_type:
+    value: grid
+    source: 0
+  coulombtype:
+    value: PME
+    source: 0
+  rcoulomb:
+    value: 1.0
+    source: 0
+  rvdw:
+    value: 1.0
+    source: 0
+  pbc:
+    value: xyz
+    source: 0
+sources:
+- kind: tutorial
+  text: 'MiMiC acetone-in-water tutorial, the input archive published by the MiMiC project. Downloaded
+    with the command the tutorial gives; template.inp, mini.mdp, heat.mdp, mimic.mdp, sele.dat
+    and pp_info.dat are copied verbatim into tests/fixtures/mimic_tutorial/. sha256 is of template.inp.
+
+    '
+  locator: https://gitlab.com/mimic-project/mimic-docs/-/tree/main/docs/tutorials/AcetoneTutorial
+  sha256: 51e3952370e541dac4f2da20dd526cceba4aa016117daa62878bb73dbe425440
+- kind: doi
+  text: Olsen, Bolnykh, Meloni, Ippoliti, Bircher, Carloni, Rothlisberger, J. Chem. Theory Comput.
+    15, 3810 (2019) — MiMiC, the multiscale coupling framework. doi:10.1021/acs.jctc.9b00093
+  locator: doi:10.1021/acs.jctc.9b00093
+- kind: url
+  text: 'The tutorial page itself, which prints the per-stage &CPMD blocks the reader edits the template
+    into. The archive ships the template only, so the four dynamics stages cite the page.
+
+    '
+  locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
+- kind: doi
+  text: Bussi, Donadio, Parrinello, J. Chem. Phys. 126, 014101 (2007) — the velocity-rescaling thermostat
+    used in the classical equilibration. doi:10.1063/1.2408420
+  locator: doi:10.1063/1.2408420
+- kind: doi
+  text: Martyna, Tuckerman, J. Chem. Phys. 110, 2810 (1999) — reciprocal-space Poisson solver for
+    isolated systems. doi:10.1063/1.477923
+  locator: doi:10.1063/1.477923
+- kind: doi
+  text: Troullier, Martins, Phys. Rev. B 43, 1993 (1991) — efficient norm-conserving pseudopotentials.
+    doi:10.1103/PhysRevB.43.1993
+  locator: doi:10.1103/PhysRevB.43.1993
+- kind: doi
+  text: Becke, Phys. Rev. A 38, 3098 (1988) and Lee, Yang, Parr, Phys. Rev. B 37, 785 (1988) — the
+    BLYP exchange-correlation functional. doi:10.1103/PhysRevA.38.3098
+  locator: doi:10.1103/PhysRevA.38.3098
+- kind: doi
+  text: Nose, J. Chem. Phys. 81, 511 (1984); Hoover, Phys. Rev. A 31, 1695 (1985) — the Nose-Hoover
+    thermostat. doi:10.1063/1.447334
+  locator: doi:10.1063/1.447334
+pitfalls:
+- CPMD_MULTIPLICITY_WITHOUT_LSD
+- CPMD_SHAKE_WRONG_GEOMETRY
+validated_by:
+- tests/unit/test_mimic_inputsets.py::test_tutorial_protocol_reproduces_the_published_inputs
+version: 1

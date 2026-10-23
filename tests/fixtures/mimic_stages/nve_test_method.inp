@@ -1,0 +1,44 @@
+&INFO
+ written by myrmidon protocol_apply — do not edit by hand
+ protocol: mimic_acetone_tutorial v2 stage nve_test
+ each value names its origin; the machine-readable map is in nve_test_template.inp.myrmidon.json
+&END
+
+&CPMD
+ RESTART COORDINATES VELOCITIES WAVEFUNCTION
+ MIMIC
+ MOLECULAR DYNAMICS BO
+ NEW CONSTRAINTS
+ ISOLATED MOLECULE
+ TIMESTEP
+  10.0
+ MAXSTEP
+  1000
+ TRAJECTORY SAMPLE
+  0
+&END
+
+&SYSTEM
+ POISSON SOLVER TUCKERMAN
+ SYMMETRY
+  0
+ CUTOFF
+  70.
+ CHARGE
+  0.0
+&END
+
+&DFT
+ XC_DRIVER
+ FUNCTIONAL GGA_XC_BLYP
+&END
+
+&MIMIC
+ LONG-RANGE COUPLING
+ FRAGMENT SORTING ATOM-WISE UPDATE
+  100
+ CUTOFF DISTANCE
+  20.0
+ MULTIPOLE ORDER
+  3
+&END

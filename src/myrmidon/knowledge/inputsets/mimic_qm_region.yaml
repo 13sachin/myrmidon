@@ -1,0 +1,40 @@
+id: mimic_qm_region
+system_class: a QM region of a solvated system selected with mimicpy prepqm; the selection and the padding are the system's
+aliases:
+- mimic_acetone_qm_region
+title: The QM region of a MiMiC run
+scope: engine
+applicability: Selecting the QM region of a solvated system for MiMiC. It states values for
+  mimic_select_qm and renders no file. The selection is the researcher's — which atoms are
+  quantum is chemistry — and the padding is derived for the region in hand.
+renders: none
+parameters:
+  padding_nm:
+    derivable: vacuum between the QM region's bounding box and the CPMD cell (prepqm -pad), in
+      nm, for this region. Too little and CPMD segfaults in the short-range potential
+      (QM_CELL_NO_VACUUM and QM_CELL_TIGHT judge the min_vacuum_bohr mimic_select_qm reports);
+      more costs plane waves. The MiMiC tutorial's value is for its own small solute.
+    rationale: a property of the QM region and the plane-wave cutoff, never a default to carry
+      from one system to another
+    source: 0
+  selections:
+    required_from_user: true
+    derivable: which atoms are quantum, as the MiMiCPy selection commands mimic_select_qm
+      takes under the same name — chemistry, and the one decision that cannot be defaulted.
+sources:
+- kind: tutorial
+  text: 'MiMiC acetone-in-water tutorial, the input archive published by the MiMiC project.
+    Downloaded with the command the tutorial gives; sha256 is of template.inp.
+    sele.dat is the tutorial''s own selection.
+
+    '
+  locator: https://gitlab.com/mimic-project/mimic-docs/-/tree/main/docs/tutorials/AcetoneTutorial
+  sha256: 51e3952370e541dac4f2da20dd526cceba4aa016117daa62878bb73dbe425440
+- kind: doi
+  text: Olsen, Bolnykh, Meloni, Ippoliti, Bircher, Carloni, Rothlisberger, J. Chem. Theory
+    Comput. 15, 3810 (2019) — MiMiC, the multiscale coupling framework.
+    doi:10.1021/acs.jctc.9b00093
+  locator: doi:10.1021/acs.jctc.9b00093
+pitfalls:
+- CPMD_SHAKE_WRONG_GEOMETRY
+version: 3

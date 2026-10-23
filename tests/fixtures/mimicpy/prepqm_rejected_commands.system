@@ -1,0 +1,6 @@
+&SYSTEM
+    CELL
+        19.6 1.2 1.0 0.0 0.0 0.0
+    CHARGE
+        1
+&END

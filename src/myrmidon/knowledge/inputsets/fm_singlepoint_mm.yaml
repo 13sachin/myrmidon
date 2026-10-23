@@ -1,0 +1,122 @@
+id: fm_singlepoint_mm
+system_class: the GROMACS half of any MiMiC force-matching reference run
+title: MiMiC force-matching single point — mm mdp
+scope: engine
+applicability: The GROMACS half of a MiMiC force-matching reference run — it must write forces at
+  the same pace as coordinates, because the fit subtracts them frame by frame.
+renders: mdp
+parameters:
+  integrator:
+    value: mimic
+    source: 1
+  nsteps:
+    value: 100000
+    rationale: irrelevant in a MiMiC run
+    source: 1
+  dt:
+    value: 0.001
+    rationale: irrelevant in a MiMiC run
+    source: 0
+  nstxout:
+    value: 1
+    rationale: 'every step: must equal the CPMD FORCE_MATCHING pace or the frames desynchronise'
+    source: 0
+  nstvout:
+    value: 0
+    source: 0
+  nstfout:
+    value: 1
+    rationale: the classical forces the fit subtracts are read from this trr
+    source: 0
+  nstenergy:
+    value: 1
+    source: 0
+  nstlog:
+    value: 100
+    source: 0
+  continuation:
+    value: 'yes'
+    source: 1
+  constraints:
+    value: none
+    rationale: the QM molecule must stay flexible
+    source: 1
+  cutoff-scheme:
+    value: Verlet
+    source: 1
+  nstlist:
+    value: 10
+    source: 1
+  rcoulomb:
+    value: 1.2
+    source: 0
+  rvdw:
+    value: 1.2
+    source: 0
+  coulombtype:
+    value: PME
+    source: 1
+  pme_order:
+    value: 4
+    source: 1
+  fourierspacing:
+    value: 0.16
+    source: 1
+  tcoupl:
+    value: 'no'
+    rationale: CPMD owns the thermostat
+    source: 1
+  pcoupl:
+    value: 'no'
+    source: 1
+  pbc:
+    value: xyz
+    source: 1
+  DispCorr:
+    value: EnerPres
+    source: 1
+  gen_vel:
+    value: 'no'
+    source: 1
+  QMMM-grps:
+    value: QMatoms
+    source: 1
+invariants:
+- id: FM_MDP_MUST_WRITE_FORCES
+  equal:
+  - $nstfout
+  - $nstxout
+  message: 'nstfout must be written at the same pace as nstxout: the fit subtracts the classical forces
+    frame by frame and reads them from the same trr
+
+    '
+sources:
+- kind: in_house
+  text: 'The acetone force-matching reference pair generated through the harness with MiMiC-enabled
+    CPMD and GROMACS on a SLURM cluster. Inputs kept verbatim in tests/fixtures/acetone/ as
+    fm_singlepoint_template.inp and mimic_fm.mdp; the pace/nstxout rule is stated in that mdp''s
+    own comments.
+
+    '
+  locator: tests/fixtures/acetone/fm_singlepoint_template.inp
+  evidence:
+  - tests/fixtures/acetone/mimic_fm.mdp
+- kind: tutorial
+  text: 'Everything not changed here is inherited from the acetone tutorial input sets, which are distilled
+    from the MiMiC project''s acetone-in-water tutorial.
+
+    '
+  locator: inputset:mimic_cpmd_template
+pitfalls:
+- CPMD_MULTIPLICITY_WITHOUT_LSD
+- FM_RERUN_MDP_IS_MIMIC
+notes: 'Derived from the acetone tutorial input sets. What inputset_apply writes for a cpmd_inp input set is
+  a template: &MIMIC PATHS/BOX/OVERLAPS, &SYSTEM CELL and &ATOMS are written per system by mimicpy''s
+  prepqm. Charge is never supplied here; mimic_prepare requires it confirmed. The classical rerun
+  that the fit subtracts is a DIFFERENT mdp — see fm_classical_rerun, and do not reuse this one for
+  it.
+
+  '
+validated_by:
+- tests/unit/test_mimic_inputsets.py::test_fm_protocols_match_the_harness_fixtures
+version: 1

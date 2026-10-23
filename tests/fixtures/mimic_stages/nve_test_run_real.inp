@@ -1,0 +1,88 @@
+&INFO
+    written by myrmidon protocol_apply — do not edit by hand
+    protocol: mimic_acetone_tutorial v2 stage nve_test
+    each value names its origin; the machine-readable map is in nve_test_template.inp.myrmidon.json
+&END
+
+&CPMD
+    RESTART COORDINATES VELOCITIES WAVEFUNCTION
+    MIMIC
+    MOLECULAR DYNAMICS BO
+    NEW CONSTRAINTS
+    ISOLATED MOLECULE
+    TIMESTEP
+        10.0
+    MAXSTEP
+        1000
+    TRAJECTORY SAMPLE
+        0
+&END
+
+&SYSTEM
+    POISSON SOLVER TUCKERMAN
+    SYMMETRY
+        0
+    CUTOFF
+        70.
+    CHARGE
+  0
+    CELL
+        18.6 0.9 1.1 0.0 0.0 0.0
+&END
+
+&DFT
+    XC_DRIVER
+    FUNCTIONAL GGA_XC_BLYP
+&END
+
+&MIMIC
+    LONG-RANGE COUPLING
+    FRAGMENT SORTING ATOM-WISE UPDATE
+        100
+    CUTOFF DISTANCE
+        20.0
+    MULTIPOLE ORDER
+        3
+    OVERLAPS
+        10
+        2 1 1 1
+        2 2 1 2
+        2 3 1 3
+        2 5 1 4
+        2 6 1 5
+        2 7 1 6
+        2 8 1 7
+        2 9 1 8
+        2 10 1 9
+        2 4 1 10
+    PATHS
+        1
+/path/to/run
+    BOX
+        47.28227045035542 47.28227045035542 47.28227045035542
+&END
+
+&ATOMS
+*C_MT_BLYP.psp KLEINMAN-BYLANDER
+    LMAX=P
+    3
+     5.688075635597     7.313240102910    20.654706543877
+     7.388829147901     7.351034625405    18.368137932890
+     6.878603094210     6.292787995527    23.035761461104
+
+*H_MT_BLYP.psp KLEINMAN-BYLANDER
+    LMAX=S
+    6
+     8.862815525232     8.673842912753    18.991747554068
+     8.371486732788     5.574692068110    17.990192707933
+     6.387274301766     8.069130552823    16.724076204329
+     8.900610047727     6.236096211784    22.601124452403
+     6.519555130501     7.558904499132    24.623131405921
+     6.198301689288     4.365267348248    23.338117641069
+
+*O_MT_BLYP.psp KLEINMAN-BYLANDER
+    LMAX=P
+    1
+     3.495993330848     7.955746985336    20.786987372612
+
+&END

@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Mock squeue: reports PENDING for held jobs, RUNNING while no exit sentinel,
+nothing once finished (like real squeue), error for unknown ids."""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+state_dir = Path(os.environ["MOCK_SLURM_DIR"])
+job_id = sys.argv[sys.argv.index("-j") + 1]
+
+meta_file = state_dir / f"{job_id}.json"
+if not meta_file.exists():
+    sys.stderr.write("slurm_load_jobs error: Invalid job id specified\n")
+    sys.exit(1)
+
+meta = json.loads(meta_file.read_text())
+if (state_dir / f"{job_id}.cancelled").exists() or (
+    state_dir / f"{job_id}.timeout"
+).exists():
+    sys.exit(0)  # finished jobs vanish from squeue
+# the logical clock (MOCK_SLURM_CLOCK): RUNNING for the queries left, then the job lands
+clock = state_dir / f"{job_id}.clock"
+if clock.exists():
+    left = int(clock.read_text())
+    if left > 0:
+        clock.write_text(str(left - 1))
+        print("RUNNING")
+        sys.exit(0)
+    pending = state_dir / f"{job_id}.exit.pending"
+    if pending.exists():
+        pending.rename(state_dir / f"{job_id}.exit")
+if meta.get("held"):
+    print("PENDING")
+elif not (state_dir / f"{job_id}.exit").exists():
+    print("RUNNING")
+# finished: print nothing

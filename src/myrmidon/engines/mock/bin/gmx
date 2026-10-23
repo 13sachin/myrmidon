@@ -1,0 +1,835 @@
+#!/usr/bin/env python3
+"""Mock GROMACS binary for unit tests.
+
+Dispatches on the subcommand, writes plausible output files, and prints
+output fragments recorded from real GROMACS runs — just enough for
+myrmidon's parsers. Failure modes are triggered via MOCK_GMX_FAIL:
+
+    MOCK_GMX_FAIL=lincs    mdrun crashes with a LINCS explosion log
+    MOCK_GMX_FAIL=grompp   grompp exits 1 with a fatal error
+    MOCK_GMX_FAIL=genion   genion rewrites -p (keeping GROMACS' #name.1# backup), then
+                           fails writing -o with "File input/output error"
+    MOCK_GMX_FAIL=walltime mdrun is killed by the scheduler part-way through, log and
+                           stderr as SLURM writes them
+
+Procedural traps (as GROMACS 2021.6 behaves):
+    a topology carrying the line "; MOCK_NET_CHARGE <q>" makes grompp emit the
+    Ewald net-charge WARNING, refused unless -maxwarn covers it; genion removes
+    the marker and neutralises it.
+
+Net charge: the marker when a topology carries one (a protein whose force field is not
+here to read), else the sum over [ molecules ] of each molecule type's [ atoms ] charges,
+read through #include as GROMACS does. The standard ion molecules have their defined
+charges when their .itp is not here. genion -neutral adds exactly the counter-ions that
+charge needs, of the -pname / -nname given, in place of solvent.
+
+mdrun writes <deffnm>.cpt recording its output names; mdrun -cpi checks them verbatim like
+-append does; `dump -cp` prints them.
+"""
+
+import math
+import os
+import sys
+import time
+
+
+#: the charge of each ion molecule in GROMACS' ions.itp, for when that file is not here
+STANDARD_IONS = {"NA": 1, "K": 1, "LI": 1, "RB": 1, "CS": 1, "CL": -1, "BR": -1, "F": -1,
+                 "I": -1, "MG": 2, "CA": 2, "ZN": 2}
+
+
+def _molecule_charges(topology, seen, types):
+    """moleculetype name -> summed [ atoms ] charge, following #include."""
+    topology = os.path.abspath(topology)
+    if topology in seen or not os.path.exists(topology):
+        return
+    seen.add(topology)
+    section, current = None, None
+    for ln in open(topology):
+        line = ln.split(";")[0].strip()
+        if line.startswith("#include"):
+            name = line.split(None, 1)[1].strip().strip('"\'')
+            _molecule_charges(os.path.join(os.path.dirname(topology), name), seen, types)
+            continue
+        if line.startswith("["):
+            section = line.strip("[] ").replace(" ", "")
+            continue
+        if not line or line.startswith("#"):
+            continue
+        cols = line.split()
+        if section == "moleculetype":
+            current = cols[0]
+            types.setdefault(current, 0.0)
+        elif section == "atoms" and current and len(cols) >= 7:
+            try:
+                types[current] += float(cols[6])
+            except ValueError:
+                pass
+
+
+def mock_net_charge(topology):
+    """The system's net charge: the marker if the topology carries one, else summed."""
+    if not topology or not os.path.exists(topology):
+        return 0.0
+    for ln in open(topology):
+        if ln.startswith("; MOCK_NET_CHARGE"):
+            return float(ln.split()[-1])
+    types = {}
+    _molecule_charges(topology, set(), types)
+    total, in_molecules = 0.0, False
+    for ln in open(topology):
+        line = ln.split(";")[0].strip()
+        if line.startswith("["):
+            in_molecules = line.replace(" ", "") == "[molecules]"
+            continue
+        cols = line.split()
+        if in_molecules and len(cols) == 2 and cols[1].isdigit():
+            per = types.get(cols[0], STANDARD_IONS.get(cols[0].upper(), 0.0))
+            total += per * int(cols[1])
+    return total
+
+
+#: residue charges pdb2gmx gives at its default protonation (LYS/ARG protonated, ASP/GLU
+#: not, HIS neutral); a chain's charged termini cancel
+RESIDUE_CHARGE = {"LYS": 1, "ARG": 1, "ASP": -1, "GLU": -1}
+
+
+def pdb_protein(path):
+    """(atoms after hydrogens are added, net charge, residues) of a protein PDB, as
+    pdb2gmx reports them: the trp-cage fixture gives 304 atoms and +1 under GROMACS 2021.6
+    (tests/fixtures/gromacs/pdb2gmx_1l2y.out). Hydrogens present are counted; a PDB
+    without them is taken to roughly double, which only the atom count depends on."""
+    residues, n_heavy, n_h = {}, 0, 0
+    for ln in open(path, errors="replace"):
+        if not ln.startswith(("ATOM", "HETATM")):
+            continue
+        name = ln[12:16].strip()
+        element = ln[76:78].strip() or name[:1]
+        if element == "H":
+            n_h += 1
+        else:
+            n_heavy += 1
+        residues[(ln[21], ln[22:27])] = ln[17:20].strip()
+    charge = float(sum(RESIDUE_CHARGE.get(r, 0) for r in residues.values()))
+    return (n_heavy + n_h if n_h else 2 * n_heavy), charge, len(residues)
+
+
+def gro_atoms(path, default):
+    """The atom count on a .gro's second line; the default for anything else (a .tpr)."""
+    try:
+        with open(path) as fh:
+            fh.readline()
+            return int(fh.readline().split()[0])
+    except (OSError, TypeError, ValueError, IndexError):
+        return default
+
+
+def tpr_fields_of(path):
+    """The `key = value` lines a mock tpr carries (grompp writes them; convert-tpr keeps
+    them), so mdrun knows how far the run goes."""
+    fields = {}
+    if path and os.path.exists(path):
+        for ln in open(path):
+            if "=" in ln and not ln.startswith("MOCK"):
+                k, v = ln.split("=", 1)
+                fields[k.strip()] = v.strip()
+    return fields
+
+
+def arg_after(flag, default=None):
+    argv = sys.argv
+    return argv[argv.index(flag) + 1] if flag in argv else default
+
+
+def write_gro(path, n_atoms, box="2.50000   2.50000   2.50000"):
+    lines = ["Mock system"]
+    lines.append(f"{n_atoms:5d}")
+    for i in range(n_atoms):
+        lines.append(
+            f"{1:5d}ALA  {'CA':>5s}{i + 1:5d}{0.1 * i % 2.4:8.3f}{0.2:8.3f}{0.3:8.3f}"
+        )
+    lines.append(f"   {box}")
+    path_write(path, "\n".join(lines) + "\n")
+
+
+def path_write(path, text):
+    with open(path, "w") as fh:
+        fh.write(text)
+
+
+def mock_charges(topology, seen=None):
+    """Partial charges from a GROMACS [ atoms ] section, in file order, following
+    #include as GROMACS does — a molecule's charges live in its own .itp, and a
+    topology that reads only the top-level file finds none, so every candidate force
+    field would score identically."""
+    seen = seen if seen is not None else set()
+    topology = os.path.abspath(topology)
+    if topology in seen or not os.path.exists(topology):
+        return []
+    seen.add(topology)
+    charges, in_atoms = [], False
+    for ln in open(topology):
+        line = ln.split(";")[0].strip()
+        if line.startswith("#include"):
+            name = line.split(None, 1)[1].strip().strip('"\'')
+            charges += mock_charges(os.path.join(os.path.dirname(topology), name), seen)
+            continue
+        if line.startswith("["):
+            in_atoms = line.replace(" ", "").startswith("[atoms]")
+            continue
+        if in_atoms and line:
+            cols = line.split()
+            if len(cols) >= 7:
+                try:
+                    charges.append(float(cols[6]))
+                except ValueError:
+                    pass
+    return charges
+
+
+def rerun_trr(tpr, sub_trr, out):
+    """`mdrun -rerun` recomputes forces on existing frames. The mock's force field is
+    Coulomb-only and diagonal — atom i feels q_i along a fixed per-atom direction — so
+    two candidate topologies differ in their forces exactly as they differ in their
+    charges, and a comparison of topologies has a real and predictable winner. Enough
+    for `fm_validate`'s force_rmse to mean something without an engine.
+    """
+    import MDAnalysis as mda
+    import numpy as np
+
+    fields = dict(
+        (k.strip(), v.strip())
+        for k, v in (ln.split("=", 1) for ln in open(tpr) if "=" in ln)
+    )
+    n_atoms = int(fields.get("natoms", "0"))
+    charges = [float(q) for q in fields.get("mock-charges", "").split(",") if q]
+    charges = (charges + [0.0] * n_atoms)[:n_atoms]
+    direction = np.array([[1.0, -0.5, 0.25]] * n_atoms)
+    forces = np.array(charges)[:, None] * direction * MOCK_FORCE_UNIT
+
+    u = mda.Universe.empty(n_atoms, trajectory=True)
+    u.load_new(str(sub_trr))
+    u.trajectory.ts.has_forces = True
+    with mda.Writer(str(out), n_atoms=n_atoms) as w:
+        for ts in u.trajectory:
+            ts.has_forces = True
+            ts.forces = forces
+            w.write(u.atoms)
+
+
+#: kJ/mol/nm per unit charge in the mock force field. Arbitrary, but fixed: a reference
+#: dataset meant to be compared against this mock must be generated with the same constant.
+MOCK_FORCE_UNIT = 1000.0
+
+
+# --- index groups: make_ndx and genrestr (GROMACS 2021.6:
+# tests/fixtures/gromacs/make_ndx_*, genrestr_*) ---
+
+PROTEIN_RESIDUES = {
+    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE", "LEU", "LYS", "MET",
+    "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL", "HID", "HIE", "HIP", "HISA", "HISB",
+    "HISH", "HISD", "HISE", "HSD", "HSE", "HSP", "LYN", "LYSH", "ASH", "ASPH", "GLH", "GLUH",
+    "CYX", "CYM", "CYS2", "ACE", "NME", "NAC", "NHE", "NH2",
+}
+WATER_RESIDUES = {"SOL", "WAT", "HOH", "TIP3", "TIP4", "TIP5", "SPC", "SPCE", "T3P", "T4P"}
+ION_RESIDUES = {"NA", "CL", "K", "LI", "RB", "CS", "F", "BR", "I", "MG", "CA", "ZN", "CU",
+                "FE", "MN", "NI", "CO", "CD", "SOD", "CLA", "POT", "CAL", "NA+", "CL-", "K+"}
+MAINCHAIN = {"N", "CA", "C", "O", "O1", "O2", "OC1", "OC2", "OT", "OXT"}
+MAINCHAIN_H = MAINCHAIN | {"H1", "H2", "H3", "H", "HN"}
+#: make_ndx verbs the mock does not implement; it refuses them rather than misread them
+NDX_UNSUPPORTED = ("splitch", "splitres", "splitat", "keep", "res", "chain", "case", "t ",
+                   "ri ", "!", "l", "h")
+
+
+def gro_atom_rows(path):
+    """(serial, resname, atom name) per atom of a .gro, numbered by position."""
+    with open(path) as fh:
+        lines = fh.read().splitlines()
+    n = int(lines[1].split()[0])
+    return [(i + 1, ln[5:10].strip(), ln[10:15].strip()) for i, ln in enumerate(lines[2:2 + n])]
+
+
+def _is_h(name):
+    return name.lstrip("0123456789")[:1] == "H"
+
+
+def default_groups(atoms):
+    """The groups make_ndx and genrestr start from, in GROMACS' order."""
+    ids = lambda pred: [a[0] for a in atoms if pred(a)]  # noqa: E731
+    groups = [("System", ids(lambda a: True))]
+    prot = lambda a: a[1] in PROTEIN_RESIDUES  # noqa: E731
+    water = lambda a: a[1] in WATER_RESIDUES  # noqa: E731
+    ion = lambda a: a[1] in ION_RESIDUES  # noqa: E731
+    if any(prot(a) for a in atoms):
+        groups += [
+            ("Protein", ids(prot)),
+            ("Protein-H", ids(lambda a: prot(a) and not _is_h(a[2]))),
+            ("C-alpha", ids(lambda a: prot(a) and a[2] == "CA")),
+            ("Backbone", ids(lambda a: prot(a) and a[2] in ("N", "CA", "C"))),
+            ("MainChain", ids(lambda a: prot(a) and a[2] in MAINCHAIN)),
+            ("MainChain+Cb", ids(lambda a: prot(a) and a[2] in MAINCHAIN | {"CB"})),
+            ("MainChain+H", ids(lambda a: prot(a) and a[2] in MAINCHAIN_H)),
+            ("SideChain", ids(lambda a: prot(a) and a[2] not in MAINCHAIN_H)),
+            ("SideChain-H", ids(lambda a: prot(a) and a[2] not in MAINCHAIN_H
+                                and not _is_h(a[2]))),
+            ("Prot-Masses", ids(prot)),
+        ]
+        if not all(prot(a) for a in atoms):
+            groups.append(("non-Protein", ids(lambda a: not prot(a))))
+    rest = lambda a: not prot(a) and not water(a)  # noqa: E731
+    per_residue = []
+    for name in dict.fromkeys(a[1] for a in atoms if rest(a)):
+        per_residue.append((name, ids(lambda a, n=name: a[1] == n)))
+    if any(rest(a) and not ion(a) for a in atoms):
+        groups += [("Other", ids(lambda a: rest(a) and not ion(a))), *per_residue]
+    if any(water(a) for a in atoms):
+        groups.append(("Water", ids(water)))
+        for name in dict.fromkeys(a[1] for a in atoms if water(a)):
+            groups.append((name, ids(lambda a, n=name: a[1] == n)))
+        groups.append(("non-Water", ids(lambda a: not water(a))))
+    if any(ion(a) for a in atoms):
+        groups += [("Ion", ids(ion)), *per_residue]
+        if any(water(a) for a in atoms):
+            groups.append(("Water_and_ions", ids(lambda a: water(a) or ion(a))))
+    return groups
+
+
+def read_ndx(path):
+    groups, name = [], None
+    with open(path) as fh:
+        for line in fh:
+            s = line.strip()
+            if s.startswith("["):
+                name = s.strip("[] ")
+                groups.append((name, []))
+            elif s and name is not None:
+                groups[-1][1].extend(int(x) for x in s.split())
+    return groups
+
+
+def group_line(i, name, members):
+    return f"{i:3d} {name:<20s}: {len(members):5d} atoms"
+
+
+def _operand(word, atoms, groups):
+    """One operand of a make_ndx expression: a group number, 'r NAMES' or 'a NAMES'.
+    Returns (name, members, message) or raises LookupError(message)."""
+    word = word.strip()
+    if word.isdigit():
+        i = int(word)
+        if i >= len(groups):
+            raise LookupError(f"Group {i} does not exist")
+        name, members = groups[i]
+        return name, list(members), f"Copied index group {i} '{name}'"
+    kind, _, names = word.partition(" ")
+    names = names.split()
+    if kind in ("r", "a") and names:
+        field, label = (1, "residue name") if kind == "r" else (2, "name")
+        members = [a[0] for a in atoms if a[field] in names]
+        return "_".join(names), members, f"Found {len(members)} atoms with {label} " \
+            + " ".join(names)
+    raise ValueError(word)
+
+
+def make_ndx(atoms, groups, cmd):
+    """Apply one command, printing what GROMACS prints; returns the groups."""
+    print()
+    verb, _, rest = cmd.partition(" ")
+    if verb == "name":
+        i, _, new = rest.partition(" ")
+        if i.isdigit() and int(i) < len(groups) and new.strip():
+            groups[int(i)] = (new.strip(), groups[int(i)][1])
+        return groups  # real make_ndx says nothing either way
+    if verb == "del":
+        if rest.isdigit() and int(rest) < len(groups):
+            del groups[int(rest)]
+        else:
+            print(f"Group {rest} does not exist\n")
+        return groups
+    parts, ops, buf = [], [], ""
+    for ch in cmd:
+        if ch in "&|":
+            parts.append(buf)
+            ops.append(ch)
+            buf = ""
+        else:
+            buf += ch
+    parts.append(buf)
+    try:
+        name, members, message = _operand(parts[0], atoms, groups)
+    except ValueError:
+        print(f'\nSyntax error: "{cmd}"\n')
+        return groups
+    except LookupError as exc:
+        print(f"{exc}\n")
+        return groups
+    print(message)
+    created = False
+    for op, word in zip(ops, parts[1:]):
+        if not created and len(parts) > 1:
+            groups.append((name, members))  # the copy is kept even if what follows fails
+            created = True
+        try:
+            other, more, message = _operand(word, atoms, groups)
+        except ValueError:
+            print(f'\nSyntax error: "{cmd}"\n')
+            return groups
+        except LookupError as exc:
+            print(f"{exc}\n")
+            print(group_line(len(groups) - 1, *groups[-1]) + "\n")
+            return groups
+        print(message)
+        joined = sorted(set(members) & set(more)) if op == "&" else sorted(set(members) | set(more))
+        print(f"Merged two groups with {'AND' if op == '&' else 'OR'}: {len(members)} "
+              f"{len(more)} -> {len(joined)}")
+        name = f"{name}_&_{other}" if op == "&" else f"{name}_{other}"
+        members = joined
+        groups[-1] = (name, members)
+    if not created:
+        if not members:
+            print("Group is empty\n")
+            return groups
+        groups.append((name, members))
+    print("\n" + group_line(len(groups) - 1, *groups[-1]) + "\n")
+    return groups
+
+
+def mock_make_ndx():
+    atoms = gro_atom_rows(arg_after("-f"))
+    groups = read_ndx(arg_after("-n")) if arg_after("-n") else default_groups(atoms)
+    print(f"Going to read {1 if arg_after('-n') else 0} old index file(s)\n")
+    print("\n".join(group_line(i, n, m) for i, (n, m) in enumerate(groups)))
+    print("\n nr : group      '!': not  'name' nr name   'splitch' nr    Enter: list groups\n")
+    for line in sys.stdin:
+        cmd = line.strip()
+        print("> ")
+        if cmd == "q":
+            break
+        if not cmd:
+            print("\n" + "\n".join(group_line(i, n, m) for i, (n, m) in enumerate(groups)))
+            continue
+        if cmd.startswith(NDX_UNSUPPORTED) and not cmd.startswith(("del ", "name ")):
+            sys.stderr.write(f"mock gmx make_ndx: {cmd!r} is make_ndx syntax the mock does "
+                             "not implement\n")
+            return 3
+        groups = make_ndx(atoms, groups, cmd)
+    with open(arg_after("-o", "index.ndx"), "w") as fh:
+        for name, members in groups:
+            fh.write(f"[ {name} ]\n")
+            for k in range(0, len(members), 15):
+                fh.write(" ".join(f"{x:4d}" for x in members[k:k + 15]) + "\n")
+    return 0
+
+
+def mock_genrestr():
+    atoms = gro_atom_rows(arg_after("-f"))
+    groups = read_ndx(arg_after("-n")) if arg_after("-n") else default_groups(atoms)
+    for i, (name, members) in enumerate(groups):
+        sys.stderr.write(f"Group {i:5d} ({name:>15s}) has {len(members):5d} elements\n")
+    sys.stderr.write("Select a group: ")
+    print("Select group to position restrain")
+    choice = sys.stdin.readline().strip()
+    hit = [i for i, (name, _) in enumerate(groups) if choice in (str(i), name)]
+    if not hit:
+        print(f"Error: No such group '{choice}'")
+        sys.stderr.write("application called MPI_Abort(MPI_COMM_WORLD, 1) - process 0\n")
+        return 1
+    i = hit[0]
+    name, members = groups[i]
+    print(f"Selected {i}: '{name}'")
+    fc = sys.argv[sys.argv.index("-fc") + 1:sys.argv.index("-fc") + 4] if "-fc" in sys.argv \
+        else ["1000"] * 3
+    with open(arg_after("-f")) as fh:
+        title = fh.readline().strip()
+    rows = "".join(f"{x:4d} {1:4d} {float(fc[0]):10g} {float(fc[1]):10g} {float(fc[2]):10g}\n"
+                   for x in members)
+    with open(arg_after("-o", "posre.itp"), "w") as fh:
+        fh.write(f"; position restraints for {name} of {title}\n\n[ position_restraints ]\n"
+                 ";  i funct       fcx        fcy        fcz\n" + rows)
+    return 0
+
+
+def main():
+    if "--version" in sys.argv:
+        print("GROMACS version:    2024.2-mock")
+        return 0
+    sub = sys.argv[1]
+    # real gmx prints help and writes nothing: `gmx mdrun -h` must not reach the mdrun
+    # branch and write md.log/md.edr. A mock that does more than the engine is a mock that
+    # measures the wrong thing.
+    if "-h" in sys.argv or "--help" in sys.argv:
+        print(f"gmx {sub} - mock help; this build takes the same flags as GROMACS 2024.2")
+        return 0
+    fail = os.environ.get("MOCK_GMX_FAIL", "")
+
+    if sub == "make_ndx":
+        return mock_make_ndx()
+    if sub == "genrestr":
+        return mock_genrestr()
+    if sub == "pdb2gmx":
+        # real pdb2gmx on a file with no ATOM/HETATM records (an HTML error page saved
+        # as .pdb): it reads 0 atoms and dies deducing atom numbers
+        src = arg_after("-f")
+        if src and src.endswith(".pdb"):
+            with open(src, errors="replace") as fh:
+                n_records = sum(1 for ln in fh if ln.startswith(("ATOM", "HETATM")))
+            if n_records == 0:
+                sys.stderr.write(
+                    f"Reading {src}...\nRead 0 atoms\n\n"
+                    "Fatal error:\nTrying to deduce atomnumbers when no pdb information "
+                    "is present\n"
+                )
+                return 1
+        n_atoms, charge, n_res = pdb_protein(src) if src and src.endswith(".pdb") \
+            else (22, 0.0, 1)
+        write_gro(arg_after("-o"), n_atoms)
+        marker = f"; MOCK_NET_CHARGE {charge:+.0f}\n" if charge else ""
+        path_write(arg_after("-p"), "; mock topology\n" + marker +
+                   "[ moleculetype ]\nProtein_chain_A 3\n\n[ system ]\nMock\n\n"
+                   "[ molecules ]\nProtein_chain_A 1\n")
+        print(f"Now there are {n_res} residues with {n_atoms} atoms\n\n"
+              f"Total charge {charge:.3f} e\n\nWriting topology")
+        return 0
+
+    if sub == "editconf":
+        write_gro(arg_after("-o"), 22, box="3.20000   3.20000   3.20000")
+        return 0
+
+    if sub == "solvate":
+        # 216 waters of three atoms around what -cp holds
+        write_gro(arg_after("-o"), gro_atoms(arg_after("-cp"), 22) + 648,
+                  box="3.20000   3.20000   3.20000")
+        top = arg_after("-p")
+        with open(top, "a") as fh:
+            fh.write("SOL 216\n")
+        sys.stderr.write("Number of solvent molecules:    216\n")
+        return 0
+
+    if sub == "genion":
+        top = arg_after("-p")
+        pname, nname = arg_after("-pname", "NA"), arg_after("-nname", "CL")
+        group = sys.stdin.readline().strip() or "SOL"
+        q = round(mock_net_charge(top)) if "-neutral" in sys.argv else 0
+        n_pos, n_neg = max(0, -q), max(0, q)
+        if top and os.path.exists(top):
+            text = open(top).read()
+            if fail == "genion":
+                d, name = os.path.split(top)
+                path_write(os.path.join(d, f"#{name}.1#"), text)
+            lines = [ln for ln in text.splitlines() if not ln.startswith("; MOCK_NET_CHARGE")]
+            # the ions take the place of solvent molecules: the group's count goes down
+            for i in range(len(lines) - 1, -1, -1):
+                cols = lines[i].split(";")[0].split()
+                if len(cols) == 2 and cols[0] == group and cols[1].isdigit():
+                    lines[i] = f"{group} {int(cols[1]) - n_pos - n_neg}"
+                    break
+            lines += [f"{pname} {n_pos}"] if n_pos else []
+            lines += [f"{nname} {n_neg}"] if n_neg else []
+            path_write(top, "\n".join(lines) + "\n")
+        if fail == "genion":
+            sys.stderr.write(f"Fatal error:\nFile input/output error:\n{arg_after('-o')}\n")
+            return 1
+        # each ion replaces a three-atom water
+        write_gro(arg_after("-o"), gro_atoms(arg_after("-s"), 670) - 2 * (n_pos + n_neg),
+                  box="3.20000   3.20000   3.20000")
+        sys.stderr.write(f"Will try to add {n_pos} {pname} ions and {n_neg} {nname} ions.\n")
+        return 0
+
+    if sub == "grompp":
+        if fail == "grompp":
+            sys.stderr.write(
+                "Fatal error:\n  number of coordinates in coordinate file does not "
+                "match topology\n"
+            )
+            return 1
+        # temperature coupling with no groups: refused as GROMACS 2021.6 refuses it
+        # (readir.cpp)
+        mdp = {}
+        if arg_after("-f") and os.path.exists(arg_after("-f")):
+            for ln in open(arg_after("-f")):
+                key, eq, value = ln.split(";")[0].partition("=")
+                if eq:
+                    mdp[key.strip().lower().replace("_", "-")] = value.split()
+        if mdp.get("tcoupl", ["no"])[0].lower() not in ("no", "") and not mdp.get("tc-grps"):
+            sys.stderr.write(
+                "Fatal error:\n"
+                f"Invalid T coupling input: 0 groups, {len(mdp.get('ref-t', []))} ref-t "
+                f"values and {len(mdp.get('tau-t', []))} tau-t values\n"
+            )
+            return 1
+        if "berendsen" in (mdp.get("tcoupl", [""])[0].lower(),
+                           mdp.get("pcoupl", [""])[0].lower()):
+            sys.stderr.write(
+                "NOTE 1 [file mock.mdp]:\n"
+                "  The Berendsen thermostat does not generate the correct\n"
+                "  canonical ensemble.\n"
+            )
+        top = arg_after("-p")
+        charge = round(mock_net_charge(top), 6)
+        n_warn = 0
+        # a net charge is a NOTE under a plain cut-off (GROMACS' default coulombtype) and a
+        # WARNING only under Ewald electrostatics, as GROMACS 2021.6 reports them
+        # (tests/fixtures/gromacs/grompp_netcharge_{cutoff,pme}.err)
+        ewald = mdp.get("coulombtype", ["cut-off"])[0].lower() in (
+            "pme", "ewald", "p3m-ad", "pme-switch", "pme-user", "pme-user-switch")
+        if charge and not ewald:
+            sys.stderr.write(
+                "NOTE 2 [file " + str(top) + ", line 3015]:\n"
+                f"  System has non-zero total charge: {charge:.6f}\n"
+                "  Total charge should normally be an integer. See\n"
+            )
+        if charge and ewald:
+            n_warn = 1
+            sys.stderr.write(
+                f"System has non-zero total charge: {charge:.6f}\n"
+                "  Total charge should normally be an integer. See\n"
+                "\n"
+                f"WARNING 1 [file {top}, line 3015]:\n"
+                "  You are using Ewald electrostatics in a system with net charge. This can\n"
+                "  lead to severe artifacts, such as ions moving into regions with low\n"
+                "  dielectric, due to the uniform background charge. We suggest to\n"
+                "  neutralize your system with counter ions, possibly in combination with a\n"
+                "  physiological salt concentration.\n"
+                "\n"
+            )
+        maxwarn = int(arg_after("-maxwarn", "0"))
+        if n_warn > maxwarn:
+            sys.stderr.write(
+                f"There was {n_warn} warning\n\nFatal error:\nToo many warnings ({n_warn}).\n"
+                "If you are sure all warnings are harmless, use the -maxwarn option.\n"
+            )
+            return 1
+        path_write(arg_after("-po", "mdout.mdp"), "; processed\n")
+        # the tpr records the mdp's run length and the system size so `dump -s` can
+        # report them, as the real one does
+        n_atoms = 0
+        conf = arg_after("-c")
+        if conf and os.path.exists(conf):
+            with open(conf) as fh:
+                fh.readline()
+                n_atoms = int(fh.readline().strip() or 0)
+        fields = {}
+        mdp = arg_after("-f")
+        if mdp and os.path.exists(mdp):
+            for ln in open(mdp):
+                if "=" in ln and not ln.strip().startswith(";"):
+                    k, v = ln.split("=", 1)
+                    fields[k.strip().replace("_", "-")] = v.split(";")[0].strip()
+        path_write(
+            arg_after("-o"),
+            "MOCKTPR\n"
+            f"   integrator                     = {fields.get('integrator', 'md')}\n"
+            f"   dt                             = {fields.get('dt', '0.001')}\n"
+            f"   nsteps                         = {fields.get('nsteps', '0')}\n"
+            "   init-step                      = 0\n"
+            f"   natoms                         = {n_atoms}\n"
+            # not a field the real tpr dump prints. The mock's force field is the
+            # topology's charges (see mdrun -rerun) and the tpr is where a real one
+            # keeps them too. The charges and not the topology's path, so that the
+            # same inputs produce a byte-identical tpr in any directory — a replay
+            # into a fresh workspace compares artifacts by hash.
+            f"   mock-charges                   = {','.join(f'{q:g}' for q in mock_charges(top)) if top else ''}\n",
+        )
+        return 0
+
+    if sub == "dump":
+        tpr = arg_after("-s")
+        if tpr and os.path.exists(tpr):
+            sys.stdout.write(open(tpr).read())
+            return 0
+        cpt = arg_after("-cp")
+        if cpt and os.path.exists(cpt):
+            sys.stdout.write(open(cpt).read())
+            return 0
+        sys.stderr.write("mock gmx dump: no checkpoint\n")
+        return 1
+
+    if sub == "trjcat":
+        # concatenate the input trajectories (mock trrs are text)
+        files = []
+        take = False
+        for a in sys.argv[2:]:
+            if a == "-f":
+                take = True
+                continue
+            if a.startswith("-"):
+                take = False
+                continue
+            if take:
+                files.append(a)
+        out = arg_after("-o", "trajout.trr")
+        path_write(out, "".join(open(f).read() for f in files))
+        return 0
+
+    if sub == "mdrun":
+        if "-rerun" in sys.argv:
+            # a rerun evaluates forces on frames that already exist: no integration,
+            # no deffnm outputs, one trajectory in and one out
+            rerun_trr(arg_after("-s"), arg_after("-rerun"), arg_after("-o", "rerun.trr"))
+            path_write(arg_after("-e", "rerun.edr"), "MOCKEDR\n")
+            path_write(arg_after("-g", "rerun.log"), "mock rerun\n")
+            return 0
+        deffnm = arg_after("-deffnm", "md")
+        time.sleep(0.3)
+        cpi = arg_after("-cpi")
+        restart = ""
+        if cpi:
+            if not os.path.exists(cpi):
+                sys.stderr.write(f"Fatal error:\nCheckpoint file {cpi} not found\n")
+                return 1
+            recorded = [
+                ln.split("=", 1)[1].strip() for ln in open(cpi)
+                if ln.startswith("output filename")
+            ]
+            if any(os.path.splitext(os.path.basename(n))[0] != os.path.basename(deffnm)
+                   or (os.path.isabs(n) != os.path.isabs(deffnm)) for n in recorded):
+                sys.stderr.write(
+                    "Fatal error:\nSome output files listed in the checkpoint file are not "
+                    "present or not named as the output files by the current program:\n"
+                    f"  {', '.join(recorded)}\n"
+                )
+                return 1
+            restart = f"Reading checkpoint file {cpi} generated: Thu Jan  1 12:00:00 2026\n\n"
+        path_write(
+            deffnm + ".cpt",
+            "MOCKCPT\nnumber of output files = 3\n"
+            + "".join(f"output filename = {deffnm}.{ext}\n" for ext in ("log", "xtc", "edr")),
+        )
+        if fail == "walltime":
+            # killed at the walltime: the log stops where the run got to, and the
+            # parameter dump mdrun writes into it still says how far it was asked to go
+            path_write(
+                deffnm + ".log",
+                "Input Parameters:\n   integrator                     = steep\n"
+                "   nsteps                         = 50000\n"
+                "           Step           Time\n"
+                "              0        0.00000\n"
+                "           Step           Time\n"
+                "          10995    10995.00000\n",
+            )
+            sys.stderr.write(
+                "slurmstepd: error: *** JOB 12345678 ON node01 CANCELLED AT "
+                "2026-01-01T12:00:00 DUE TO TIME LIMIT ***\n"
+            )
+            return 1
+        if fail == "lincs":
+            path_write(
+                deffnm + ".log",
+                "Step 0\nLINCS WARNING\nrelative constraint deviation after LINCS\n"
+                "Bond length not converged\n",
+            )
+            sys.stderr.write("LINCS WARNING\nSegmentation fault-free mock crash\n")
+            return 1
+        # how far the run goes: the tpr's nsteps × dt, which an extended tpr carries on
+        # from (convert-tpr below), so the energy file spans the whole run (-append)
+        tpr_fields = tpr_fields_of(arg_after("-s"))
+        try:
+            nsteps = int(float(tpr_fields.get("nsteps", "5000")))
+            dt = float(tpr_fields.get("dt", "0.002"))
+        except ValueError:
+            nsteps, dt = 5000, 0.002
+        span_ps = nsteps * dt if nsteps > 0 else 10.0
+        path_write(
+            deffnm + ".log",
+            restart
+            + "Input Parameters:\n"
+            f"   nsteps                         = {nsteps}\n"
+            "           Step           Time\n"
+            "              0        0.00000\n"
+            "   Energies (kJ/mol)\n"
+            "           Step           Time\n"
+            f"       {nsteps:8d}  {span_ps:12.5f}\n"
+            "Performance:      123.456        0.194\n",
+        )
+        path_write(deffnm + ".edr", f"MOCKEDR\nspan_ps = {span_ps:g}\n")
+        path_write(deffnm + ".xtc", "MOCKXTC\n")
+        path_write(deffnm + ".trr", "MOCKTRR\n")
+        write_gro(deffnm + ".gro", 670)
+        return 0
+
+    if sub == "convert-tpr":
+        # the extended tpr keeps the parent's fields with nsteps carried on by the
+        # extension, so the continued run's energy file spans the whole run
+        fields = tpr_fields_of(arg_after("-s"))
+        extend = float(arg_after("-extend", "0") or 0)
+        try:
+            dt = float(fields.get("dt", "0.002"))
+            nsteps = int(float(fields.get("nsteps", "0"))) + int(round(extend / dt))
+        except ValueError:
+            nsteps = 0
+        body = "MOCKTPR-EXTENDED\n" + "".join(
+            f"   {k:<30} = {nsteps if k == 'nsteps' else v}\n" for k, v in fields.items())
+        if "nsteps" not in fields:
+            body += f"   nsteps                         = {nsteps}\n"
+        path_write(arg_after("-o"), body)
+        return 0
+
+    if sub == "energy":
+        data = sys.stdin.read() if not sys.stdin.isatty() else ""
+        # real gmx energy: selection by the menu's own labels (hyphens and dots, not
+        # spaced English); a request that matches nothing prints the menu and fails
+        menu = ["Bond", "Angle", "Proper-Dih.", "LJ-14", "Coulomb-14", "LJ-(SR)",
+                "Coulomb-(SR)", "Coul.-recip.", "Potential", "Kinetic-En.", "Total-Energy",
+                "Conserved-En.", "Temperature", "Pressure", "Constr.-rmsd", "Box-X",
+                "Volume", "Density"]
+        by_lower = {m.lower(): m for m in menu}
+        terms = [by_lower[t.strip().lower()] for t in data.splitlines()
+                 if t.strip().lower() in by_lower]
+        if not terms:
+            sys.stderr.write(
+                "Select the terms you want from the following list by\n"
+                "selecting either (part of) the name or the number or a combination.\n"
+                "End your selection with an empty line or a zero.\n"
+                "-------------------------------------------------------------------\n"
+            )
+            for k in range(0, len(menu), 4):
+                sys.stderr.write("".join(f"{k + j + 1:3d}  {m:<15}"
+                                         for j, m in enumerate(menu[k:k + 4])) + "\n")
+            sys.stderr.write("\n-------------------------------------------------------\n"
+                             "Fatal error:\nNo energy terms selected\n")
+            return 1
+        out = arg_after("-o", "energy.xvg")
+        lines = ['@    title "GROMACS Energies"']
+        for i, term in enumerate(terms):
+            lines.append(f'@ s{i} legend "{term}"')
+        # a value that means what its term says: a temperature near 300 K, a pressure near
+        # 1 bar, an energy around -4200 kJ/mol drifting 0.5/ps (pinned by test_gromacs_tools),
+        # so a check on one term reads a value of that term.
+        # The density relaxes over about 35 ps with noise, so a convergence check withholds
+        # its verdict on 200 ps and passes on 400 ps — the equilibration a loop extends once.
+        edr_path = arg_after("-f", "")
+        span = None
+        if edr_path and os.path.exists(edr_path):
+            for ln in open(edr_path):
+                if ln.startswith("span_ps"):
+                    span = float(ln.split("=", 1)[1])
+        n_rows = int(span) + 1 if span else 11
+        seed = [12345]
+
+        def noise(scale):
+            seed[0] = (1103515245 * seed[0] + 12345) % 2**31
+            return (seed[0] / 2**31 - 0.5) * 2 * scale * 1.7
+
+        def value(term, i, row):
+            if term.lower().startswith("temp"):
+                return 298.0 + 0.1 * (row % 11)
+            if term.lower().startswith("pres"):
+                return 1.0 + 0.05 * (row % 11)
+            if term == "Density":
+                return 780.0 + 40.0 * math.exp(-row / 35.0) + noise(1.5)
+            if term == "Potential":
+                return -4200.0 + 0.5 * row
+            return -4200.0 + 0.5 * row + 10 * i
+        for row in range(n_rows):
+            t = row * 1.0
+            vals = "  ".join(f"{value(term, i, row):10.3f}" for i, term in enumerate(terms))
+            lines.append(f"{t:10.3f}  {vals}")
+        path_write(out, "\n".join(lines) + "\n")
+        return 0
+
+    sys.stderr.write(f"mock gmx: unknown subcommand {sub}\n")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

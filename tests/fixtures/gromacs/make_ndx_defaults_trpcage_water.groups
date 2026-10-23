@@ -1,0 +1,15 @@
+  0 System              :   334 atoms
+  1 Protein             :   304 atoms
+  2 Protein-H           :   154 atoms
+  3 C-alpha             :    20 atoms
+  4 Backbone            :    60 atoms
+  5 MainChain           :    81 atoms
+  6 MainChain+Cb        :    98 atoms
+  7 MainChain+H         :    99 atoms
+  8 SideChain           :   205 atoms
+  9 SideChain-H         :    73 atoms
+ 10 Prot-Masses         :   304 atoms
+ 11 non-Protein         :    30 atoms
+ 12 Water               :    30 atoms
+ 13 SOL                 :    30 atoms
+ 14 non-Water           :   304 atoms

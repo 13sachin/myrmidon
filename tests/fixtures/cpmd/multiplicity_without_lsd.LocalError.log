@@ -1,0 +1,7 @@
+ process id's: 0, 0, 0, 0, 0
+ process stops in file: sysin_utils.mod.F90
+               at line: 1513
+               in procedure: sysin
+ error message: Multiplicity requires local spin density approximation (LSDA)
+ call stack:
+            1  cpmd
