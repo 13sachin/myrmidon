@@ -60,3 +60,22 @@ def test_a_coupled_run_asks_for_both_programs_ranks(ws_ctx, cpmd_ranks, flagged)
     )
     assert "machine_fit" in checked
     assert any(w.id == "LOCAL_OVERSUBSCRIBED" for w in warnings) is flagged
+
+
+# (the partition bills whole nodes, its cores, the ranks the call gives, the ranks run): a
+# coupled run fills the node it pays for, one in six cores to GROMACS; elsewhere 4 + 1
+FILLED = [(True, 48, {}, (40, 8)), (True, 48, {"cpmd_ranks": 12}, (12, 8)),
+          (False, 48, {}, (4, 1)), (True, 48, {"cpmd_ranks": 2, "gromacs_ranks": 2}, (2, 2))]
+
+
+@pytest.mark.parametrize("exclusive,cores,given,ranks", FILLED)
+def test_a_coupled_run_fills_the_node_it_books(ws_ctx, exclusive, cores, given, ranks):
+    from myrmidon.tools.mimic.run import MimicRunParams
+
+    ws_ctx.config.compute.cores_per_node = cores
+    ws_ctx.config.compute.node_exclusive = exclusive
+    run = MimicRunParams(cpmd_input="01_input/run.inp", tpr="01_input/run.tpr",
+                         walltime_min=30, **given)
+    filled = run.sized(ws_ctx)
+    assert (filled.cpmd_ranks, filled.gromacs_ranks) == ranks
+    assert filled.resources().ntasks == sum(ranks)

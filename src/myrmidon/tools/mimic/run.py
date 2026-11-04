@@ -62,8 +62,12 @@ class MimicRunParams(BaseModel):
         "earlier mimic_run: the previous segment's, or a snapshot). Default: the GEOMETRY "
         "beside restart_from, which the previous segment wrote at its end.",
     )
-    cpmd_ranks: int = Field(default=4, ge=1, description="MPI ranks for CPMD (QM)")
-    gromacs_ranks: int = Field(default=1, ge=1, description="MPI ranks for GROMACS (MM)")
+    cpmd_ranks: int | None = Field(
+        default=None, ge=1, description="MPI ranks for CPMD (QM); unset, the node's cores "
+        "the GROMACS ranks leave on a partition that bills whole nodes, else 4")
+    gromacs_ranks: int | None = Field(
+        default=None, ge=1, description="MPI ranks for GROMACS (MM); unset, one in six of "
+        "the node's cores on a partition that bills whole nodes, else 1")
     deffnm: str = Field(default="mimic")
     walltime_min: int | None = Field(
         default=None, ge=1, description="batch walltime (minutes); unset, sized from the "
@@ -86,7 +90,7 @@ class MimicRunParams(BaseModel):
         approval prices a node through this method; without it a chain of MiMiC runs
         would be presented to the human as 0.0 core-h."""
         return Resources(
-            ntasks=self.cpmd_ranks + self.gromacs_ranks,
+            ntasks=(self.cpmd_ranks or 4) + (self.gromacs_ranks or 1),
             walltime_min=self.walltime_min or FALLBACK_WALLTIME_MIN,
             partition=self.partition,
             account=self.account,
@@ -112,6 +116,9 @@ class MimicRunParams(BaseModel):
         from myrmidon.execution.pace import read_paces, study_paces
         from myrmidon.knowledge.stage import booked_minutes, qm_walltime
 
+        ranked, filled = self.filled(ctx)
+        if ranked is not self:
+            return ranked.sized(ctx)._said(filled)
         if self.walltime_min is not None:
             return self
         try:
@@ -132,6 +139,25 @@ class MimicRunParams(BaseModel):
         out._sizing = (f"walltime sized to {booked} min: {why}" if minutes is not None
                        else f"walltime {booked} min, not sized: {why}")
         return out
+
+    def filled(self, ctx: ToolContext) -> tuple[MimicRunParams, str]:
+        """The call with the ranks it leaves unset filled, and how: on a partition that
+        bills whole nodes, the node's cores, one in six to GROMACS and the rest to CPMD,
+        so the run uses what the booking pays for; else CPMD 4, GROMACS 1."""
+        if self.cpmd_ranks is not None and self.gromacs_ranks is not None:
+            return self, ""
+        _, node = ctx.config.compute.billing(self.partition)
+        cores = node.cores_per_node if node.node_exclusive and node.cores_per_node > 1 else 0
+        mm = self.gromacs_ranks or (max(1, cores // 6) if cores else 1)
+        qm = self.cpmd_ranks or (max(1, cores - mm) if cores else 4)
+        said = (f"ranks filled: CPMD {qm} + GROMACS {mm}, the {cores}-core node the "
+                "partition bills whole" if cores else "")
+        return self.model_copy(update={"cpmd_ranks": qm, "gromacs_ranks": mm}), said
+
+    def _said(self, filled: str) -> MimicRunParams:
+        """This call, its sizing note followed by how its ranks were filled."""
+        self._sizing = "; ".join(x for x in (self._sizing, filled) if x)
+        return self
 
 
 def mimic_gate(ctx: ToolContext, params: MimicRunParams):
@@ -322,6 +348,7 @@ def geometry_for(ctx: ToolContext, params: MimicRunParams):
 )
 def mimic_run(ctx: ToolContext, params: MimicRunParams) -> Observation:
     precheck(ctx, mimic_gate(ctx, params)[0])
+    params = params.filled(ctx)[0]  # a call the sizing could not reach still runs ranked
     from myrmidon.engines.gromacs.common import gmx_bin
 
     # one submission, one directory, never reused: CPMD's output names are fixed, so a
