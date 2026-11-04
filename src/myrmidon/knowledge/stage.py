@@ -35,7 +35,7 @@ from typing import Any, Literal, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from myrmidon.core.mandate import Mandate, Stage, field_value, lock_path, locks_on
+from myrmidon.core.mandate import Mandate, Ramp, Stage, field_value, lock_path, locks_on
 from myrmidon.knowledge.catalog import SystemFact, canonical, load
 from myrmidon.knowledge.inputsets import (
     Invariant,
@@ -385,6 +385,25 @@ def derived(stage: dict, mandate: Mandate, step_ps: float | None,
     return out
 
 
+def ramp_started(stage: Stage, start_k: float, step_ps: float | None) -> Stage:
+    """The stage with its ramp started where the stage it ramps from ended (``start_k``,
+    unless the stage states its start), and, when the stage states no rate, the rate that
+    reaches the target at its last step at the method's integration step. A stage that
+    does not ramp, or whose ramp states both, is returned as is."""
+    ramp = stage.temperature_k
+    if not isinstance(ramp, Ramp) or (ramp.start_k is not None
+                                      and ramp.rate_k_per_au is not None):
+        return stage
+    start = ramp.start_k if ramp.start_k is not None else round(start_k, 3)
+    rate = ramp.rate_k_per_au
+    steps = stage.steps or (round(stage.duration_ps / step_ps)
+                            if stage.duration_ps and step_ps else None)
+    if rate is None and steps and step_ps:
+        rate = float(f"{(ramp.to_k - start) / (steps * step_ps / PS_PER['au']):.6g}")
+    return stage.model_copy(update={"temperature_k": ramp.model_copy(update={
+        "start_k": start, "rate_k_per_au": rate})})
+
+
 def _stage_value(stage: dict, quantities: dict, name: str):
     return quantities[name] if name in quantities else field_value(stage, name)
 
@@ -711,8 +730,16 @@ def expected_keys(mandate: Mandate, stage_name: str | None, engine: str, *,
 def lock_problems(mandate: Mandate, templates: TemplateStore) -> list[str]:
     """Each lock nothing compiled for its stages reads: it would hold nothing the
     researcher approved."""
+    return [why for *_, why in unread_locks(mandate, templates)]
+
+
+def unread_locks(mandate: Mandate, templates: TemplateStore
+                 ) -> list[tuple[int, str, str | None, str]]:
+    """(the decision's index, the lock's path, the mapping item or None for the whole lock,
+    why) for each lock, or item of a locked mapping, nothing compiled for its stages
+    reads."""
     out = []
-    for decision in mandate.decisions.yours:
+    for at, decision in enumerate(mandate.decisions.yours):
         for path, constraint in decision.locks.items():
             on, field = lock_path(path)
             stages = [s for s in mandate.method.stages if (on == "*" or s.name == on)
@@ -724,9 +751,11 @@ def lock_problems(mandate: Mandate, templates: TemplateStore) -> list[str]:
                 if stages and not any(_bound(t, templates, item) for s in stages
                                       for t in templates_for(s.model_dump(mode="json"),
                                                              templates)):
-                    out.append(f"\"{decision.said}\" locks {on}.{item}, which nothing "
-                               f"compiled for {', '.join(s.name for s in stages)} reads: "
-                               "keep their words with no lock, and the stage as they said it")
+                    out.append((at, path, item.removeprefix(f"{field}.") if item != field
+                                else None, f"\"{decision.said}\" locks {on}.{item}, which "
+                                f"nothing compiled for {', '.join(s.name for s in stages)} "
+                                "reads: keep their words with no lock, and the stage as they "
+                                "said it"))
     return out
 
 

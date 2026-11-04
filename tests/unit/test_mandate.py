@@ -170,15 +170,9 @@ UNWRITTEN = [
     ({"decisions_yours": [{"said": "x", "locks": {"heat.duration_ps": 500}}]}, "MANDATE_STAGE"),
     ({"decisions_yours": [{"said": "x", "locks": {"nvt.production_ns": 1}}]}, "MANDATE_STAGE"),
     ({"stages": [*STAGES[:3], {**STAGES[3], "steps": 100}]}, "INVALID_PARAMS"),
-    ({"decisions_yours": [{"said": "the em as is", "locks": {"em.kind": "minimize"}}]},
-     "MANDATE_STAGE"),
-    ({**QMMM_WRITE, "decisions_yours": [{"said": "a 0.4 nm cell",
-                                         "locks": {"hot.qm_region.padding_nm": 0.4}}]},
-     "MANDATE_STAGE"),
-    ({**QMMM_WRITE, "decisions_yours": [{"said": "the ligand, neutral",
-                                         "locks": {"*.qm_region": {"subsystems": ["ligand"],
-                                                                   "charge": 0}}}]},
-     "MANDATE_STAGE"),
+    # a lock that contradicts its stage is refused, whether or not anything compiled reads it
+    ({"decisions_yours": [{"said": "the em as dynamics", "locks": {"em.kind": "dynamics"}}]},
+     "MANDATE_STAGE", 2),  # it disagrees with the stage, and binds nothing compiled
     # numbers that select none of the residues a subsystem's names select name none to measure
     ({"subsystems": {**SUBSYSTEMS, "site": {"kind": "protein", "resnames": ["ALA", "JZ4"],
                                             "resid": ["500-510"]}},
@@ -612,6 +606,17 @@ QM_STAGE = {"name": "qmmm", "kind": "dynamics", "regime": "qmmm", "ensemble": "N
 
 WRITTEN = [
     ({}, lambda m, o: m.cost.estimate_core_h > 0 and not o.findings),
+    # a lock that binds no compiled key is dropped, its words kept, and said: on a field of
+    # the mandate outside the stages, on one nothing compiled reads, on a mapping's item
+    *(({**over, "decisions_yours": [{"said": "as stated", "locks": locks}]},
+       lambda m, o, kept=kept: m.decisions.yours[0].locks == kept
+       and "MANDATE_NOTE" in [f.id for f in o.findings])
+      for over, locks, kept in (
+          ({}, {"ceiling_core_h": 500}, {}),
+          ({}, {"em.kind": "minimize"}, {}),
+          (QMMM_WRITE, {"hot.qm_region.padding_nm": 0.4}, {}),
+          (QMMM_WRITE, {"*.qm_region": {"subsystems": ["ligand"], "charge": 0}},
+           {"*.qm_region": {"charge": 0}}))),
     # the estimate names what it leaves out
     ({"stages": [*STAGES, QM_STAGE]},
      lambda m, o: m.cost.unpriced == ["qmmm"] and m.cost.estimate_core_h > 0),
@@ -692,3 +697,22 @@ def test_the_force_field_resolves_to_the_method_that_computes_it(tmp_path, named
     assert (methods.specs["mm"].id if "mm" in methods.specs else None) == resolved
     assert bool(methods.missing) is (resolved is None)
 
+
+# (the stage's temperature, the ramp a render tells the engine): a ramp starts where its
+# stage-before ended and reaches the target at its last step; a stated start or rate stands
+RAMPS = [({"from_stage": "anneal", "to_k": 300}, (3.4, 300, 0.0197733)),
+         ({"from_stage": "anneal", "to_k": 300, "rate_k_per_au": 0.05}, (3.4, 300, 0.05)),
+         ({"from_stage": "anneal", "to_k": 300, "start_k": 10}, (10, 300, 0.0193333)),
+         (300, None)]
+
+
+@pytest.mark.parametrize("temperature,ramp", RAMPS)
+def test_a_ramp_starts_where_the_stage_before_ended(temperature, ramp):
+    from myrmidon.core.mandate import Ramp, Stage
+    from myrmidon.knowledge.stage import PS_PER, ramp_started
+
+    stage = Stage.model_validate(_qmmm_stage(name="heat", temperature_k=temperature,
+                                             steps=1500))
+    out = ramp_started(stage, 3.4, 10 * PS_PER["au"]).temperature_k
+    assert ((out.start_k, out.to_k, out.rate_k_per_au) if isinstance(out, Ramp)
+            else None) == ramp

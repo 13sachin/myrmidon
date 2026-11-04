@@ -396,6 +396,53 @@ def _carried(params: MandateWriteParams, held: mandates.Mandate) -> MandateWrite
     return params.model_copy(update={k: v for k, v in held_fields.items() if k not in stated})
 
 
+#: what a lock may name that no stage holds, and what holds it instead
+HELD_ELSEWHERE = {"ceiling_core_h": "ceiling_core_h, which the researcher approves,",
+                  "cost": "ceiling_core_h, which the researcher approves,",
+                  "subsystems": "the system's subsystems", "system": "the system",
+                  "hamiltonian": "the system's Hamiltonian",
+                  "deliverables": "the deliverables"}
+
+
+def _held_elsewhere_dropped(mandate: mandates.Mandate) -> list[str]:
+    """Drops each lock on a field of the mandate outside its stages (a path whose head is
+    no stage's name), keeping the decision's words, and says so: the approval or the
+    system already holds what it names."""
+    stages = {s.name for s in mandate.method.stages}
+    said = []
+    for decision in mandate.decisions.yours:
+        for path in list(decision.locks):
+            head = path.split(".")[0]
+            held = HELD_ELSEWHERE.get(head) if head not in stages else None
+            if held:
+                del decision.locks[path]
+                said.append(f"\"{decision.said}\": its lock on {path} is dropped, since "
+                            f"{held} holds it; the decision stands as its words")
+    return said
+
+
+def _unread_dropped(mandate: mandates.Mandate) -> list[str]:
+    """Drops each lock, or item of a locked mapping, that nothing the stages compile to
+    reads, keeping the decision's words, and says so. Run once the locks are known to agree
+    with the stages: a lock that contradicts its stage is refused, never dropped."""
+    from myrmidon.knowledge.stage import TemplateStore, unread_locks
+
+    said = []
+    for at, path, item, _ in unread_locks(mandate, TemplateStore.default()):
+        decision = mandate.decisions.yours[at]
+        held = decision.locks.get(path)
+        if item is not None and isinstance(held, dict):
+            held.pop(item, None)
+            if held:
+                said.append(f"\"{decision.said}\": its lock on {path}.{item} is dropped, "
+                            "since nothing the stages compile to reads it; the rest binds")
+                continue
+        decision.locks.pop(path, None)
+        said.append(f"\"{decision.said}\": its lock on {path} is dropped, since nothing the "
+                    "stages compile to reads it; the decision stands as its words")
+    return said
+
+
 def _built(params: MandateWriteParams, files: list, questions: list[str],
            existing: mandates.Mandate | None, approved: bool) -> mandates.Mandate:
     """The mandate the call states, with the revision it is."""
@@ -501,10 +548,14 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
     parts = _topology_parts(ctx, mandate)
     read = _read_system(ctx, mandate, params, facts, parts)
     unmeasured, subsystem_notes = _subsystem_reading(ctx, mandate, parts)
+    dropped = _held_elsewhere_dropped(mandate)
     unbound = [*mandates.lock_findings(mandate), *unmeasured]
+    if not unbound:
+        dropped += _unread_dropped(mandate)
     comp = compiled(ctx, mandate, facts)
     if unbound or comp.problems:  # what the researcher would approve cannot bind as written
         return _unbound([*unbound, *comp.problems])
+    comp.notes += dropped
     mandate.cost.estimate_core_h = comp.estimate_core_h
     mandate.cost.unpriced = list(comp.unpriced)
     mandate = mandates.write_mandate(ws, mandate)

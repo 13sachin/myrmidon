@@ -473,9 +473,15 @@ def _resolve_stage(ctx: ToolContext, params: InputSetApplyParams):
             id="INPUTSET_METHOD_MISSING", message="; ".join(methods.missing),
             suggestion="a method for it goes in the site layer, ~/.config/myrmidon/methods/",
             needs=["topology"])]
+    stage, read, started = _ramp_from_run(ctx, stage, methods)
     resolution = compile_stage(mandate, stage, template, templates=store, methods=methods,
                                facts=facts, overrides=params.overrides)
-    findings: list[Finding] = []
+    if read is not None:  # the ramp's keys trace to the log they were read from
+        for key in _from_run_keys(template, store):
+            if key in resolution.values and resolution.origin.get(key) != "user":
+                resolution.read[key] = read
+    findings: list[Finding] = [Finding(id="STAGE_RAMP_FROM_RUN", message=started)] \
+        if started else []
     if params.overrides:
         from myrmidon.core.lineage import same_words, satisfies
 
@@ -493,6 +499,57 @@ def _resolve_stage(ctx: ToolContext, params: InputSetApplyParams):
                 "locked; a job on this file is refused at submission",
                 suggestion="drop the override, or revise the mandate with the reason"))
     return template, None, resolution, findings
+
+
+def _from_run_keys(template, store) -> set[str]:
+    """The template's keys a render supplies from the run before (knowledge/stage.FROM_RUN)."""
+    from myrmidon.knowledge.stage import FROM_RUN, flattened
+
+    forms, _ = flattened(template, store)
+    return {key for key, form in forms.items() if form.from_stage in FROM_RUN}
+
+
+def _ramp_from_run(ctx: ToolContext, stage, methods):
+    """(the stage with its ramp started where the stage it ramps from ended, the record
+    of what was read, what to say): the final ionic temperature the engine log of that
+    stage's latest collected run states, read only when the log is the one collected.
+    The stage as it is, with why, while that stage has not run."""
+    from myrmidon.core.artifacts import sha256_file
+    from myrmidon.core.lineage import stage_run
+    from myrmidon.core.mandate import Ramp
+    from myrmidon.engines.facts import run_facts
+    from myrmidon.knowledge.stage import ramp_started
+
+    ramp = stage.temperature_k
+    if not isinstance(ramp, Ramp) or (ramp.start_k is not None
+                                      and ramp.rate_k_per_au is not None):
+        return stage, None, ""
+    step = methods.step_ps(stage.regime)
+    if ramp.start_k is not None:
+        return ramp_started(stage, ramp.start_k, step), None, ""
+    run = stage_run(ctx.workspace, ramp.from_stage)
+    log = next((a for a in (run[0] if run else []) if a.role == "qm_log"), None)
+    if run is None:
+        return stage, None, (f"stage {stage.name} ramps from where {ramp.from_stage} ended, "
+                             f"and no run of {ramp.from_stage} has been collected: run and "
+                             f"collect it first, or state the ramp's start_k")
+    if log is None:
+        return stage, None, (f"{ramp.from_stage}'s collected run wrote no CPMD log to read "
+                             "its final ionic temperature from: state the ramp's start_k")
+    path = ctx.workspace.root / log.path
+    if not path.is_file() or sha256_file(path) != log.sha256:
+        return stage, None, (f"{log.path} is not the log {ramp.from_stage}'s collected run "
+                             "wrote: the ramp's start is not read from it")
+    start = run_facts(path.read_text(errors="replace")).get("final_temperature_k")
+    if start is None:
+        return stage, None, f"{log.path} states no final ionic temperature to ramp from"
+    started = ramp_started(stage, start, step)
+    read = {"rule": f"final ionic temperature of {ramp.from_stage}'s run",
+            "files": [log.path], "sha256": log.sha256}
+    return started, read, (
+        f"stage {stage.name} ramps from {start:g} K, where {ramp.from_stage} ended "
+        f"({log.path}), to {ramp.to_k:g} K at {started.temperature_k.rate_k_per_au:g} K per "
+        "a.u., the rate that reaches it at the stage's last step at the method's time step")
 
 
 def _render_kind(resolution, output: str | None) -> str | None:
@@ -575,14 +632,22 @@ def inputset_apply_gate(ctx: ToolContext, params: InputSetApplyParams):
         return findings, checked
     warnings.extend(findings)
     checked.append("required_parameters")
+    # a ramp's keys come from the run it starts from: why they did not is what to act on
+    ramp = next((f.message for f in findings if f.id == "STAGE_RAMP_FROM_RUN"), None)
+    from_run_keys = set()
+    if ramp is not None:
+        from myrmidon.knowledge.stage import TemplateStore
+
+        from_run_keys = _from_run_keys(inputset, TemplateStore.default())
     for key, how in resolution.missing.items():
+        from_run = key in from_run_keys
         warnings.append(
             Precondition(
                 id="INPUTSET_REQUIRED_PARAM_MISSING",
                 message=f"{inputset.id} does not supply {key!r} and it was not given: "
                 f"{how}",
                 assumption=f"rendering without {key} would leave the engine to default it",
-                suggestion=f"confirm {key} and pass it in overrides",
+                suggestion=ramp if from_run else f"confirm {key} and pass it in overrides",
             )
         )
     checked.append("renderer")
