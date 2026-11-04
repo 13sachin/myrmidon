@@ -11,6 +11,10 @@ applicability: Any coupled dynamics stage continuing an earlier one — an NVE s
   a heating ramp, constant-temperature production — its thermostat chosen by the stage's
   ensemble and temperature.
 pricing: {throughput: s_per_step}
+# a Berendsen thermostat trails a moving target by about rate × τ, and the temperature a log
+# reports relaxes slower still, as part of each kinetic energy injected goes into potential
+# energy (2–3 τ in coupled acetone-in-water runs): held 10 τ, the ions reach the target
+ramp_hold_au: 5000
 parameters:
   '&CPMD/RESTART COORDINATES VELOCITIES WAVEFUNCTION':
     value: true
@@ -18,6 +22,14 @@ parameters:
     source: 0
   '&CPMD/MOLECULAR DYNAMICS BO': {value: true, source: 0}
   '&CPMD/TIMESTEP': {from_method: timestep_au}
+  '&CPMD/CONVERGENCE ORBITALS':
+    value: 1.0e-6
+    when: {thermostat: none}
+    rationale: an NVE stage is read for the conserved energy's drift, and Born-Oppenheimer
+      steps converged to CPMD's default 1e-5 can scatter its slope by the order of 1e-3 Ha/ps
+      over a sub-ps run of a small solvated QM region; 1e-6 is expected to bring that scatter
+      well under a drift check's threshold, at one to three more SCF iterations a step
+    source: 1
   '&CPMD/MAXSTEP': {from_stage: steps, required: true}
   '&CPMD/TEMPERATURE RAMP':
     from_stage: temperature_ramp
@@ -26,11 +38,13 @@ parameters:
     rationale: from the temperature the earlier stage ended at to the target, at the ramp's rate
   '&CPMD/BERENDSEN IONS':
     from_stage: ramp_start_k
-    with: [5000]
+    with: [500]
     required: true
     when: {thermostat: ramp}
-    rationale: a.u. coupling time of the Berendsen thermostat that carries the ramp
-    source: 0
+    rationale: a.u. coupling time τ of the Berendsen thermostat that carries the ramp, a
+      harness choice over the tutorial's 5000 a.u. — a thermostat trails a ramp by about rate
+      × τ, longer with the potential energy's share, and 5000 a.u. leaves a 1500-step heating
+      tens of K short; 500 a.u. (50 steps of 10 a.u.) is well inside Berendsen's stability
   '&CPMD/NOSE IONS':
     from_stage: temperature_k
     with: [4000]
@@ -45,4 +59,7 @@ sources:
 - kind: url
   text: MiMiC documentation — NVE check, heating and Nose-Hoover production of a coupled system.
   locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
-version: 1
+- kind: url
+  text: CPMD 4.3 manual — CONVERGENCE ORBITALS, the wavefunction gradient each step converges to.
+  locator: https://gitlab.com/mimic-project/cpmd/-/tree/72922c3/doc/manual/manual.tex#cpmd-convergence
+version: 2

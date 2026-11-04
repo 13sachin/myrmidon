@@ -135,6 +135,10 @@ class Template(BaseModel):
     extends: str | None = None
     applicability: str = ""
     pricing: dict[str, Any] = Field(default_factory=dict)
+    #: a.u. a ramping stage holds its target after the ramp: several of its thermostat's
+    #: relaxation times, so the ions reach the target before the stage ends; none, the
+    #: ramp ends at the stage's last step
+    ramp_hold_au: float | None = None
     parameters: dict[str, Form] = Field(default_factory=dict)
     sources: list[Source] = Field(min_length=1)
     pitfalls: list[str] = Field(default_factory=list)  # finding ids that bite this
@@ -387,11 +391,13 @@ def derived(stage: dict, mandate: Mandate, step_ps: float | None,
     return out
 
 
-def ramp_started(stage: Stage, start_k: float, step_ps: float | None) -> Stage:
+def ramp_started(stage: Stage, start_k: float, step_ps: float | None,
+                 hold_au: float | None = None) -> Stage:
     """The stage with its ramp started where the stage it ramps from ended (``start_k``,
     unless the stage states its start), and, when the stage states no rate, the rate that
-    reaches the target at its last step at the method's integration step. A stage that
-    does not ramp, or whose ramp states both, is returned as is."""
+    reaches the target ``hold_au`` before the stage ends (its template's hold; at most half
+    the stage, so a short stage still ramps over half of it), at the method's integration
+    step. A stage that does not ramp, or whose ramp states both, is returned as is."""
     ramp = stage.temperature_k
     if not isinstance(ramp, Ramp) or (ramp.start_k is not None
                                       and ramp.rate_k_per_au is not None):
@@ -401,7 +407,9 @@ def ramp_started(stage: Stage, start_k: float, step_ps: float | None) -> Stage:
     steps = stage.steps or (round(stage.duration_ps / step_ps)
                             if stage.duration_ps and step_ps else None)
     if rate is None and steps and step_ps:
-        rate = float(f"{(ramp.to_k - start) / (steps * step_ps / PS_PER['au']):.6g}")
+        total_au = steps * step_ps / PS_PER["au"]
+        ramp_au = max(total_au - (hold_au or 0.0), total_au / 2)
+        rate = float(f"{(ramp.to_k - start) / ramp_au:.6g}")
     return stage.model_copy(update={"temperature_k": ramp.model_copy(update={
         "start_k": start, "rate_k_per_au": rate})})
 

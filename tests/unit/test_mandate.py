@@ -699,10 +699,11 @@ def test_the_force_field_resolves_to_the_method_that_computes_it(tmp_path, named
 
 
 # (the stage's temperature, the ramp a render tells the engine): a ramp starts where its
-# stage-before ended and reaches the target at its last step; a stated start or rate stands
-RAMPS = [({"from_stage": "anneal", "to_k": 300}, (3.4, 300, 0.0197733)),
+# stage-before ended and reaches the target its template's hold (5000 a.u.) before the end
+# of 1500 steps of 10 a.u.; a stated start or rate stands
+RAMPS = [({"from_stage": "anneal", "to_k": 300}, (3.4, 300, 0.02966)),
          ({"from_stage": "anneal", "to_k": 300, "rate_k_per_au": 0.05}, (3.4, 300, 0.05)),
-         ({"from_stage": "anneal", "to_k": 300, "start_k": 10}, (10, 300, 0.0193333)),
+         ({"from_stage": "anneal", "to_k": 300, "start_k": 10}, (10, 300, 0.029)),
          (300, None)]
 
 
@@ -713,6 +714,6 @@ def test_a_ramp_starts_where_the_stage_before_ended(temperature, ramp):
 
     stage = Stage.model_validate(_qmmm_stage(name="heat", temperature_k=temperature,
                                              steps=1500))
-    out = ramp_started(stage, 3.4, 10 * PS_PER["au"]).temperature_k
+    out = ramp_started(stage, 3.4, 10 * PS_PER["au"], hold_au=5000).temperature_k
     assert ((out.start_k, out.to_k, out.rate_k_per_au) if isinstance(out, Ramp)
             else None) == ramp

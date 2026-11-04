@@ -202,10 +202,10 @@ def test_each_file_backed_stage_reproduces_the_published_input(reference):
 
 
 #: what each later coupled stage changes in the annealing input, as the tutorial page
-#: documents it
+#: documents it, and the NVE check's tighter wavefunction convergence
 DOCUMENTED = {
     "nve_check": {"&CPMD/RESTART COORDINATES VELOCITIES WAVEFUNCTION",
-                  "&CPMD/ANNEALING IONS", "&CPMD/TEMPERATURE"},
+                  "&CPMD/ANNEALING IONS", "&CPMD/TEMPERATURE", "&CPMD/CONVERGENCE ORBITALS"},
     "heat": {"&CPMD/RESTART COORDINATES VELOCITIES WAVEFUNCTION", "&CPMD/ANNEALING IONS",
              "&CPMD/TEMPERATURE", "&CPMD/TEMPERATURE RAMP", "&CPMD/BERENDSEN IONS"},
     "production": {"&CPMD/RESTART COORDINATES VELOCITIES WAVEFUNCTION", "&CPMD/ANNEALING IONS",

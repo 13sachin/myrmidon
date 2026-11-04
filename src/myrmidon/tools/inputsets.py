@@ -473,7 +473,7 @@ def _resolve_stage(ctx: ToolContext, params: InputSetApplyParams):
             id="INPUTSET_METHOD_MISSING", message="; ".join(methods.missing),
             suggestion="a method for it goes in the site layer, ~/.config/myrmidon/methods/",
             needs=["topology"])]
-    stage, read, started = _ramp_from_run(ctx, stage, methods)
+    stage, read, started = _ramp_from_run(ctx, stage, methods, template.ramp_hold_au)
     resolution = compile_stage(mandate, stage, template, templates=store, methods=methods,
                                facts=facts, overrides=params.overrides)
     if read is not None:  # the ramp's keys trace to the log they were read from
@@ -509,7 +509,7 @@ def _from_run_keys(template, store) -> set[str]:
     return {key for key, form in forms.items() if form.from_stage in FROM_RUN}
 
 
-def _ramp_from_run(ctx: ToolContext, stage, methods):
+def _ramp_from_run(ctx: ToolContext, stage, methods, hold_au: float | None = None):
     """(the stage with its ramp started where the stage it ramps from ended, the record
     of what was read, what to say): the final ionic temperature the engine log of that
     stage's latest collected run states, read only when the log is the one collected.
@@ -526,7 +526,7 @@ def _ramp_from_run(ctx: ToolContext, stage, methods):
         return stage, None, ""
     step = methods.step_ps(stage.regime)
     if ramp.start_k is not None:
-        return ramp_started(stage, ramp.start_k, step), None, ""
+        return ramp_started(stage, ramp.start_k, step, hold_au), None, ""
     run = stage_run(ctx.workspace, ramp.from_stage)
     log = next((a for a in (run[0] if run else []) if a.role == "qm_log"), None)
     if run is None:
@@ -543,13 +543,15 @@ def _ramp_from_run(ctx: ToolContext, stage, methods):
     start = run_facts(path.read_text(errors="replace")).get("final_temperature_k")
     if start is None:
         return stage, None, f"{log.path} states no final ionic temperature to ramp from"
-    started = ramp_started(stage, start, step)
+    started = ramp_started(stage, start, step, hold_au)
     read = {"rule": f"final ionic temperature of {ramp.from_stage}'s run",
             "files": [log.path], "sha256": log.sha256}
     return started, read, (
         f"stage {stage.name} ramps from {start:g} K, where {ramp.from_stage} ended "
         f"({log.path}), to {ramp.to_k:g} K at {started.temperature_k.rate_k_per_au:g} K per "
-        "a.u., the rate that reaches it at the stage's last step at the method's time step")
+        "a.u. at the method's time step"
+        + (f", reaching it {hold_au:g} a.u. before the stage ends and holding it" if hold_au
+           else ", reaching it at the stage's last step"))
 
 
 def _render_kind(resolution, output: str | None) -> str | None:
