@@ -14,6 +14,7 @@ from myrmidon.core.observation import Observation
 from myrmidon.core.tool import FileReader, ToolContext, tool
 from myrmidon.engines.inputs import resolve_in_ws
 from myrmidon.engines.mimic.diagnostics import (
+    dipole_facts,
     is_cpmd_output,
     parse_cpmd_output,
     read_local_errors,
@@ -114,6 +115,12 @@ def mimic_diagnose(ctx: ToolContext, params: MimicDiagnoseParams) -> Observation
             f"{facts['eclassic_fluctuation_ha']:.2g} Ha")
     elif facts.get("ion_temperature_control"):
         bits.append(f"ions under {facts['ion_temperature_control']}: ECLASSIC not conserved")
+    dipole_path = path.parent / "DIPOLE"
+    dipole = (dipole_facts(text, dipole_path.read_text(errors="replace"))
+              if dipole_path.is_file() else {})
+    if dipole:
+        bits.append(f"QM dipole over {dipole['dipole_steps']} steps: "
+                    f"{dipole['dipole_debye_mean']:.3g} ± {dipole['dipole_debye_sd']:.2g} D")
     if converged is False:
         bits.append("wavefunction NOT converged")
     # A log nothing could be read from is not a log that says the run was fine: a
@@ -145,6 +152,9 @@ def mimic_diagnose(ctx: ToolContext, params: MimicDiagnoseParams) -> Observation
         summary=summary,
         final_temperature_k=ionic.get("final_temperature_k"),
         tail_mean_temperature_k=ionic.get("tail_mean_temperature_k"),
+        mean_temperature_k=ionic.get("mean_temperature_k"),
+        sd_temperature_k=ionic.get("sd_temperature_k"),
+        **dipole,
         md_steps_completed=facts.get("md_steps_completed"),
         md_steps_requested=facts.get("md_steps_requested"),
         scf_last_iterations=facts.get("scf_last_iterations"),

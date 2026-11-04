@@ -16,6 +16,13 @@ RUN_FACTS = {
     "eclassic_fluctuation_ha": ("fluctuation about the fit", "Ha"),
     "finished_normally": ("finished normally", ""),
 }
+#: what DIPOLE DYNAMICS's file beside a coupled run's log states, with the log's cell volume
+DIPOLE_FACTS = {
+    "dipole_steps": ("steps of the QM dipole series", ""),
+    "dipole_debye_mean": ("mean magnitude of the QM dipole", "D"),
+    "dipole_debye_sd": ("its standard deviation", "D"),
+    "dipole_debye_last": ("last magnitude of the QM dipole", "D"),
+}
 #: what a GROMACS mdrun log states (``engines/gromacs/parse.run_facts``): the means are
 #: mdrun's own, averaged over the whole run, relaxation included
 GROMACS_FACTS = {
@@ -96,6 +103,19 @@ def run_values(text: str) -> list[tuple[str, object, str]]:
     facts = run_facts(text)
     table = RUN_FACTS if is_cpmd_text(text) else GROMACS_FACTS
     return [(label, facts[key], unit) for key, (label, unit) in table.items()
+            if key in facts]
+
+
+def dipole_values(log) -> list[tuple[str, object, str]]:
+    """The QM dipole as a report states it, from the DIPOLE file beside a CPMD log; none
+    when there is no such file."""
+    from myrmidon.engines.mimic.diagnostics import dipole_facts
+
+    dipole = log.parent / "DIPOLE"
+    if not dipole.is_file():
+        return []
+    facts = dipole_facts(log.read_text(errors="replace"), dipole.read_text(errors="replace"))
+    return [(label, facts[key], unit) for key, (label, unit) in DIPOLE_FACTS.items()
             if key in facts]
 
 

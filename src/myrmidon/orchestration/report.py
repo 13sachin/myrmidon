@@ -8,7 +8,7 @@ from myrmidon.core.lineage import stages_run
 from myrmidon.core.provenance import ProvenanceEvent
 from myrmidon.core.tool import REGISTRY
 from myrmidon.core.workspace import Workspace
-from myrmidon.engines.facts import engine_log, run_values
+from myrmidon.engines.facts import dipole_values, engine_log, run_values
 from myrmidon.errors import UnknownToolError
 from myrmidon.knowledge.observables import compile_deliverable
 from myrmidon.orchestration.summary import summarize
@@ -364,6 +364,11 @@ def run_lines(ws, events, label: str, rec, event_id: str) -> tuple[list[str], li
             lines.append(f"  - {name}: {_fmt(value)}{' ' + unit if unit else ''}")
             values.append(ReportValue(step=label, label=name, value=value, unit=unit,
                                       event=event_id, file=rel))
+        dipole = ws.relpath(out.parent / "DIPOLE")
+        for name, value, unit in dipole_values(out):
+            lines.append(f"  - {name}: {_fmt(value)}{' ' + unit if unit else ''} ({dipole})")
+            values.append(ReportValue(step=label, label=name, value=value, unit=unit,
+                                      event=event_id, file=dipole))
     found_lines, found = analysis_values(
         ws, events, ws.relpath(Path(rec.spec.cwd)),
         {a.path for a in collection_outputs(events, rec.job_id)})

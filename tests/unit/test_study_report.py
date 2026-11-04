@@ -83,6 +83,8 @@ def test_the_report_states_parsed_values_and_prose_around_them(ws_ctx, narrative
     from tests.unit.test_approvals import _sign
 
     _sign(ws_ctx)
+    inp = ws_ctx.workspace.root / run_inp  # the run writes the QM dipole beside its log
+    inp.write_text(inp.read_text().replace("&CPMD\n", "&CPMD\n DIPOLE DYNAMICS\n", 1))
     job = REGISTRY.call("mimic_run", ws_ctx, {"cpmd_input": run_inp, "tpr": tpr,
                                               "cpmd_ranks": 1, "gromacs_ranks": 1,
                                               "walltime_min": 10})
@@ -98,6 +100,8 @@ def test_the_report_states_parsed_values_and_prose_around_them(ws_ctx, narrative
     ledger = {ev.event_id: ev for ev in ws_ctx.workspace.ledger.events()}
     assert obs.values and all(ledger[v.event].tool == "mimic_run" for v in obs.values)
     assert [v.value for v in obs.values if v.label == "finished normally"] == [True]
+    assert [v.file.endswith("/DIPOLE") for v in obs.values
+            if v.label == "mean magnitude of the QM dipole"] == [True]
     written = (ws_ctx.workspace.root / output).read_text()
     assert all(text in written for text in narrative.values())
     headings = [line for line in written.splitlines() if line.startswith("## ")]

@@ -24,9 +24,11 @@ def _text(s):
     return lambda: s
 
 
-def _diagnose(ws_ctx, cpmd_out, err=None, local_error=None):
+def _diagnose(ws_ctx, cpmd_out, err=None, local_error=None, dipole=None):
     stage = Path(ws_ctx.workspace.stage("qmmm"))
     (stage / "cpmd.out").write_text(cpmd_out())
+    if dipole:
+        (stage / "DIPOLE").write_text(dipole())
     if err:
         (stage / "cpmd.err").write_text(err())
     if local_error:
@@ -79,21 +81,30 @@ def _finished_with(line):
     return lambda: FINISHED().replace(BANNER, line + BANNER, 1)
 
 
-# (cpmd.out, LocalError log, ok, diagnosis): a run that ended normally with every step it
-# asked for is judged by its facts and by CPMD's own error file, never by a line of text
+#: four steps of a real coupled production's DIPOLE file, in the cell of FINISHED's log
+DIPOLE = _fixture(CPMD / "mimic_production.DIPOLE")
+
+# (cpmd.out, LocalError log, DIPOLE file, ok, diagnosis, the dipole's mean in debye): a run
+# that ended normally with every step it asked for is judged by its facts and by CPMD's own
+# error file, never by a line of text; the dipole is the file's total times the cell volume
 COMPLETED = [
-    (FINISHED, None, True, None),
-    (_finished_with(SCF_LINE), None, True, None),
-    (_finished_with(SCF_LINE), _text(" error message: SCF failed\n"), False,
-     "CPMD aborted: SCF failed"),
+    (FINISHED, None, None, True, None, None),
+    (FINISHED, None, DIPOLE, True, None, 8.3668),
+    (_finished_with(SCF_LINE), None, None, True, None, None),
+    (_finished_with(SCF_LINE), _text(" error message: SCF failed\n"), None, False,
+     "CPMD aborted: SCF failed", None),
 ]
 
 
-@pytest.mark.parametrize("cpmd_out,local_error,ok,diagnosis", COMPLETED,
-                         ids=["clean", "a_stray_line", "witnessed_by_local_error"])
+@pytest.mark.parametrize("cpmd_out,local_error,dipole,ok,diagnosis,debye", COMPLETED,
+                         ids=["clean", "with_dipole", "a_stray_line",
+                              "witnessed_by_local_error"])
 def test_a_completed_run_is_judged_by_its_facts_and_cpmds_error_file(
-        ws_ctx, cpmd_out, local_error, ok, diagnosis):
-    obs = _diagnose(ws_ctx, cpmd_out, local_error=local_error)
+        ws_ctx, cpmd_out, local_error, dipole, ok, diagnosis, debye):
+    obs = _diagnose(ws_ctx, cpmd_out, local_error=local_error, dipole=dipole)
+    assert getattr(obs, "dipole_debye_mean", None) == (
+        pytest.approx(debye, abs=1e-3) if debye else None)
+    assert obs.mean_temperature_k is not None
     assert obs.ok is ok, obs.summary
     assert obs.diagnosis == diagnosis
     assert obs.md_steps_completed == obs.md_steps_requested == 1000

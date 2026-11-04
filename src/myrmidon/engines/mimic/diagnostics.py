@@ -215,6 +215,40 @@ def nve_drift(text: str) -> dict:
     return facts
 
 
+_OMEGA_RE = re.compile(r"VOLUME\(OMEGA IN BOHR\^3\):\s*([\d.]+)")
+#: one atomic unit of dipole moment (e bohr) in debye
+_AU_DEBYE = 2.541746
+
+
+def dipole_facts(text: str, dipole: str) -> dict:
+    """The QM region's dipole moment from the DIPOLE file DIPOLE DYNAMICS writes beside the
+    log. Each row is the step, the electronic and the total dipole per cell volume (a.u.);
+    the total, measured about the centre of ionic charge, times the volume the log states is
+    the moment. Its magnitude in debye per step, as mean, standard deviation and last. CPMD
+    takes each Berry phase in (-pi/2, pi/2), so a component of the moment wraps at half its
+    cell vector: a QM region polar enough to reach it shows as a jump in the series. A row
+    that does not read as seven numbers (a line a killed run left half written) is skipped."""
+    omega = _OMEGA_RE.search(text)
+    rows = []
+    for ln in dipole.splitlines():
+        try:
+            row = [float(x) for x in ln.split()]
+        except ValueError:
+            continue
+        if len(row) == 7:
+            rows.append(row[4:7])
+    if not omega or not rows:
+        return {}
+    import numpy as np
+
+    total = np.array(rows) * float(omega.group(1))
+    debye = np.linalg.norm(total, axis=1) * _AU_DEBYE
+    return {"dipole_steps": len(rows), "dipole_debye_mean": float(debye.mean()),
+            "dipole_debye_sd": float(debye.std(ddof=1)) if len(rows) > 1 else 0.0,
+            "dipole_debye_last": float(debye[-1]),
+            "dipole_au_mean": [float(v) for v in total.mean(axis=0)]}
+
+
 def parse_cpmd_output(text: str) -> dict:
     facts: dict = {}
     steps = [

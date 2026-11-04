@@ -212,6 +212,7 @@ if "FORCE_MATCHING" in inp_text:
             fh.write("  ]\n}\n")
 print(" PROGRAM CPMD STARTED")
 print(" TIME STEP FOR IONS:                                 10.0000")
+print(" VOLUME(OMEGA IN BOHR^3):                              9727.28109")
 print(f" {control}")
 print(" NFI      GEMAX       CNORM           ETOT        DETOT      TCPU")
 print("   1     5.153E-05   1.2E-03      -17.130293     0.000E+00    31.66")
@@ -242,6 +243,12 @@ with open("ENERGIES", "w") as fh:
         fh.write(f"   {nfi}   0.00000000   {max(0.0, temperature(nfi)):.3f}  -17.12345678\n")
 with open("GEOMETRY", "w") as fh:
     fh.write("  0.0  0.0  0.0  0.0  0.0  0.0\n")
+if "DIPOLE DYNAMICS" in inp_text:
+    # real CPMD's rows: the step, the electronic and the total dipole per cell volume (a.u.)
+    with open("DIPOLE", "w") as fh:
+        for nfi in range(1, n_steps + 1):
+            d = (-1.13e-04, -3.20e-04, -2.56e-05 + 1e-7 * (nfi % 5))
+            fh.write(f"{nfi:7d}" + "".join(f"  {v:16.6E}" for v in d * 2) + "\n")
 
 print(" PROGRAM CPMD ENDED AT:   Thu Jan  1 12:00:00 2026")
 print(" CPU TIME :    0 HOURS  0 MINUTES  1 SECONDS")
