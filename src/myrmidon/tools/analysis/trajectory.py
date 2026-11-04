@@ -185,6 +185,7 @@ def _from_deliverable(ctx: ToolContext, params: TrajParams) -> TrajParams:
                     f"measured with {key} {value!r}, as the mandate states")
             for key, value in compiled.params.items()
             if key in params.model_fields_set and getattr(params, key) != value]
+    said += [Finding(id="DELIVERABLE_NOTE", message=m) for m in compiled.notes]
     read: list[ArtifactRef] = []
     if params.trajectory and found.over:
         given = ArtifactRef.from_path(resolve_in_ws(ctx, params.trajectory), "trajectory",

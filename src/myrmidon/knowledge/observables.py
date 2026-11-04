@@ -56,6 +56,7 @@ class CompiledDeliverable(BaseModel):
     over: str = ""
     statistics: list[str] = Field(default_factory=list)
     problems: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)  # measurable, but worth a second look
 
     def line(self) -> str:
         """The measurement as the researcher reads it beside the deliverable."""
@@ -160,6 +161,12 @@ def compile_deliverable(mandate: Mandate, deliverable: Deliverable) -> CompiledD
             if d.align_to is not None and (
                     fit := side(d.align_to.subsystem, "superposition", d.align_to.atoms)):
                 out.params["fit_selection"] = fit[0]
+                if d.align_to.subsystem == d.target and fit[1] not in POLYMERS:
+                    out.notes.append(
+                        f"{d.name}: superposed on {d.target} itself, the {d.property} "
+                        f"measures the change of {d.target}'s shape, not where it sits; its "
+                        "pose in a binding site is measured after superposing the "
+                        "macromolecule (align_to a protein or nucleic subsystem)")
             # a ligand is measured against the pocket it sits in, not a periodic image
             out.params["unwrap"] = True
             if start == "stage_start":

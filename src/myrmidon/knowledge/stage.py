@@ -932,6 +932,7 @@ def compile_mandate(mandate: Mandate, *, templates: TemplateStore, methods: Meth
         if d.property:
             measured = compile_deliverable(mandate, d)
             out.problems += measured.problems
+            out.notes += measured.notes
             out.measured[d.name] = measured.line()
     out.problems = list(dict.fromkeys(out.problems))
     out.estimate_core_h = round(out.estimate_core_h, 3)

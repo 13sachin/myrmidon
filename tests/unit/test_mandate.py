@@ -430,6 +430,10 @@ OBSERVABLES = [
     ({"property": "rmsd", "target": "ligand", "atoms": "heavy",
       "align_to": {"subsystem": "receptor", "atoms": "backbone"}},
      ("fit_selection", "moltype Protein_chain_A and backbone")),
+    # superposed on itself, a ligand's RMSD is its change of shape: measured, and noted
+    ({"property": "rmsd", "target": "ligand", "atoms": "heavy",
+      "align_to": {"subsystem": "ligand", "atoms": "heavy"}},
+     ("fit_selection", "resname JZ4 and not name H*")),
     ({"property": "rmsd", "target": "ligand", "atoms": "heavy"}, ("reference_frame", 0)),
     ({"property": "min_distance", "target": "ligand", "reference": "receptor",
       "atoms": "heavy"}, ("selection", "resname JZ4 and not name H*")),
@@ -449,6 +453,8 @@ def test_a_deliverable_compiles_to_its_measurement_or_says_why_it_cannot(deliver
         assert len(out.problems) == 1, out.problems
     else:
         assert out.problems == [] and out.params[compiles[0]] == compiles[1], out
+        assert bool(out.notes) is (deliverable.get("align_to", {}).get("subsystem")
+                                   == deliverable.get("target") == "ligand")
 
 
 def test_a_deliverable_is_measured_as_approved_over_its_stages_run(ws_ctx, complex_system,
