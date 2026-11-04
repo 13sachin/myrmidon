@@ -286,6 +286,24 @@ class Resolution(BaseModel):
         return not self.missing
 
 
+def engine_number(value: Any) -> Any:
+    """A computed number as an engine input states it: integral floats as integers, the
+    rest without float noise."""
+    if isinstance(value, float):
+        value = float(f"{value:.10g}")
+        return int(value) if value.is_integer() and abs(value) >= 1 else value
+    return value
+
+
+def engine_value(value: Any) -> Any:
+    """A value as an engine input file states it: a list of numbers (a CPMD line, a
+    per-group mdp value) as its items separated by spaces, each as engine_number states
+    it; anything else as it is. So the file, its sidecar and the ledger hold one form."""
+    if not isinstance(value, (list, tuple)):
+        return value
+    return " ".join(str(engine_number(v)) for v in value)
+
+
 def resolve(
     inputset: InputSet,
     overrides: dict[str, Any] | None = None,
@@ -307,7 +325,7 @@ def resolve(
             spelled.setdefault(_identity(catalog, key), key)
     given: dict[str, Any] = {}
     for key, value in (overrides or {}).items():
-        given[spelled.get(_identity(catalog, key), key)] = value
+        given[spelled.get(_identity(catalog, key), key)] = engine_value(value)
 
     resolution = Resolution(
         inputset=inputset.id,

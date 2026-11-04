@@ -43,6 +43,8 @@ from myrmidon.knowledge.inputsets import (
     _identity,
     _per_coupling_group,
     engine_key,
+    engine_number,
+    engine_value,
     owner_of,
 )
 from myrmidon.knowledge.layered import LayeredStore, Scope
@@ -408,15 +410,6 @@ def _stage_value(stage: dict, quantities: dict, name: str):
     return quantities[name] if name in quantities else field_value(stage, name)
 
 
-def _number(value: Any) -> Any:
-    """A computed number as an engine input states it: integral floats as integers, the
-    rest without float noise."""
-    if isinstance(value, float):
-        value = float(f"{value:.10g}")
-        return int(value) if value.is_integer() and abs(value) >= 1 else value
-    return value
-
-
 def _applies(form: Form, quantities: dict) -> bool:
     for name, wanted in form.when.items():
         have = quantities.get(name)
@@ -463,7 +456,7 @@ def compile_stage(mandate: Mandate, stage: Stage | dict | str, template: Templat
     name = view.get("name", "*")
 
     def place(key: str, value: Any, origin: str) -> None:
-        res.values[key] = _number(value) if not isinstance(value, bool) else value
+        res.values[key] = engine_number(value) if not isinstance(value, bool) else value
         res.origin[key] = origin
         if catalog is not None and engine_key(catalog, key) is not None:
             res.owner[key] = owner_of(origin)
@@ -519,9 +512,9 @@ def compile_stage(mandate: Mandate, stage: Stage | dict | str, template: Templat
                     res.unbuildable[key] = why
             continue
         if form.repeat:
-            value = " ".join([str(_number(value))] * int(quantities.get(form.repeat) or 1))
+            value = " ".join([str(engine_number(value))] * int(quantities.get(form.repeat) or 1))
         if form.with_:
-            value = " ".join(str(_number(v)) for v in (value, *form.with_))
+            value = " ".join(str(engine_number(v)) for v in (value, *form.with_))
         if form.in_key:
             key, value = f"{key} {value}", True
         place(key, value, origin)
@@ -529,6 +522,7 @@ def compile_stage(mandate: Mandate, stage: Stage | dict | str, template: Templat
     # an override by the spelling the template writes its key in: one key, one line
     spelled = {_identity(catalog, k): k for k in [*params, *res.values]}
     for given, value in (overrides or {}).items():
+        value = engine_value(value)
         key = spelled.get(_identity(catalog, given), given)
         was = res.values.get(key)
         if key not in res.values:
@@ -576,7 +570,7 @@ def _uniform(value):
     """The one number a per-group value repeats (``"300 300"``), else the value."""
     numbers = _numbers(value)
     if isinstance(value, str) and numbers and len(numbers) > 1 and len(set(numbers)) == 1:
-        return _number(numbers[0])
+        return engine_number(numbers[0])
     return value
 
 
@@ -638,7 +632,7 @@ def _constraint(form: Form, how: str, values: list):
         firsts = [(_numbers(v) or [None])[0] for v in values]
         if None not in firsts:
             free = [None] * len(form.with_)
-            ends = sorted({_number(f) for f in firsts})
+            ends = sorted({engine_number(f) for f in firsts})
             if how == "any" and len(ends) > 1:
                 return [{"min": [e, *free], "max": [e, *free]} for e in ends]
             return {"min": [ends[0], *free], "max": [ends[-1], *free]}
@@ -646,7 +640,7 @@ def _constraint(form: Form, how: str, values: list):
         numbers = [_numbers(v) for v in values]
         if all(n is not None and len(n) == 1 for n in numbers):
             ends = [n[0] for n in numbers]
-            return {"min": _number(min(ends)), "max": _number(max(ends))}
+            return {"min": engine_number(min(ends)), "max": engine_number(max(ends))}
     kept = list(dict.fromkeys(values))
     return kept[0] if len(kept) == 1 else kept
 

@@ -401,3 +401,17 @@ def test_the_surfaced_traps_land_in_the_ledger(ws_ctx):
     event = list(ws_ctx.workspace.ledger.events())[-1]
     assert event.tool == "inputset_apply"
     assert set(obs.pitfalls) <= set(event.knowledge_refs)
+
+
+# (an override as a model gives it, the value the file, its sidecar and the ledger hold): a
+# list of numbers is one engine line, its items separated by spaces, without float noise
+OVERRIDDEN = [("3.4 300 0.02", "3.4 300 0.02"), ([3.4, 300, 0.0197733], "3.4 300 0.0197733"),
+              ([3.4, 300.0, 1234567.0], "3.4 300 1234567")]
+
+
+@pytest.mark.parametrize("given,held", OVERRIDDEN)
+def test_an_override_is_held_as_the_engine_line_it_renders(given, held):
+    _, resolution = compiled("heat", "cpmd", **{"&CPMD/TEMPERATURE RAMP": given,
+                                                "&CPMD/BERENDSEN IONS": "3.4 5000"})
+    assert resolution.values["&CPMD/TEMPERATURE RAMP"] == held
+    assert render_cpmd_from_values(resolution.values).count(f"  {held}\n") == 1
