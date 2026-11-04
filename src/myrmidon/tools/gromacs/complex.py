@@ -21,7 +21,7 @@ from myrmidon.core.contracts import Contract, Produces
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext, tool
 from myrmidon.core.validation import Finding
-from myrmidon.engines.gromacs.common import read_gro_info, stage_topology
+from myrmidon.engines.gromacs.common import read_gro_info, stage_output, stage_topology
 from myrmidon.engines.gromacs.complex import (
     gro_line,
     itp_block,
@@ -153,7 +153,7 @@ def complex_assemble(ctx: ToolContext, params: ComplexParams) -> Observation:
             "COMPLEX_NO_FORCEFIELD_INCLUDE",
             f"{params.topology} has no #include of a force field's forcefield.itp, after "
             "which the ligand's atom types go", ["topology"]))
-    top = stage / f"{params.output_prefix}.top"
+    top = stage_output(stage, f"{params.output_prefix}.top")
     top.write_text(text)
     if staged != top:
         staged.unlink()
@@ -163,7 +163,7 @@ def complex_assemble(ctx: ToolContext, params: ComplexParams) -> Observation:
     n_protein = len(protein_lines)
     merged = [*protein_lines, *(gro_line(ln, last_res + 1, n_protein + i + 1)
                                 for i, ln in enumerate(ligand_lines))]
-    gro = stage / f"{params.output_prefix}.gro"
+    gro = stage_output(stage, f"{params.output_prefix}.gro")
     gro.write_text("\n".join([f"{title.strip()} + {molecule}", f"{len(merged):5d}",
                               *merged, box]) + "\n")
 

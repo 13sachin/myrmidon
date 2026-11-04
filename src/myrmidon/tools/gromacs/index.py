@@ -25,7 +25,11 @@ from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext, tool
 from myrmidon.core.validation import Finding, Precondition
 from myrmidon.engines.gromacs.common import run_gmx, stage_output, tail
-from myrmidon.engines.gromacs.index import ndx_groups, rejected_ndx_commands
+from myrmidon.engines.gromacs.index import (
+    ndx_groups,
+    rejected_ndx_commands,
+    resolve_repeated_names,
+)
 from myrmidon.engines.gromacs.itp import expanded_topology, molecule_layout, molecule_of
 from myrmidon.engines.inputs import resolve_in_ws
 
@@ -97,7 +101,15 @@ def gmx_make_ndx(ctx: ToolContext, params: MakeNdxParams) -> Observation:
     args = ["make_ndx", "-f", str(resolve_in_ws(ctx, params.structure)), "-o", str(out)]
     if params.index:
         args += ["-n", str(resolve_in_ws(ctx, params.index))]
-    proc = run_gmx(ctx, args, cwd=stage, stdin="\n".join([*params.commands, "q"]) + "\n")
+    commands, resolved = params.commands, []
+    if any('"' in c for c in commands):  # the groups a quoted name could mean, as listed
+        probe = stage / f".{out.name}.groups.ndx"
+        probe.unlink(missing_ok=True)
+        listed = run_gmx(ctx, [*args[:4], str(probe), *args[5:]], cwd=stage, stdin="q\n")
+        if listed.returncode == 0 and probe.exists():
+            commands, resolved = resolve_repeated_names(commands, ndx_groups(probe.read_text()))
+        probe.unlink(missing_ok=True)
+    proc = run_gmx(ctx, args, cwd=stage, stdin="\n".join([*commands, "q"]) + "\n")
     command = list(proc.args)
     if proc.returncode != 0 or not out.exists():
         return Observation(
@@ -114,6 +126,7 @@ def gmx_make_ndx(ctx: ToolContext, params: MakeNdxParams) -> Observation:
                 int(parts[1]) < len(groups) and groups[int(parts[1])].name == parts[2]):
             rejected.append((cmd, "no group was renamed: that group number does not exist"))
     created = groups[n_before:]
+    resolution = [Finding(id="NDX_NAME_RESOLVED", message="; ".join(resolved))] if resolved else []
     if rejected:
         return Observation(
             ok=False,
@@ -126,7 +139,7 @@ def gmx_make_ndx(ctx: ToolContext, params: MakeNdxParams) -> Observation:
                 suggestion="a group number counts every group before it, including any a "
                 "failed command left behind; build the index again from the commands that "
                 "were meant, reading the numbers from `groups`",
-            )],
+            ), *resolution],
             log_tail=tail(proc.stdout, 40),
             groups=groups,
             created=created,
@@ -153,11 +166,12 @@ def gmx_make_ndx(ctx: ToolContext, params: MakeNdxParams) -> Observation:
         artifacts=[ArtifactRef.from_path(out, "index", root=ctx.workspace.root)],
         groups=groups,
         created=created,
-        findings=[Finding(
+        findings=[*([Finding(
             id="NDX_GROUP_NAME_REPEATED",
             message="more than one group is named " + ", ".join(repeated) + ": a run "
             "parameter naming it takes the first, whatever the others hold",
-            suggestion="build the index again with one group per name")] if repeated else [],
+            suggestion="build the index again with one group per name")] if repeated else []),
+            *resolution],
     )
 
 

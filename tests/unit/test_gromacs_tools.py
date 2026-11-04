@@ -164,6 +164,29 @@ def test_commands_make_ndx_skipped_are_read_from_its_output(output, skipped):
     assert [c for c, _ in rejected_ndx_commands(real, sent)] == skipped
 
 
+# (commands, what make_ndx is sent): a quoted name that several default groups share for
+# one set of atoms (a ligand's residue and its molecule) is the first one's number; a name
+# whose groups differ, or that one group holds, is sent as written, and so is every command
+# after one that renumbers or renames groups
+DEFAULT_GROUPS = [("System", [1, 2, 3, 4]), ("Protein", [1, 2]), ("LIG", [3]),
+                  ("Other", [3, 4]), ("LIG", [3]), ("CL", [4]), ("CL", [4, 5])]
+QUOTED = [
+    (['"Protein" | "LIG"'], ['"Protein" | 2']),
+    (['"Protein" | "lig"'], ['"Protein" | 2']),  # GROMACS matches a name whatever its case
+    (['"CL"'], ['"CL"']),
+    (['"Other"', "name 7 Lig"], ['"Other"', "name 7 Lig"]),
+    (['"LIG"', "del 0", '"LIG"'], ["2", "del 0", '"LIG"']),
+]
+
+
+@pytest.mark.parametrize(("commands", "sent"), QUOTED)
+def test_a_name_default_groups_repeat_for_one_set_of_atoms_is_resolved(commands, sent):
+    from myrmidon.engines.gromacs.index import resolve_repeated_names
+
+    out, said = resolve_repeated_names(commands, DEFAULT_GROUPS)
+    assert out == sent and bool(said) is (out != commands)
+
+
 def _moltype(name, n):
     rows = "".join(f"{i} X 1 {name} A{i} {i} 0.0 1.0\n" for i in range(1, n + 1))
     return f"[ moleculetype ]\n{name} 3\n[ atoms ]\n{rows}\n"
