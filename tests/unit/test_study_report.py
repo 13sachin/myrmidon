@@ -1,0 +1,142 @@
+"""`study_report`: the report is the product of a study.
+
+Every value in it is parsed from a run's own output and names the ledger event and file it
+came from; the model writes prose around the values and never a value of its own.
+"""
+
+from pathlib import Path
+
+import pytest
+from tests.unit.findings_catalog import blocking
+
+from myrmidon.core.tool import REGISTRY
+from myrmidon.engines.facts import run_values
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+CPMD = FIXTURES / "cpmd"
+
+# What a run's log states, from real CPMD 4.3 and GROMACS 2021.6 logs, told apart by the
+# log itself. (log, label -> value)
+LOGS = [
+    ("cpmd/mimic_nve_test.out", {"ionic temperature control": "none (energy conserved)",
+                                 "MD steps completed": 1000, "simulated time": 0.2416,
+                                 "conserved-energy drift": -3.025e-4,
+                                 "finished normally": True}),
+    ("cpmd/mimic_heating_berendsen.out", {
+        "ionic temperature control": "Berendsen-style thermostat",
+        "MD steps completed": 30, "final ionic temperature": 95.5,
+        # the last 3 of 30 steps: 94.7, 95.3, 95.5 K
+        "mean ionic temperature over the last 10 % of steps": 95.1667,
+        "finished normally": False}),
+    ("cpmd/acetone_bomd_running.out", {"MD steps completed": 2, "final ionic temperature": 0.4}),
+    # a completed classical NPT run: mdrun's own averages over the run, and its last line
+    ("gromacs/mdrun_npt_completed.log", {
+        "MD steps completed": 100000, "simulated time": 200.0,
+        "mean temperature over the run (mdrun's average)": 299.701,
+        "mean pressure over the run (mdrun's average)": 2.1228,
+        "mean potential energy over the run (mdrun's average)": -52550.7,
+        "energy frames the averages are over": 1001,
+        "performance": 390.119, "finished normally": True}),
+    # a completed steepest-descent minimisation: its own closing lines, no simulated time
+    ("gromacs/mdrun_em_completed.log", {
+        "minimisation steps": 312, "minimisation converged to its force tolerance": True,
+        "final potential energy": -122544.34, "final maximum force": 997.66,
+        "finished normally": True}),
+]
+
+
+@pytest.mark.parametrize("log,expected", LOGS)
+def test_a_runs_values_are_read_from_its_log(log, expected):
+    found = {label: value for label, value, _ in run_values((FIXTURES / log).read_text())}
+    for label, value in expected.items():
+        assert found[label] == (pytest.approx(value, rel=1e-3)
+                                if isinstance(value, float) else value), label
+    if "conserved-energy drift" not in expected:  # only an unthermostatted run has one
+        assert "conserved-energy drift" not in found
+
+
+# (the prose, the file name, the finding that refuses it)
+NARRATED = [
+    ({}, "report.md", None),
+    ({"results": "The run is the production segment the mandate asked for."}, "report.md",
+     None),
+    # the prose is the model's and stands as written; the values are the section's
+    ({"question": "The question is about 100 ps of dynamics."}, "report.md", None),
+    ({"results": "It sampled 4242 MD steps."}, "report.md", None),
+    # a fixed section whatever the key's case and spacing; another name a section of its own
+    ({"Results ": "Read as the results.", "What_ran": "Four stages.", "summary": "All went well.",
+      "SUMMARY": "Said twice."}, "report.md", None),
+    ({}, "../report.md", "REPORT_OUTPUT_NOT_IN_STUDY"),
+]
+
+
+@pytest.mark.parametrize("narrative,output,finding", NARRATED)
+def test_the_report_states_parsed_values_and_prose_around_them(ws_ctx, narrative, output,
+                                                               finding):
+    from tests.unit.test_mimic import _full_mimic_setup, _wait
+
+    run_inp, tpr = _full_mimic_setup(ws_ctx)
+    assert REGISTRY.call("mandate_write", ws_ctx, {
+        "question": "100 ps of QM/MM dynamics of the solute?", "ceiling_core_h": 10.0,
+        "system_files": [{"path": tpr, "kind": "tpr"}],
+        "deliverables": [{"name": "the production run"}]}).ok
+    from tests.unit.test_approvals import _sign
+
+    _sign(ws_ctx)
+    job = REGISTRY.call("mimic_run", ws_ctx, {"cpmd_input": run_inp, "tpr": tpr,
+                                              "cpmd_ranks": 1, "gromacs_ranks": 1,
+                                              "walltime_min": 10})
+    assert job.ok, job.summary
+    _wait(ws_ctx, job.job_id)
+
+    obs = REGISTRY.call("study_report", ws_ctx, {"narrative": narrative, "output": output})
+    if finding:
+        assert not obs.ok
+        assert [w.id for w in blocking(obs)] == [finding]
+        return
+    assert obs.ok, obs.summary
+    ledger = {ev.event_id: ev for ev in ws_ctx.workspace.ledger.events()}
+    assert obs.values and all(ledger[v.event].tool == "mimic_run" for v in obs.values)
+    assert [v.value for v in obs.values if v.label == "finished normally"] == [True]
+    written = (ws_ctx.workspace.root / output).read_text()
+    assert all(text in written for text in narrative.values())
+    headings = [line for line in written.splitlines() if line.startswith("## ")]
+    assert len(set(headings)) == len(headings)
+    if "summary" in narrative:
+        assert written.index("## Summary") > written.index("## The record")
+        assert written.index("Read as the results.") < written.index("## Deviations")
+
+
+def test_an_analysis_is_reported_under_the_run_whose_files_it_read(ws_ctx):
+    """Runs share a directory; an analysis of one run's energy file is that run's and no
+    other's. Only a run whose collection recorded no files falls back to the directory."""
+    from myrmidon.core.artifacts import ArtifactRef
+    from myrmidon.core.provenance import ProvenanceEvent
+    from myrmidon.orchestration.report import analysis_values, collection_outputs
+
+    def collected_files(events, job):
+        return {a.path for a in collection_outputs(events, job)}
+
+    ws = ws_ctx.workspace
+    (ws.root / "07_analysis").mkdir(exist_ok=True)
+    xvg = ws.root / "07_analysis" / "md_energy.xvg"
+    xvg.write_text('@ s0 legend "Temperature"\n0 299.0\n10 301.0\n20 300.0\n')
+    xvg_ref = ArtifactRef.from_path(xvg, "data", root=ws.root)
+
+    def ref(path):
+        return ArtifactRef(path=path, role="edr", sha256="0" * 64, size_bytes=1)
+
+    events = [
+        ProvenanceEvent(tool="job_status", params={"job_id": "job-em"},
+                        outputs=[ref("06_run/em.edr")]),
+        ProvenanceEvent(tool="job_status", params={"job_id": "job-md"},
+                        outputs=[ref("06_run/md.edr")]),
+        ProvenanceEvent(tool="gmx_energy", params={"terms": ["Temperature"]},
+                        inputs=[ref("06_run/md.edr")], outputs=[xvg_ref]),
+    ]
+    assert collected_files(events, "job-md") == {"06_run/md.edr"}
+    for job, n_values in (("job-em", 0), ("job-md", 3)):
+        _, values = analysis_values(ws, events, "06_run", collected_files(events, job))
+        assert len(values) == n_values, job
+    _, values = analysis_values(ws, events, "06_run", collected_files(events, "job-none"))
+    assert len(values) == 3

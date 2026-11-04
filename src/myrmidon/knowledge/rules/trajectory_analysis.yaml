@@ -1,0 +1,19 @@
+# What a careful researcher notices in a trajectory measurement before reading its number.
+# Read over the two selections of a pair metric (tools/analysis/trajectory): the side that
+# holds hydrogens and the one that holds none, with how many its own residues carry.
+sensors:
+  - id: SELECTIONS_TREAT_HYDROGENS_DIFFERENTLY
+    subject: selection_pair
+    when: {metric: [mindist, contacts], hydrogens_with: {gt: 0}, hydrogens_without: 0,
+           residue_hydrogens_without: {gt: 0}}
+    sees: >-
+      {metric}: '{with_hydrogens}' holds {hydrogens_with} hydrogens and '{without_hydrogens}'
+      none of the {residue_hydrogens_without} its residues carry
+    means: >-
+      the distance runs from every atom of one side to the heavy atoms of the other, which
+      is neither a heavy-atom distance nor an all-atom one: it reads longer than the
+      all-atom distance and shorter than the heavy-atom one
+    usual_move: >-
+      measure both sides alike — 'and not name H*' on both for heavy atoms, or neither for
+      every atom — as the deliverable states it
+    status: candidate

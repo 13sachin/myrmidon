@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+
+# Myrmidon workspaces & local state (never commit study data)
+workspaces/
+*.ledger.jsonl
+
+# Per-host / private config
+.myrmidon.toml
+config.local.toml
+
+# OS / editor
+.DS_Store
+~$*
+.idea/
+.vscode/
+
+# Claude Code per-user overrides (project settings.json is shared)
+.claude/settings.local.json
+
+# SLURM logs never belong in the checkout root (submit from a workspace / script_run instead)
+/*.log

@@ -1,0 +1,25 @@
+id: gromacs.interactions
+engine: gromacs
+renders: mdp
+title: How GROMACS computes a force field's interactions
+applicability: The keys every classical GROMACS stage shares, read from the force field's
+  method; never rendered alone.
+parameters:
+  cutoff-scheme: {value: Verlet, source: 0}
+  coulombtype: {from_method: electrostatics}
+  rcoulomb: {from_method: cutoff_nm}
+  rvdw: {from_method: cutoff_nm}
+  vdw-modifier: {from_method: vdw_modifier}
+  rvdw-switch: {from_method: vdw_switch_nm}
+  DispCorr: {from_method: dispersion_correction}
+  constraints: {from_method: constraints}
+  constraint-algorithm: {value: lincs, source: 1}
+  pbc: {value: xyz, source: 0}
+sources:
+- kind: engine_manual
+  text: GROMACS reference manual, molecular dynamics parameters (mdp options).
+  locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html
+- kind: doi
+  text: Hess, J. Chem. Theory Comput. 4, 116 (2008) — P-LINCS constraints.
+  locator: doi:10.1021/ct700200b
+version: 1

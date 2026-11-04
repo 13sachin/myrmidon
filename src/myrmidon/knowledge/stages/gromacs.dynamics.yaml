@@ -1,0 +1,83 @@
+id: gromacs.dynamics
+extends: gromacs.interactions
+engine: gromacs
+renders: mdp
+kinds: [dynamics]
+regimes: [mm]
+title: Classical dynamics in the stage's ensemble
+applicability: Any classical dynamics stage — restrained NVT or NPT equilibration, free
+  production — its length, temperature, pressure and restraints from the stage, its
+  interactions from the force field's method, its groups and starting state from the system.
+pricing: {throughput: ns_per_day}
+parameters:
+  integrator: {value: md, source: 0}
+  nsteps: {from_stage: steps, required: true}
+  dt: {from_method: timestep_fs, unit: ps}
+  define:
+    from_system: restraint_defines
+    for: restraints
+    rationale: the position restraints of the subsystems the stage holds, and only those
+  refcoord-scaling:
+    by_stage: barostat
+    map: {NPT_restrained: com}
+    rationale: restraint references scale with the box's centre of mass under pressure coupling
+    source: 0
+  continuation:
+    from_system: starting_state
+    rationale: a structure carrying velocities continues the run that wrote it
+  gen-vel:
+    from_system: starting_state
+    rationale: a structure without velocities starts from rest and draws them
+  gen-temp: {from_stage: temperature_k}
+  gen-seed: {value: -1, rationale: random; fix it to reproduce a run exactly, source: 0}
+  tcoupl:
+    by_stage: thermostat
+    map: {none: 'no', constant: V-rescale}
+    required: true
+    rationale: a temperature ramp is not a thermostat this template writes
+    source: 1
+  tc-grps: {from_system: coupling_groups, when: {thermostat: constant}}
+  tau-t: {value: 0.1, when: {thermostat: constant}, source: 1}
+  ref-t: {from_stage: temperature_k, when: {thermostat: constant}}
+  pcoupl:
+    by_stage: barostat
+    map: {none: 'no', NPT_restrained: C-rescale, NPT_from_rest: C-rescale,
+      NPT_free: Parrinello-Rahman}
+    rationale: stochastic cell rescaling relaxes a restrained box, or one whose velocities are
+      drawn afresh, robustly; Parrinello-Rahman samples the isothermal-isobaric ensemble once a
+      box continuing earlier dynamics has relaxed, and grompp warns of it on fresh velocities
+    source: 2
+  pcoupltype:
+    by_stage: geometry
+    map: {bulk: isotropic, membrane: semiisotropic}
+    when: {barostat: [NPT_restrained, NPT_from_rest, NPT_free]}
+    rationale: a membrane's plane and its normal relax apart
+    source: 0
+  tau-p: {value: 2.0, when: {barostat: [NPT_restrained, NPT_from_rest, NPT_free]}, source: 0}
+  ref-p:
+    from_stage: pressure_bar
+    repeat: pressure_axes
+    when: {barostat: [NPT_restrained, NPT_from_rest, NPT_free]}
+  compressibility:
+    value: 4.5e-05
+    repeat: pressure_axes
+    rationale: water's, in 1/bar; once per axis the box relaxes along
+    when: {barostat: [NPT_restrained, NPT_from_rest, NPT_free]}
+    source: 0
+  nstxout-compressed: {from_stage: sampling_steps, default: 5000}
+  nstenergy: {from_stage: sampling_steps, default: 5000}
+  nstlog: {from_stage: sampling_steps, default: 5000}
+sources:
+- kind: engine_manual
+  text: GROMACS reference manual, molecular dynamics parameters (mdp options).
+  locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html
+- kind: doi
+  text: Bussi, Donadio, Parrinello, J. Chem. Phys. 126, 014101 (2007) — the velocity-rescaling
+    thermostat.
+  locator: doi:10.1063/1.2408420
+- kind: doi
+  text: Bernetti, Bussi, J. Chem. Phys. 153, 114107 (2020) — stochastic cell rescaling;
+    Parrinello, Rahman, J. Appl. Phys. 52, 7182 (1981) — the Parrinello-Rahman barostat.
+  locator: doi:10.1063/5.0020514
+pitfalls: [NDX_COMMAND_REJECTED]
+version: 1

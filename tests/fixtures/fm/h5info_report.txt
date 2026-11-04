@@ -1,0 +1,8 @@
+HDF5 File Information:
+File: FMTRAJECTORY.h5
+Size: 82.03 MB
+Configurations: 2000
+Configuration Details:
+  config_0: 492 atoms (10 QM, 482 MM)
+  config_1: 492 atoms (10 QM, 482 MM)
+  ... and 1995 more configurations

@@ -1,0 +1,39 @@
+netCDF4 is not available. Writing AMBER ncdf files will be slow.
+
+Some atom types had no atom number information.
+They were guessed as follows:
+
++---------------------+
+| Atom Type | Element |
++---------------------+
+|     c     |    C    |
++---------------------+
+|     c3    |    C    |
++---------------------+
+|     o     |    O    |
++---------------------+
+|     hc    |    H    |
++---------------------+
+|   OW_spc  |    O    |
++---------------------+
+|   HW_spc  |    H    |
++---------------------+
+
+ 	                ***** MiMiCPy *****                  
+
+ 	                Running version 0.3.0
+	For more information type mimicpy [subcommand] --help 
+
+=====> Running prepqm <=====
+
+
+**Reading topology**
+
+
+**Reading coordinates**  |Done
+
+Please enter selection below. For more information type 'help'
+> The selection did not return any atoms
+> 
+=====> Done <=====
+

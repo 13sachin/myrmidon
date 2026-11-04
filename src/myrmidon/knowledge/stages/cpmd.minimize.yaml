@@ -1,0 +1,29 @@
+id: cpmd.minimize
+extends: cpmd.mimic
+engine: cpmd
+renders: cpmd_inp
+reads: qm
+kinds: [minimize]
+regimes: [qmmm]
+title: Annealing a coupled QM/MM system into a minimum
+applicability: The first coupled run on a classically equilibrated system — Born-Oppenheimer
+  dynamics with the ionic velocities scaled down each step, so the QM region relaxes under QM
+  forces.
+pricing: {throughput: s_per_step}
+parameters:
+  '&CPMD/MOLECULAR DYNAMICS BO': {value: true, source: 0}
+  '&CPMD/ANNEALING IONS':
+    value: 0.95
+    rationale: ionic velocities scaled by this factor every step
+    source: 0
+  '&CPMD/TEMPERATURE': {from_stage: temperature_k}
+  '&CPMD/TIMESTEP': {from_method: timestep_au}
+  '&CPMD/MAXSTEP': {from_stage: steps, required: true}
+  '&CPMD/TRAJECTORY SAMPLE': {from_stage: sampling_steps, default: 10}
+  '&CPMD/STORE': {from_stage: sampling_steps, default: 10}
+  '&CPMD/RESTFILE': {value: 1, source: 0}
+sources:
+- kind: url
+  text: MiMiC documentation — annealing the coupled system before dynamics.
+  locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
+version: 1

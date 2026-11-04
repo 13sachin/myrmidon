@@ -1,0 +1,116 @@
+id: gromacs.npt
+axis: purpose
+engine: gromacs
+renders: mdp
+title: NPT equilibration, the solute restrained
+system_class: any solvated system, after minimisation or a restrained NVT
+scope: engine
+applicability: 'The density relaxed at constant pressure with the solute still held by the restraints
+  its topology defines: after an NVT run (continuing from its velocities) or straight after minimisation
+  (drawing new ones). How long is the researcher''s.'
+parameters:
+  integrator:
+    value: md
+    source: 0
+  nsteps:
+    required_from_user: true
+    derivable: the equilibration length the researcher asks for, in time, divided by dt. The tutorial
+      ran 200 ps for its solute; a larger or slower system needs longer, and whether it was long enough
+      is read from gmx_energy, not assumed.
+  define:
+    from_system: restraint_defines
+    rationale: the topology's solute restraints, all on, so the solute holds while the box relaxes
+    derivable: pass the topology
+  continuation:
+    from_system: starting_state
+    rationale: a structure carrying velocities continues the run that wrote it; one without starts
+      from rest and draws velocities
+    derivable: pass the structure the run starts from
+  gen-vel:
+    from_system: starting_state
+    rationale: a structure carrying velocities continues the run that wrote it; one without starts
+      from rest and draws velocities
+    derivable: pass the structure the run starts from
+  gen-temp:
+    same_as: ref_t
+    rationale: velocities are drawn at the temperature the run is coupled to
+  gen_seed:
+    value: -1
+    rationale: random; fix it to reproduce a run exactly
+    source: 1
+  tcoupl:
+    value: V-rescale
+    source: 2
+  tc-grps:
+    from_system: coupling_groups
+    rationale: the solute and the solvent in their own baths when an index splits them, a protein
+      and the rest when one is present, the whole system otherwise; a ligand of a few dozen atoms
+      is never a bath of its own
+    derivable: pass the topology (and the index a gmx_make_ndx split wrote)
+  tau_t:
+    value: 0.1
+    source: 0
+  ref_t:
+    value: 300
+    overrides: researcher
+    rationale: the temperature the tutorials run at; a question about another temperature states it
+    source: 0
+  pcoupl:
+    value: C-rescale
+    source: 3
+  pcoupltype:
+    value: isotropic
+    source: 0
+  tau_p:
+    value: 2.0
+    source: 0
+  ref_p:
+    value: 1.0
+    overrides: researcher
+    rationale: atmospheric pressure; a question about another pressure states it
+    source: 0
+  compressibility:
+    value: 4.5e-05
+    rationale: water's, in 1/bar
+    source: 0
+  refcoord_scaling:
+    value: com
+    rationale: position restraints under pressure coupling move their reference with the box's centre
+      of mass scaled, not with every coordinate
+    source: 0
+  nstxout-compressed:
+    value: 500
+    source: 0
+  nstenergy:
+    value: 500
+    source: 0
+  nstlog:
+    value: 500
+    source: 0
+  pbc:
+    value: xyz
+    source: 0
+sources:
+- kind: tutorial
+  text: Lemkul, "Protein-Ligand Complex" GROMACS tutorial (T4 lysozyme L99A with JZ4, PDB 3HTB), npt.mdp
+    — the restrained NPT stage with the ligand coupled to the protein.
+  locator: http://www.mdtutorials.com/gmx/complex/06_equil.html
+- kind: tutorial
+  text: 'MiMiC acetone-in-water tutorial, the input archive published by the MiMiC project. Downloaded
+    with the command the tutorial gives; template.inp, mini.mdp, heat.mdp, mimic.mdp, sele.dat and
+    pp_info.dat are copied verbatim into tests/fixtures/mimic_tutorial/. sha256 is of template.inp.
+
+    '
+  locator: https://gitlab.com/mimic-project/mimic-docs/-/tree/main/docs/tutorials/AcetoneTutorial
+  sha256: 51e3952370e541dac4f2da20dd526cceba4aa016117daa62878bb73dbe425440
+- kind: doi
+  text: Bussi, Donadio, Parrinello, J. Chem. Phys. 126, 014101 (2007) — the velocity-rescaling thermostat.
+    doi:10.1063/1.2408420
+  locator: doi:10.1063/1.2408420
+- kind: doi
+  text: Bernetti, Bussi, J. Chem. Phys. 153, 114107 (2020) — the stochastic cell-rescaling barostat.
+    doi:10.1063/5.0020514
+  locator: doi:10.1063/5.0020514
+pitfalls:
+- NDX_COMMAND_REJECTED
+version: 1

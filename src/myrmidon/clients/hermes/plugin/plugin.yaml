@@ -1,0 +1,8 @@
+name: myrmidon
+version: "1.0"
+description: >-
+  The myrmidon simulation harness beside the person: the approval gate the model cannot
+  answer, the look at where the study stands, and the study's views as slash commands.
+provides_hooks:
+  - pre_tool_call
+  - pre_llm_call

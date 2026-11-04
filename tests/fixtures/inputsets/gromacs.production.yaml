@@ -1,0 +1,94 @@
+id: gromacs.production
+axis: purpose
+engine: gromacs
+renders: mdp
+title: Unrestrained production at constant pressure
+system_class: any equilibrated solvated system
+scope: engine
+applicability: Unrestrained dynamics of an equilibrated system at constant pressure, continuing from
+  the NPT run's state and writing compressed frames for analysis. How long is the researcher's.
+parameters:
+  integrator:
+    value: md
+    source: 0
+  nsteps:
+    required_from_user: true
+    derivable: the production length the researcher asks for, in time, divided by dt. The tutorial
+      runs 10 ns; a short check of the ligand staying bound runs far less.
+  continuation:
+    from_system: starting_state
+    rationale: a structure carrying velocities continues the run that wrote it; one without starts
+      from rest and draws velocities
+    derivable: pass the structure the run starts from
+  gen-vel:
+    from_system: starting_state
+    rationale: a structure carrying velocities continues the run that wrote it; one without starts
+      from rest and draws velocities
+    derivable: pass the structure the run starts from
+  gen-temp:
+    same_as: ref_t
+    rationale: velocities are drawn at the temperature the run is coupled to
+  tcoupl:
+    value: V-rescale
+    source: 1
+  tc-grps:
+    from_system: coupling_groups
+    rationale: the solute and the solvent in their own baths when an index splits them, a protein
+      and the rest when one is present, the whole system otherwise; a ligand of a few dozen atoms
+      is never a bath of its own
+    derivable: pass the topology (and the index a gmx_make_ndx split wrote)
+  tau_t:
+    value: 0.1
+    source: 0
+  ref_t:
+    value: 300
+    overrides: researcher
+    rationale: the temperature the tutorials run at; a question about another temperature states it
+    source: 0
+  pcoupl:
+    value: Parrinello-Rahman
+    source: 2
+    rationale: samples the isothermal-isobaric ensemble once the box has relaxed
+  pcoupltype:
+    value: isotropic
+    source: 0
+  tau_p:
+    value: 2.0
+    source: 0
+  ref_p:
+    value: 1.0
+    overrides: researcher
+    rationale: atmospheric pressure; a question about another pressure states it
+    source: 0
+  compressibility:
+    value: 4.5e-05
+    rationale: water's, in 1/bar
+    source: 0
+  nstxout-compressed:
+    value: 5000
+    rationale: a frame every 10 ps
+    source: 0
+  nstenergy:
+    value: 5000
+    source: 0
+  nstlog:
+    value: 5000
+    source: 0
+  pbc:
+    value: xyz
+    source: 0
+sources:
+- kind: tutorial
+  text: Lemkul, "Protein-Ligand Complex" GROMACS tutorial (T4 lysozyme L99A with JZ4, PDB 3HTB), md.mdp
+    — the unrestrained production stage with the ligand coupled to the protein.
+  locator: http://www.mdtutorials.com/gmx/complex/07_md.html
+- kind: doi
+  text: Bussi, Donadio, Parrinello, J. Chem. Phys. 126, 014101 (2007) — the velocity-rescaling thermostat.
+    doi:10.1063/1.2408420
+  locator: doi:10.1063/1.2408420
+- kind: doi
+  text: Parrinello, Rahman, J. Appl. Phys. 52, 7182 (1981) — the Parrinello-Rahman barostat. doi:10.1063/1.328693
+  locator: doi:10.1063/1.328693
+pitfalls:
+- NDX_COMMAND_REJECTED
+version: 1

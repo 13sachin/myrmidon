@@ -1,0 +1,48 @@
+id: gromacs.mimic
+extends: gromacs.interactions
+engine: gromacs
+renders: mdp
+kinds: [minimize, dynamics, single_point]
+regimes: [qmmm]
+ensembles: [NVE, NVT]
+title: The GROMACS half of a MiMiC QM/MM stage
+applicability: The MM side of any coupled stage; CPMD integrates and thermostats the whole
+  system, GROMACS supplies the MM forces.
+parameters:
+  integrator: {value: mimic, source: 0}
+  nsteps:
+    from_stage: steps
+    default: 100000
+    rationale: inert under the mimic integrator, which runs until CPMD's MAXSTEP ends it
+  dt:
+    value: 0.001
+    rationale: unused by the mimic integrator, which takes CPMD's step
+    source: 0
+  continuation: {value: 'yes', source: 0}
+  gen-vel: {value: 'no', source: 0}
+  constraints:
+    value: none
+    rationale: the QM atoms move under QM forces and cannot be constrained
+    source: 0
+  tcoupl:
+    value: 'no'
+    rationale: CPMD thermostats the whole system; a GROMACS thermostat counts it twice
+    source: 0
+  pcoupl: {value: 'no', source: 0}
+  QMMM-grps: {from_system: qm_group}
+  nstxout: {by_stage: kind, map: {single_point: 1, minimize: 50, dynamics: 50}, source: 0}
+  nstfout: {by_stage: kind, map: {single_point: 1}, source: 0}
+  nstenergy: {by_stage: kind, map: {single_point: 1, minimize: 50, dynamics: 50}, source: 0}
+sources:
+- kind: url
+  text: MiMiC documentation, the GROMACS side of a coupled run (integrator mimic, QMMM-grps).
+  locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
+invariants:
+- id: MIMIC_MDP_MUST_NOT_THERMOSTAT
+  equal: [$tcoupl, 'no']
+  message: 'the GROMACS side of a MiMiC run must not thermostat: CPMD integrates and thermostats
+    the whole system, so a GROMACS thermostat double-counts'
+- id: MIMIC_MDP_MUST_NOT_CONSTRAIN
+  equal: [$constraints, none]
+  message: constraints on the QM molecule fight the QM forces; the quantum solute has to be flexible
+version: 1

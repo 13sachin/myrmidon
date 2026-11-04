@@ -1,0 +1,42 @@
+id: charmm36
+kind: mm
+title: CHARMM36 / CHARMM36m force fields with CGenFF ligands
+forcefields: [charmm36]
+applicability: How the interactions of a CHARMM36-family topology are computed — proteins,
+  nucleic acids, lipids — whatever the engine.
+parameters:
+  timestep_fs:
+    value: 2.0
+    rationale: bonds to hydrogen constrained
+    source: 0
+  constraints:
+    value: h-bonds
+    source: 0
+  cutoff_nm:
+    value: 1.2
+    source: 0
+  vdw_modifier:
+    value: force-switch
+    rationale: Lennard-Jones forces switched off smoothly between vdw_switch_nm and the cutoff,
+      as the force field was parameterised
+    source: 0
+  vdw_switch_nm:
+    value: 1.0
+    source: 0
+  electrostatics:
+    value: PME
+    source: 0
+  dispersion_correction:
+    value: 'no'
+    rationale: the switched Lennard-Jones is part of the parameterisation; a lipid monolayer is
+      the documented exception
+    source: 0
+sources:
+- kind: engine_manual
+  text: GROMACS user guide, Force fields — CHARMM36 in GROMACS 5.0 and newer (constraints,
+    force-switched LJ from 1.0 to 1.2 nm, PME at 1.2 nm, no dispersion correction).
+  locator: https://manual.gromacs.org/2021.6/user-guide/force-fields.html
+- kind: doi
+  text: Huang et al., Nat. Methods 14, 71 (2017) — CHARMM36m.
+  locator: doi:10.1038/nmeth.4067
+version: 1

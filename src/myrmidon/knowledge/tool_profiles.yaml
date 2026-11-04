@@ -1,0 +1,20 @@
+# Which tools a client is shown, by the kind of question (config: `tool_profile`). `core` is
+# always shown; a profile adds the tools its kind of study is carried out with. Every other
+# registered tool stays one `tool_lookup` and `tool_run` away. `tool_profile = "all"` shows
+# every tool whose engines this machine has.
+core: [study_open, study_create, file_read, file_write, file_check, doctor, skill_lookup,
+       tool_lookup, knowledge_search, inputset_lookup, inputset_apply, protocol_lookup,
+       protocol_preview, mandate_write, mandate_show, job_status, job_cancel, journal_write,
+       script_run, study_report]
+prep: [fetch_pdb, lookup, structure_select, ligand_parametrize, complex_assemble,
+       gmx_pdb2gmx, gmx_editconf, gmx_solvate, gmx_genion, gmx_make_ndx, gmx_genrestr]
+md: [fetch_pdb, structure_select, ligand_parametrize, complex_assemble, gmx_pdb2gmx,
+     gmx_editconf, gmx_solvate, gmx_genion, gmx_make_ndx, gmx_genrestr, gmx_grompp,
+     gmx_mdrun, checkpoint_continue, gmx_energy, traj_analyze, series_convergence]
+qmmm: [gmx_grompp, gmx_make_ndx, mimic_select_qm, mimic_prepare, mimic_run, mimic_diagnose,
+       gmx_energy, traj_analyze, series_convergence]
+fm: [traj_frames, traj_concat, fm_displace_plan, mimic_select_qm, mimic_prepare, mimic_run,
+     mimic_diagnose, fm_collect, fm_merge, fm_frame_report, fm_plan, fm_fit, gmx_grompp,
+     gmx_rerun, gmx_minimize_frames, fm_force_compare, fm_report]
+analysis: [gmx_energy, traj_analyze, traj_frames, series_convergence, viz_open, viz_command,
+           session_summary]

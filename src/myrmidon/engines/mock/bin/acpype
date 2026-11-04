@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Mock acpype (2023.10.27) for unit tests.
+
+Writes what acpype -o gmx writes into <basename>.acpype/ for the molecule it is given:
+<b>_GMX.itp opening with its [ atomtypes ], <b>_GMX.gro in the input's pose (nm),
+<b>_GMX.top with [ defaults ] and the itp's #include, posre_<b>.itp, and sqm.out for -c bcc;
+and prints acpype's own lines, recorded from a real run. Atom types follow the element (a
+real run perceives them); the charges sum to -n exactly, as antechamber's do. Duplicate
+atom names are numbered as acpype numbers them (H, H1, H2, ...).
+
+MOCK_ACPYPE_FAIL=sqm   antechamber stops on a failed sqm run, as acpype reports it
+"""
+
+import os
+import sys
+
+BANNER = (
+    "============================================================================\n"
+    "| ACPYPE: AnteChamber PYthon Parser interfacE v. 2023.10.27 (c) 2026 AWSdS |\n"
+    "============================================================================"
+)
+#: (type, mass, sigma nm, epsilon kJ/mol) per element; the six GAFF2 rows are a real run's
+TYPES = {"C": ("c3", 12.01, 3.39771e-01, 4.51035e-01),
+         "O": ("oh", 16.00, 3.24287e-01, 3.89112e-01),
+         "H": ("hc", 1.008, 2.60018e-01, 8.70272e-02),
+         "N": ("n3", 14.01, 3.38417e-01, 3.58652e-01),
+         "S": ("ss", 32.06, 3.53241e-01, 1.18156e+00)}
+
+
+def arg(flag, default=None):
+    return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
+
+
+def read_atoms(path):
+    atoms = []
+    for line in open(path, errors="replace"):
+        if line.startswith(("ATOM", "HETATM")):
+            line = line.ljust(80)
+            name = line[12:16].strip()
+            element = (line[76:78].strip() or name.lstrip("0123456789")[:1]).upper()
+            atoms.append((name, line[17:20].strip(), element,
+                          float(line[30:38]), float(line[38:46]), float(line[46:54])))
+    return atoms
+
+
+def numbered(names):
+    seen, out = {}, []
+    for name in names:
+        k = seen.get(name, 0)
+        out.append(name if k == 0 else f"{name}{k}")
+        seen[name] = k + 1
+    return out
+
+
+def main():
+    src, base = arg("-i"), arg("-b") or "MOL"
+    method, charge = arg("-c", "bcc"), int(arg("-n", "0"))
+    print(BANNER)
+    if src is None or not os.path.exists(src):
+        print(f"ERROR: input file {src} not found")
+        return 1
+    print(f"==> ... charge set to {charge}")
+    print("==> ... converting pdb input file to mol2 input file\n==> * Babel OK *")
+    print("==> Executing Antechamber...")
+    if os.environ.get("MOCK_ACPYPE_FAIL") == "sqm":
+        print("ERROR: Antechamber failed")
+        return 0
+    print("==> * Antechamber OK *\n==> * Parmchk OK *\n==> Executing Tleap...\n"
+          "==> * Tleap OK *")
+    atoms = read_atoms(src)
+    out = f"{base}.acpype"
+    os.makedirs(out, exist_ok=True)
+    names = numbered([a[0] for a in atoms])
+    each = round(charge / len(atoms), 6)
+    charges = [each] * (len(atoms) - 1) + [round(charge - each * (len(atoms) - 1), 6)]
+    used = list(dict.fromkeys(a[2] if a[2] in TYPES else "C" for a in atoms))
+    stamp = f"created by acpype (v: 2023.10.27) on mock"
+    itp = [f"; {base}_GMX.itp {stamp}", "", "[ atomtypes ]",
+           ";name   bond_type     mass     charge   ptype   sigma         epsilon       Amb"]
+    for el in used:
+        t, _, sig, eps = TYPES[el]
+        itp.append(f" {t:<8} {t:<11} 0.00000  0.00000   A     {sig:.5e}   {eps:.5e}")
+    itp += ["", "[ moleculetype ]", ";name            nrexcl", f" {base:<16} 3", "",
+            "[ atoms ]", ";   nr  type  resi  res  atom  cgnr     charge      mass"]
+    for i, (a, name, q) in enumerate(zip(atoms, names, charges), start=1):
+        t, mass, _, _ = TYPES.get(a[2], TYPES["C"])
+        itp.append(f"{i:6d}   {t:<4} {1:5d}   {base:<4} {name:>5} {i:5d} {q:12.6f} "
+                   f"{mass:12.5f}")
+    itp += ["", "[ bonds ]", ";   ai     aj funct   r             k", ""]
+    with open(os.path.join(out, f"{base}_GMX.itp"), "w") as fh:
+        fh.write("\n".join(itp) + "\n")
+    rows = [f"{1:5d}{base:<5}{name:>5}{i:5d}{x / 10:8.3f}{y / 10:8.3f}{z / 10:8.3f}"
+            for i, (name, (_, _, _, x, y, z)) in enumerate(zip(names, atoms), start=1)]
+    with open(os.path.join(out, f"{base}_GMX.gro"), "w") as fh:
+        fh.write("\n".join([f"{base}_GMX.gro {stamp}", f" {len(atoms)}", *rows,
+                            "    3.00000     3.00000     3.00000"]) + "\n")
+    with open(os.path.join(out, f"{base}_GMX.top"), "w") as fh:
+        fh.write(f"; {base}_GMX.top {stamp}\n\n[ defaults ]\n"
+                 "; nbfunc        comb-rule       gen-pairs       fudgeLJ fudgeQQ\n"
+                 "1               2               yes             0.5     0.8333333333\n\n"
+                 f'; Include {base}_GMX.itp topology\n#include "{base}_GMX.itp"\n\n'
+                 f'; Ligand position restraints\n#ifdef POSRES_LIG\n#include "posre_{base}.itp"'
+                 f"\n#endif\n\n[ system ]\n {base}\n\n[ molecules ]\n"
+                 f"; Compound        nmols\n {base:<16} 1     \n")
+    with open(os.path.join(out, f"posre_{base}.itp"), "w") as fh:
+        fh.write("\n[ position_restraints ]\n; atom  type      fx      fy      fz\n" + "".join(
+            f"{i:6d}     1  1000  1000  1000\n" for i in range(1, len(atoms) + 1)))
+    if method == "bcc":
+        with open(os.path.join(out, "sqm.out"), "w") as fh:
+            fh.write("| QMMM: AM1\n\n           --------- Calculation Completed ----------\n")
+    print("==> Removing temporary files...\n==> Writing GROMACS files\n")
+    print("==> Writing GMX dihedrals for GMX 4.5 and higher.\n")
+    print("Total time of execution: 1s")
+    return 0
+
+
+if __name__ == "__main__":
+    if "-v" in sys.argv:
+        print(BANNER)
+        sys.exit(0)
+    sys.exit(main())

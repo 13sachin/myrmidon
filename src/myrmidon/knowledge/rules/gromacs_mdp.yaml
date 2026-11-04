@@ -1,0 +1,222 @@
+# What a careful researcher notices in a GROMACS run-parameter file, before grompp reads it.
+# Each record is read over the mdp as parsed (keys lowercase, '-' as '_'); the `each: key`
+# ones over every key as the version's catalog describes it (status: obsolete, renamed,
+# out_of_scope). What grompp itself refuses (an unknown key, a ref-t or tau-t count that
+# does not match tc-grps, an unset ref-t under a thermostat) is grompp's to say, not these.
+sensors:
+  - id: MDP_KEY_OBSOLETE
+    subject: mdp
+    engine: gromacs
+    each: key
+    when: {status: obsolete}
+    sees: "{key}: an obsolete key; grompp of GROMACS {version} ignores it"
+    means: "the value written there has no effect on the run"
+    usual_move: "remove {key}"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp options, the version's list of obsolete keys
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html
+
+  - id: MDP_KEY_RENAMED
+    subject: mdp
+    engine: gromacs
+    each: key
+    when: {status: renamed}
+    sees: "{key}: grompp reads it as {renamed_to}"
+    means: "the run takes the value under the current name; a reader of the file may not"
+    usual_move: "spell it {renamed_to}"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp options
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html
+
+  - id: MDP_KEY_OUT_OF_SCOPE
+    subject: mdp
+    engine: gromacs
+    each: key
+    when: {status: out_of_scope}
+    sees: "{key} = {value}: no stage template or input set states this key (the engine default is {default})"
+    means: "nothing the harness ships reasons about it, so its value is the file's alone"
+    usual_move: "leave {key} at the engine default unless the study is about it"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp options, the key's documented default
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html
+
+  - id: MDP_KEY_UNKNOWN
+    subject: mdp
+    engine: gromacs
+    each: key
+    when: {status: unknown}
+    sees: "{key}: GROMACS {version} reads no such key"
+    means: "grompp stops on an unknown key, unless max_warn hides the warning and the value is silently dropped"
+    usual_move: "check the spelling against the mdp options"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp options
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html
+
+  - id: MDP_DT_LARGE
+    subject: mdp
+    engine: gromacs
+    when: {integrator: {not: [steep, cg, l-bfgs]}, dt: {gt: 0.004}}
+    sees: "dt = {dt} ps"
+    means: "above 4 fs atomistic dynamics are unstable even with all bonds constrained, unless virtual sites or heavier hydrogens slow the fastest motions; grompp's own warning about it can be hidden by max_warn"
+    usual_move: "dt <= 0.002 ps (0.004 only with virtual sites or hydrogen mass repartitioning)"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp option dt
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html#mdp-dt
+
+  - id: MDP_DT_UNSET
+    subject: mdp
+    engine: gromacs
+    when: {integrator: {not: [steep, cg, l-bfgs]}, dt: null}
+    sees: "dt is not set"
+    means: "GROMACS defaults dt to 0.001 ps; the run length is nsteps times that"
+    assumption: "dt = 0.001 ps"
+    usual_move: "set dt explicitly (0.002 with constraints = h-bonds)"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp option dt
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html#mdp-dt
+
+  - id: MDP_DT_LARGE_NO_CONSTRAINTS
+    subject: mdp
+    engine: gromacs
+    when: {integrator: {not: [steep, cg, l-bfgs]}, dt: {gt: 0.0015}, constraints: [none, null]}
+    sees: "dt = {dt} ps with constraints = {constraints}"
+    means: "X-H bond vibrations are faster than the step: energy conservation degrades and the run can blow up within picoseconds"
+    usual_move: "constraints = h-bonds at 2 fs, or dt = 0.001"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp option constraints
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html#mdp-constraints
+
+  - id: MDP_NSTEPS_UNSET
+    subject: mdp
+    engine: gromacs
+    when: {integrator: {not: [steep, cg, l-bfgs]}, nsteps: null}
+    sees: "nsteps is not set"
+    means: "GROMACS defaults nsteps to 0: the run integrates nothing"
+    assumption: "nsteps = 0"
+    usual_move: "set nsteps for the length the run is for"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp option nsteps
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html#mdp-nsteps
+
+  - id: MDP_MIMIC_NO_QMMM_GRPS
+    subject: mdp
+    engine: gromacs
+    when: {integrator: mimic, qmmm_grps: null}
+    sees: "integrator = mimic with no QMMM-grps"
+    means: "the MM side does not know which atoms are quantum"
+    usual_move: "QMMM-grps = the QM atoms' index group (mimic_select_qm writes it), and the index passed to gmx_grompp"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS 2021.6 reference manual, MiMiC hybrid QM/MM
+        locator: https://manual.gromacs.org/2021.6/reference-manual/special/mimic-qmmm.html
+
+  - id: MDP_MIMIC_THERMOSTAT
+    subject: mdp
+    engine: gromacs
+    when: {integrator: mimic, tcoupl: {not: [no, null]}}
+    sees: "tcoupl = {tcoupl} in a MiMiC run"
+    means: "CPMD integrates and thermostats the whole system; a GROMACS thermostat double-counts"
+    usual_move: "tcoupl = no, and the temperature in &CPMD"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS 2021.6 reference manual, MiMiC hybrid QM/MM
+        locator: https://manual.gromacs.org/2021.6/reference-manual/special/mimic-qmmm.html
+
+  - id: MDP_MIMIC_CONSTRAINTS
+    subject: mdp
+    engine: gromacs
+    when: {integrator: mimic, constraints: {not: [none, null]}}
+    sees: "constraints = {constraints} in a MiMiC run"
+    means: "constraints on QM atoms fight the QM forces"
+    usual_move: "constraints = none, or keep them off the QM region"
+    status: candidate
+    sources:
+      - kind: engine_manual
+        text: GROMACS 2021.6 reference manual, MiMiC hybrid QM/MM
+        locator: https://manual.gromacs.org/2021.6/reference-manual/special/mimic-qmmm.html
+
+  - id: MDP_NO_THERMOSTAT
+    subject: mdp
+    engine: gromacs
+    when: {integrator: md, tcoupl: [no, null]}
+    sees: "integrator = md with tcoupl = {tcoupl}"
+    means: "the run is NVE: nothing corrects the energy's drift"
+    assumption: "an NVE run"
+    usual_move: "tcoupl = v-rescale, unless NVE is the point"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp option tcoupl
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html#mdp-tcoupl
+
+  - id: MDP_NO_PME
+    subject: mdp
+    engine: gromacs
+    when: {coulombtype: [cut-off, cutoff, null]}
+    sees: "coulombtype = {coulombtype}"
+    means: "plain cut-off electrostatics are inaccurate for a charged or polar system"
+    assumption: "coulombtype = cut-off when unset (GROMACS's default)"
+    usual_move: "coulombtype = PME"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp option coulombtype
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html#mdp-coulombtype
+
+  - id: MDP_CUTOFF_MISMATCH
+    subject: mdp
+    engine: gromacs
+    when: {rcoulomb: {differs_from: rvdw}}
+    sees: "rcoulomb = {rcoulomb} and rvdw = {rvdw}"
+    means: "allowed with PME and the Verlet scheme; a force field parametrised with one cut-off is usually run with it"
+    usual_move: "set both to the force field's cut-off unless the difference is intended"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp options rcoulomb and rvdw
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html#mdp-rcoulomb
+
+  - id: MDP_RANDOM_SEED
+    subject: mdp
+    engine: gromacs
+    when: {gen_vel: true, gen_seed: [-1, null]}
+    sees: "gen_vel = yes with gen_seed = {gen_seed}"
+    means: "grompp draws a fresh seed: the starting velocities are not on record, and a second grompp of the same inputs starts elsewhere"
+    assumption: "gen_seed = -1 (random)"
+    usual_move: "gen_seed = an integer"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp option gen-seed
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html#mdp-gen-seed
+
+  - id: MDP_GEN_VEL_ON_CONTINUATION
+    subject: mdp
+    engine: gromacs
+    when: {gen_vel: true, continuation: true}
+    sees: "gen_vel = yes with continuation = yes"
+    means: "new velocities on a continuation discard the state the run continues from"
+    usual_move: "gen_vel = no on a continuation"
+    status: verified
+    sources:
+      - kind: engine_manual
+        text: GROMACS mdp options gen-vel and continuation
+        locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html#mdp-continuation

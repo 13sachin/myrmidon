@@ -1,0 +1,84 @@
+id: gromacs.rerun
+axis: purpose
+engine: gromacs
+renders: mdp
+title: Classical rerun for force matching (the mdp that is NOT the MiMiC one)
+system_class: any force-matching reference trajectory from a MiMiC run
+scope: engine
+applicability: 'Recomputing the purely classical forces on a QM/MM reference trajectory, so a force-matching
+  fit can subtract them from the QM forces. Run as a gmx mdrun -rerun over the reference trajectory
+  with the candidate topology.
+
+  '
+parameters:
+  integrator:
+    value: md
+    rationale: 'NOT mimic. The MiMiC integrator strips the QM charges and the QM-QM nonbonded terms
+      out of the GROMACS force, so a rerun under the production MiMiC mdp subtracts no electrostatics
+      and the bonded fit quietly absorbs them.
+
+      '
+    source: 0
+  nsteps:
+    value: 0
+    rationale: 'a rerun: the frames come from the trajectory'
+    source: 0
+    overrides: researcher
+  nstxout:
+    value: 1
+    source: 0
+  nstfout:
+    value: 1
+    rationale: the forces are the entire point of the rerun
+    source: 0
+  nstcalcenergy:
+    value: 1
+    source: 0
+  pbc:
+    value: xyz
+    source: 0
+  constraints:
+    value: none
+    rationale: constrained bonds would hide the forces being fitted
+    source: 0
+    overrides: method
+  rcoulomb:
+    value: 1.2
+    rationale: must match the cutoffs of the run that produced the reference trajectory
+    source: 0
+    overrides: method
+  rvdw:
+    value: 1.2
+    source: 0
+    overrides: method
+    rationale: must match the cutoffs of the run that produced the reference trajectory
+  continuation:
+    value: 'yes'
+    source: 0
+    overrides: system
+    rationale: a rerun reads the frames it is given; it continues nothing
+sources:
+- kind: in_house
+  text: 'A bonded fit of a solvated solute with the production MiMiC mdp as the rerun input is invalid:
+    the MiMiC integrator removes the QM charges and the QM-QM nonbonded terms from the GROMACS force.
+    The fm_fit gate refuses it (FM_RERUN_MDP_IS_MIMIC); a valid rerun mdp differs from the MiMiC one
+    only in the integrator and the absence of QMMM-grps.
+
+    '
+  evidence:
+  - FM_RERUN_MDP_IS_MIMIC
+invariants:
+- id: RERUN_MUST_NOT_USE_MIMIC_INTEGRATOR
+  not_equal:
+  - $integrator
+  - mimic
+  message: 'a force-matching rerun must use integrator = md and no QMMM-grps; under the MiMiC integrator
+    GROMACS reports no QM electrostatics and the bonded fit absorbs them (FM_RERUN_MDP_IS_MIMIC)
+
+    '
+pitfalls:
+- FM_RERUN_MDP_IS_MIMIC
+notes: 'The classical forces subtracted must be the ones the reference run felt: the cutoffs are the
+  coupled run''s (gromacs.mimic_fm_singlepoint), the rest the force field''s, as that run took them.
+  A reference from a run with other cutoffs overrides them to match it.'
+version: 1

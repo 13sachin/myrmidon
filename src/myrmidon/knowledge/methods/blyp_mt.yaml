@@ -1,0 +1,44 @@
+id: blyp_mt
+kind: qm
+title: BLYP with Troullier-Martins pseudopotentials, plane waves, an isolated QM cell
+applicability: A closed-shell QM region of light elements (H, C, N, O), a few tens of atoms,
+  computed with plane-wave DFT. An open-shell region needs a multiplicity, a metal or heavier
+  elements a different cutoff and pseudopotentials.
+parameters:
+  functional:
+    value: GGA_XC_BLYP
+    rationale: the libxc name of BLYP
+    source: 0
+  pseudopotentials:
+    value: MT_BLYP
+    source: 1
+  cutoff_ry:
+    value: 70.0
+    rationale: plane-wave cutoff at which Troullier-Martins BLYP forces converge for first-row
+      elements; converge it for the region in hand with a scan
+    source: 1
+  timestep_au:
+    value: 10.0
+    rationale: Born-Oppenheimer dynamics with hydrogens, ~0.24 fs
+    source: 3
+  poisson_solver:
+    value: TUCKERMAN
+    rationale: isolated-cell electrostatics for the QM region
+    source: 2
+sources:
+- kind: doi
+  text: Becke, Phys. Rev. A 38, 3098 (1988) and Lee, Yang, Parr, Phys. Rev. B 37, 785 (1988) —
+    the BLYP exchange-correlation functional.
+  locator: doi:10.1103/PhysRevA.38.3098
+- kind: doi
+  text: Troullier, Martins, Phys. Rev. B 43, 1993 (1991) — norm-conserving pseudopotentials.
+  locator: doi:10.1103/PhysRevB.43.1993
+- kind: doi
+  text: Martyna, Tuckerman, J. Chem. Phys. 110, 2810 (1999) — reciprocal-space Poisson solver for
+    isolated systems.
+  locator: doi:10.1063/1.477923
+- kind: doi
+  text: Olsen et al., J. Chem. Theory Comput. 15, 3810 (2019) — MiMiC; Born-Oppenheimer QM/MM
+    dynamics at a 10 a.u. step.
+  locator: doi:10.1021/acs.jctc.9b00093
+version: 1

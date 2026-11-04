@@ -1,0 +1,26 @@
+# Residue names by what they are, for the parts a topology's molecules make up: the kinds
+# GROMACS's residuetypes.dat does not name (lipids, cofactors) and the ions a topology
+# includes from a force-field file that may not be at hand. A name not here is read from
+# residuetypes.dat, else proposed as a ligand for the model to confirm.
+sources:
+- kind: url
+  text: CHARMM-GUI Membrane Builder lipid names (CHARMM36 lipid force field).
+  locator: https://www.charmm-gui.org/?doc=input/membrane.bilayer
+- kind: url
+  text: wwPDB Chemical Component Dictionary — three-letter codes of common cofactors.
+  locator: https://www.wwpdb.org/data/ccd
+- kind: doi
+  text: Dickson et al., J. Chem. Theory Comput. 18, 1726 (2022) — Lipid21, the modular Amber
+    lipid force field and its residue names.
+  locator: doi:10.1021/acs.jctc.1c01217
+- kind: engine_manual
+  text: GROMACS force-field ions.itp molecule names (amber*, charmm*, oplsaa).
+  locator: https://manual.gromacs.org/2021.6/reference-manual/topologies/force-field-organization.html
+membrane: [POPC, POPE, POPG, POPS, POPA, DPPC, DPPE, DMPC, DMPE, DOPC, DOPE, DOPS, DLPC,
+  DSPC, DSPE, SDPC, PSM, SSM, CHL1, CHOL, CHL, PLPC, SOPC, DYPC, DYPE, POP2, PIP2, LPPC,
+  # Amber Lipid21 builds a lipid from a head and two tails, each its own residue
+  PA, PC, PE, PS, PGR, PH-, OL, SA, ST, MY, LA, AR, DHA]
+cofactor: [HEM, HEME, HEC, HEA, HEB, FAD, FMN, NAD, NAI, NAP, NDP, ATP, ADP, AMP, GTP, GDP,
+  GNP, ANP, SAM, SAH, COA, ACO, PLP, TPP, TDP, BCL, SF4, FES, F3S, MOS, MGD, B12, CNC]
+ions: [NA, CL, K, MG, CA, ZN, LI, RB, CS, BR, F, I, MN, FE, FE2, CU, CU1, NI, CO, CD, SOD,
+  CLA, POT, CAL, MG2, ZN2, NA+, CL-, K+]

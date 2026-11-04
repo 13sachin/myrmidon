@@ -1,0 +1,70 @@
+             :-) GROMACS - gmx mdrun, 2021.6 (double precision) (-:
+
+
+Input Parameters:
+   integrator                     = md
+   tinit                          = 0
+   dt                             = 0.002
+   nsteps                         = 100000
+   nstenergy                      = 500
+   nstxout-compressed             = 0
+   tcoupl                         = V-rescale
+   pcoupl                         = Berendsen
+  0:  rest
+RMS relative constraint deviation after constraining: 0.00e+00
+Initial temperature: 298.438 K
+
+Started mdrun on rank 0 Fri Oct 23 13:55:53 2026
+
+           Step           Time
+              0        0.00000
+
+   Energies (kJ/mol)
+          Angle Ryckaert-Bell.          LJ-14     Coulomb-14        LJ (SR)
+    1.60180e+00    2.22900e+01    2.38201e+00   -3.06701e+02    1.06668e+04
+  Disper. corr.   Coulomb (SR)   Coul. recip.      Potential    Kinetic En.
+   -2.58891e+02   -7.45100e+04    7.64446e+01   -6.43061e+04    9.75193e+03
+   Total Energy  Conserved En.    Temperature Pres. DC (bar) Pressure (bar)
+   -5.45542e+04   -5.45331e+04    2.98445e+02   -1.07245e+02   -3.26110e+03
+   Constr. rmsd
+    4.31670e-06
+
+
+DD  step 79 load imb.: force 11.6%  pme mesh/force 0.406
+
+step 160 Turning on dynamic load balancing, because the performance loss due to load imbalance is 9.4 %.
+           Step           Time
+            500        1.00000
+
+           Step           Time
+         100000      200.00000
+
+	<======  ###############  ==>
+	<====  A V E R A G E S  ====>
+	<==  ###############  ======>
+
+	Statistics over 100001 steps using 1001 frames
+
+   Energies (kJ/mol)
+          Angle Ryckaert-Bell.          LJ-14     Coulomb-14        LJ (SR)
+    1.46145e+01    2.27779e+01    2.87606e+00   -3.06746e+02    8.09420e+03
+  Disper. corr.   Coulomb (SR)   Coul. recip.      Potential    Kinetic En.
+   -2.60545e+02   -6.02929e+04    1.75013e+02   -5.25507e+04    9.79299e+03
+   Total Energy  Conserved En.    Temperature Pres. DC (bar) Pressure (bar)
+   -4.27577e+04   -5.44221e+04    2.99701e+02   -1.08620e+02    2.12280e+00
+   Constr. rmsd
+    0.00000e+00
+
+          Box-X          Box-Y          Box-Z
+    3.41594e+00    3.41594e+00    3.41594e+00
+
+   Total Virial (kJ/mol)
+    3.26366e+03    1.34507e+01    1.99370e+01
+    1.34507e+01    3.25788e+03    2.73250e+00
+    1.99370e+01    2.73250e+00    3.26405e+03
+
+       Time:     1417.422       44.295     3200.0
+                 (ns/day)    (hour/ns)
+Performance:      390.119        0.062
+Finished mdrun on rank 0 Fri Oct 23 13:56:37 2026
+

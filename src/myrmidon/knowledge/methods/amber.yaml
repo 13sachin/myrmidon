@@ -1,0 +1,43 @@
+id: amber
+kind: mm
+title: Amber-family force fields (amber99sb-ildn, ff14SB, ff19SB) with GAFF/GAFF2 ligands
+forcefields: [amber]
+applicability: How the interactions of an Amber-family topology are computed, whatever the engine
+  and whatever the system it describes.
+parameters:
+  timestep_fs:
+    value: 2.0
+    rationale: bonds to hydrogen constrained, the fastest motion left is ~10 fs
+    source: 2
+  constraints:
+    value: h-bonds
+    source: 2
+  cutoff_nm:
+    value: 1.0
+    rationale: the real-space cutoff the force field was parameterised with
+    source: 0
+  electrostatics:
+    value: PME
+    source: 1
+  dispersion_correction:
+    value: EnerPres
+    rationale: long-range dispersion beyond the cutoff, on energy and pressure, for a
+      homogeneous liquid
+    source: 3
+sources:
+- kind: doi
+  text: Lindorff-Larsen et al., Proteins 78, 1950 (2010) — amber99sb-ildn, parameterised with
+    a 1.0 nm cutoff and PME.
+  locator: doi:10.1002/prot.22711
+- kind: doi
+  text: Essmann et al., J. Chem. Phys. 103, 8577 (1995) — smooth particle-mesh Ewald.
+  locator: doi:10.1063/1.470117
+- kind: doi
+  text: Hess, J. Chem. Theory Comput. 4, 116 (2008) — P-LINCS; constraining bonds to hydrogen
+    allows a 2 fs step.
+  locator: doi:10.1021/ct700200b
+- kind: doi
+  text: Shirts et al., J. Phys. Chem. B 111, 13052 (2007) — corrections for dispersion beyond
+    the cutoff.
+  locator: doi:10.1021/jp0735987
+version: 1

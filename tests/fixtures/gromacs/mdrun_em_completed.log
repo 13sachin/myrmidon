@@ -1,0 +1,51 @@
+             :-) GROMACS - gmx mdrun, 2021.6 (double precision) (-:
+
+
+Input Parameters:
+   integrator                     = steep
+   nsteps                         = 500
+   emtol                          = 1000
+
+Initiating Steepest Descents
+
+Atom distribution over 4 domains: av 2084 stddev 95 min 1995 max 2195
+Started Steepest Descents on rank 0 Tue Oct 27 15:01:38 2026
+
+
+Steepest Descents:
+   Tolerance (Fmax)   =  1.00000e+03
+   Number of steps    =          500
+           Step           Time
+              0        0.00000
+
+   Energies (kJ/mol)
+           Bond          Angle    Proper Dih.  Improper Dih.          LJ-14
+    1.37152e+03    1.77405e+02    8.19554e+02    2.66988e+00    2.91996e+02
+     Coulomb-14        LJ (SR)   Coulomb (SR)   Coul. recip.      Potential
+    3.65365e+03    7.34999e+04   -1.23724e+05    4.10577e+03   -3.98018e+04
+ Pressure (bar)
+    6.62458e+04
+
+
+DD  step 0 load imb.: force  6.3%
+           Step           Time
+            311      311.00000
+
+   Energies (kJ/mol)
+           Bond          Angle    Proper Dih.  Improper Dih.          LJ-14
+    4.36192e+01    1.79536e+02    8.34839e+02    1.29170e+01    2.67890e+02
+     Coulomb-14        LJ (SR)   Coulomb (SR)   Coul. recip.      Potential
+    3.62744e+03    1.66458e+04   -1.44959e+05    8.02773e+02   -1.22544e+05
+ Pressure (bar)
+    1.26427e+04
+
+Steepest Descents converged to Fmax < 1000 in 312 steps
+Potential Energy  = -1.22544341477483e+05
+Maximum force     =  9.97662751903869e+02 on atom 302
+Norm of force     =  4.01723563056185e+01
+
+
+ av. #atoms communicated per step for force:  2 x 8521.4
+
+Finished mdrun on rank 0 Tue Oct 27 15:01:40 2026
+

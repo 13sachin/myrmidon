@@ -1,0 +1,6 @@
+name: myrmidon
+kind: model-provider
+version: "1.0"
+description: >-
+  The OpenAI-compatible endpoints myrmidon names, as inference backends a Hermes session
+  can be routed to.

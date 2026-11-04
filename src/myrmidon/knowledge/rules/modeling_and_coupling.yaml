@@ -1,0 +1,117 @@
+# What a careful researcher notices about a biomolecular system before building or running
+# it: sequence gaps, disulfides, metals, an unprotonated ligand, restraints under pressure
+# coupling, a renumbered topology. Read over a SystemProfile's flags (knowledge/rules.py:
+# evaluate_rules) by structure_inspect and the preparation tools.
+sensors:
+- id: LIGAND_PROTONATION_BEFORE_ACPYPE
+  subject: system
+  stage: ligand_prep
+  when:
+    ligand_present: true
+    ligand_hydrogens_zero: true
+  sees: Protonate crystal ligand before charge derivation
+  means: 'Forbidden: Running AM1-BCC (sqm) on an unprotonated crystal ligand (which models a radical),
+    or running gmx_genrestr on the assembled complex (where ligand atom numbers are not 1-based within
+    its moleculetype).'
+  usual_move: Pass hydrogens='add_by_valence' or hydrogens='add_at_ph' (with ph) and state net_charge
+    in ligand_parametrize before running acpype/sqm; run gmx_make_ndx ('0 & ! a H*') and gmx_genrestr
+    on the ligand's own .gro before complex_assemble.
+  status: verified
+  sources:
+  - kind: doi
+    text: Jakalian, Jack, Bayly, J. Comput. Chem. 23, 1623 (2002) — AM1-BCC charge model.
+    locator: doi:10.1002/jcc.10128
+- id: SMALL_LIGAND_MERGED_THERMOSTAT_BATH
+  subject: system
+  stage: equilibration
+  when:
+    ligand_present: true
+    small_ligand: true
+  sees: Merge small ligand (<100 atoms) into the macromolecule thermostat bath
+  means: 'Forbidden: Coupling a small ligand (<100 atoms) to its own separate thermostat bath in tc-grps,
+    which causes large kinetic-energy fluctuations and unphysical pocket heating.'
+  usual_move: Create a combined solute index group with gmx_make_ndx command '"Protein" | "Other"'
+    (producing Protein_Other alongside Water_and_ions) and pass the index to inputset_apply and gmx_grompp
+    so tc-grps = Protein_Other Water_and_ions.
+  status: verified
+  sources:
+  - kind: tutorial
+    text: Lemkul, "Protein-Ligand Complex" GROMACS tutorial — thermostat coupling groups.
+    locator: http://www.mdtutorials.com/gmx/complex/06_equil.html
+- id: RESTRAINTS_UNDER_PRESSURE_COUPLING
+  subject: system
+  stage: equilibration
+  when:
+    has_restraints: true
+  sees: Position restraints under NPT pressure coupling require refcoord-scaling = com
+  means: 'Forbidden: Leaving refcoord-scaling = no under pressure coupling.'
+  usual_move: Restraints hold atoms at the stage's starting structure (gmx_grompp passes it as -r
+    unless restraint_reference names another); keep refcoord-scaling = com when pcoupl is active,
+    and verify define includes all solute restraint macros (e.g. -DPOSRES -DPOSRES_LIG).
+  status: verified
+  sources:
+  - kind: engine_manual
+    text: GROMACS 2021.6 mdp option refcoord-scaling.
+    locator: https://manual.gromacs.org/2021.6/user-guide/mdp-options.html#mdp-refcoord-scaling
+- id: SEQUENCE_GAPS_IN_POLYMER
+  subject: system
+  stage: structure_prep
+  when:
+    has_sequence_gaps: true
+  sees: Missing internal polymer residues create an unphysical peptide bond unless capped or modelled
+  means: 'Forbidden: Silently bridging a long spatial gap (>4 A C-N distance) as a single peptide
+    bond in gmx_pdb2gmx.'
+  usual_move: Inspect sequence_gaps in system_profile; if an internal loop is missing and not at a
+    chain break (TER), inform the researcher or model/cap the gap before production MD.
+  status: verified
+  sources:
+  - kind: engine_manual
+    text: GROMACS 2021.6 gmx pdb2gmx documentation.
+    locator: https://manual.gromacs.org/2021.6/user-guide/cmdline.html#gmx-pdb2gmx
+- id: DISULFIDE_CANDIDATE_DETECTED
+  subject: system
+  stage: structure_prep
+  when:
+    has_disulfides: true
+  sees: Close cysteine SG-SG pair may form a disulfide bridge
+  means: 'Forbidden: Leaving a structural disulfide bridge as two protonated CYS-SH side chains in
+    close contact without checking.'
+  usual_move: Review disulfide_candidates (SG-SG < 2.5 A) in system_profile and confirm whether disulfide
+    bonds should be linked in gmx_pdb2gmx.
+  status: verified
+  sources:
+  - kind: engine_manual
+    text: GROMACS 2021.6 gmx pdb2gmx disulfide handling.
+    locator: https://manual.gromacs.org/2021.6/user-guide/cmdline.html#gmx-pdb2gmx
+- id: COORDINATED_METAL_OR_COFACTOR
+  subject: system
+  stage: structure_prep
+  when:
+    has_metals: true
+  sees: Coordinated metal ion or cofactor near protein/ligand
+  means: 'Forbidden: Discarding a structural or catalytic metal ion during structure_select, or leaving
+    it inside the protein''s ATOM chain without TER.'
+  usual_move: Include structural metal ions (e.g. ZN, MG, FE, CA) in structure_select keep=[...] so
+    they are written after TER as separate chains for gmx_pdb2gmx, and check their coordinating His/Cys
+    protonation states.
+  status: verified
+  sources:
+  - kind: engine_manual
+    text: GROMACS 2021.6 gmx pdb2gmx chain and ion rules.
+    locator: https://manual.gromacs.org/2021.6/user-guide/cmdline.html#gmx-pdb2gmx
+- id: TOPOLOGY_RESIDUE_RENUMBERING
+  subject: system
+  stage: analysis
+  when:
+    has_residue_offset: true
+  sees: Topology 1-based residue numbering differs from deposited PDB numbering
+  means: 'Forbidden: Passing a deposited PDB residue number directly as ''resid N'' in traj_analyze
+    when sequence gaps, N-terminal offsets or insertion codes shifted the topology numbering.'
+  usual_move: Use the topology 1-based resid in MDAnalysis / traj_analyze selections, and consult
+    system_profile.residue_map (or traj_analyze metric='contacts') to translate between deposited
+    PDB residue numbers and topology resid.
+  status: verified
+  sources:
+  - kind: engine_manual
+    text: GROMACS 2021.6 coordinate and topology numbering conventions.
+    locator: https://manual.gromacs.org/2021.6/user-guide/cmdline.html#gmx-pdb2gmx

@@ -1,0 +1,84 @@
+id: gromacs.nvt
+axis: purpose
+engine: gromacs
+renders: mdp
+title: NVT equilibration, the solute restrained
+system_class: any solvated system after minimisation
+scope: engine
+applicability: 'The first dynamics after minimisation: the solvent relaxes at constant volume around
+  a solute held by the position restraints its topology defines. How long is the researcher''s.'
+parameters:
+  integrator:
+    value: md
+    source: 0
+  nsteps:
+    required_from_user: true
+    derivable: the equilibration length the researcher asks for, in time, divided by dt. The tutorial
+      runs 100 ps; whether it was long enough is read from gmx_energy, not assumed.
+  define:
+    from_system: restraint_defines
+    rationale: the restraints the topology defines for its solute (pdb2gmx's POSRES, complex_assemble's
+      POSRES_LIG), all on, so the solute holds while the solvent relaxes; never the water's or the
+      ions'
+    derivable: pass the topology
+  continuation:
+    from_system: starting_state
+    rationale: a structure carrying velocities continues the run that wrote it; one without starts
+      from rest and draws velocities
+    derivable: pass the structure the run starts from
+  gen-vel:
+    from_system: starting_state
+    rationale: a structure carrying velocities continues the run that wrote it; one without starts
+      from rest and draws velocities
+    derivable: pass the structure the run starts from
+  gen-temp:
+    same_as: ref_t
+    rationale: velocities are drawn at the temperature the run is coupled to
+  gen_seed:
+    value: -1
+    rationale: random; fix it to reproduce a run exactly
+    source: 0
+  tcoupl:
+    value: V-rescale
+    source: 1
+  tc-grps:
+    from_system: coupling_groups
+    rationale: the solute and the solvent in their own baths when an index splits them, a protein
+      and the rest when one is present, the whole system otherwise; a ligand of a few dozen atoms
+      is never a bath of its own
+    derivable: pass the topology (and the index a gmx_make_ndx split wrote)
+  tau_t:
+    value: 0.1
+    source: 0
+  ref_t:
+    value: 300
+    overrides: researcher
+    rationale: the temperature the tutorials run at; a question about another temperature states it
+    source: 0
+  pcoupl:
+    value: 'no'
+    source: 0
+  nstxout-compressed:
+    value: 500
+    source: 0
+  nstenergy:
+    value: 500
+    source: 0
+  nstlog:
+    value: 500
+    source: 0
+  pbc:
+    value: xyz
+    source: 0
+sources:
+- kind: tutorial
+  text: Lemkul, "Protein-Ligand Complex" GROMACS tutorial (T4 lysozyme L99A with JZ4, PDB 3HTB), nvt.mdp
+    — the restrained NVT stage with the ligand coupled to the protein.
+  locator: http://www.mdtutorials.com/gmx/complex/06_equil.html
+- kind: doi
+  text: Bussi, Donadio, Parrinello, J. Chem. Phys. 126, 014101 (2007) — the velocity-rescaling thermostat.
+    doi:10.1063/1.2408420
+  locator: doi:10.1063/1.2408420
+pitfalls:
+- NDX_COMMAND_REJECTED
+version: 1

@@ -1,0 +1,25 @@
+id: cpmd.single_point
+extends: cpmd.mimic
+engine: cpmd
+renders: cpmd_inp
+reads: qm
+kinds: [single_point]
+regimes: [qmmm]
+title: A converged QM/MM wavefunction and its forces on a given frame
+applicability: Energies and forces of single frames, written as the reference forces a
+  force-matching fit is trained against.
+pricing: {throughput: s_per_step}
+parameters:
+  '&CPMD/OPTIMIZE WAVEFUNCTION': {value: true, source: 0}
+  '&CPMD/PCG MINIMIZE': {value: true, source: 0}
+  '&CPMD/FORCE_MATCHING':
+    value: 1
+    rationale: 'the pace the reference forces are written at: every frame; the GROMACS side
+      writes its frames at the same pace (nstxout 1), and a fit pairs them by index'
+    source: 0
+sources:
+- kind: url
+  text: MiMiC documentation — single-point QM/MM energies and forces.
+  locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
+pitfalls: [FM_RERUN_MDP_IS_MIMIC]
+version: 2

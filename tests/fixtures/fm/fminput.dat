@@ -1,0 +1,11 @@
+# Force matching input
+# code testing after added a lot of features.
+stride: [1000,2000,1]
+wv: 1
+we: 0.01
+wh: 0.01
+wq: 100000
+eq_atoms: use_atomtypes
+reference_charges: ff_charges
+optimization_method: simultaneous
+

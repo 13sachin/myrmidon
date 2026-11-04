@@ -1,0 +1,332 @@
+id: protein_ligand_complex_in_water
+system_class: one protein chain with one small-molecule ligand from a deposited structure, an Amber-family protein force field with a GAFF-family ligand and TIP3P water; the estimates were measured on a box of about 48 000 atoms on 48-core nodes and scale with its size and the lengths asked for
+title: Protein–ligand complex in water — select, parametrise, assemble, equilibrate under restraints, produce
+scope: engine
+applicability: 'A deposited protein–ligand structure to an equilibrated complex in water and a short
+  production run: the chain and the ligand selected out of the deposited file, the ligand parametrised
+  (GAFF2 or GAFF atom types, AM1-BCC or Gasteiger charges, through acpype), the complex assembled into
+  one topology, boxed, solvated and neutralised, minimised, then NVT and NPT with protein and ligand
+  restrained and the ligand in the protein''s heat bath, then unrestrained production. A starting
+  point, not a rule: a ligand parametrised elsewhere enters at the assembly, and a second ligand or a
+  membrane is a different sequence.'
+given:
+- structure_deposited
+steps:
+- name: select
+  tool: structure_select
+  needs:
+  - structure_deposited
+  produces:
+  - structure_protein
+  - structure_ligand
+  values:
+    structure: structure_deposited
+  note: which chains and which ligand copy make the system is the researcher's; crystal waters and
+    buffer molecules are discarded and counted
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: protein_topology
+  tool: gmx_pdb2gmx
+  needs:
+  - structure_protein
+  produces:
+  - structure_protein_gro
+  - topology_protein
+  values:
+    structure: structure_protein
+  note: the protein force field and the water model are the researcher's
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: ligand_parameters
+  tool: ligand_parametrize
+  needs:
+  - structure_ligand
+  produces:
+  - structure_ligand_gro
+  - itp_ligand
+  - topology_ligand
+  values:
+    structure: structure_ligand
+  note: the atom types, the charge method, the protonation and the net charge are the researcher's;
+    AM1-BCC runs sqm in the session (seconds for a drug-sized molecule)
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: ligand_heavy_atoms
+  tool: gmx_make_ndx
+  needs:
+  - structure_ligand_gro
+  produces:
+  - index_ligand
+  values:
+    structure: structure_ligand_gro
+  note: a group of the ligand's heavy atoms ('0 & ! a H*'), on the ligand's own coordinates so its
+    atoms are numbered from 1
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: ligand_restraints
+  tool: gmx_genrestr
+  needs:
+  - structure_ligand_gro
+  - topology_ligand
+  - index_ligand
+  produces:
+  - restraints_ligand
+  values:
+    structure: structure_ligand_gro
+    topology: topology_ligand
+    index: index_ligand
+  note: which atoms are held and how hard is the researcher's
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: assemble
+  tool: complex_assemble
+  needs:
+  - structure_protein_gro
+  - topology_protein
+  - structure_ligand_gro
+  - itp_ligand
+  - restraints_ligand
+  produces:
+  - structure_complex
+  - topology
+  values:
+    structure: structure_protein_gro
+    topology: topology_protein
+    ligand_structure: structure_ligand_gro
+    ligand_itp: itp_ligand
+    ligand_restraints: restraints_ligand
+  note: the ligand's restraints go under POSRES_LIG, which the restrained stages read from the
+    topology and switch on; the topology role carries on from here
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: box
+  tool: gmx_editconf
+  needs:
+  - structure_complex
+  produces:
+  - structure_boxed
+  values:
+    structure: structure_complex
+  note: the box shape and the clearance are the researcher's when the question states them
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: solvate
+  tool: gmx_solvate
+  needs:
+  - structure_boxed
+  - topology
+  produces:
+  - structure_solvated
+  values:
+    structure: structure_boxed
+    topology: topology
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: ions
+  tool: gmx_genion
+  needs:
+  - structure_solvated
+  - topology
+  produces:
+  - structure_ionised
+  values:
+    structure: structure_solvated
+    topology: topology
+  note: neutralises the complex's net charge, which complex_assemble reports
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: index
+  tool: gmx_make_ndx
+  needs:
+  - structure_ionised
+  produces:
+  - index
+  values:
+    structure: structure_ionised
+  note: 'the step''s commands value is the one command "Protein" | "Other" (group names in double
+    quotes, group numbers bare): it makes Protein_Other, which with Water_and_ions splits the system,
+    and the equilibration and production stages read the two from the index as their tc-grps'
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: minimise_prep
+  tool: gmx_grompp
+  cites: stage:em/mdp
+  needs:
+  - structure_ionised
+  - topology
+  produces:
+  - tpr_minimise
+  values:
+    structure: structure_ionised
+    topology: topology
+  note: a box straight out of genion needs more than the set's bound; on a 48 000-atom complex the
+    set's own left the maximum force above emtol, so raise nsteps as the set's rationale says
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: minimise_run
+  tool: gmx_mdrun
+  needs:
+  - tpr_minimise
+  produces:
+  - structure_minimised
+  values:
+    tpr: tpr_minimise
+  estimate_core_h: 4.0
+  estimate_basis: 5 min walltime on a 48-core node; a thousand steepest-descent steps on a box of about
+    48 000 atoms used 0.3 core-h
+  stage: {name: em, kind: minimize}
+
+- name: nvt_prep
+  tool: gmx_grompp
+  cites: stage:nvt/mdp
+  needs:
+  - structure_minimised
+  - topology
+  - index
+  produces:
+  - tpr_nvt
+  values:
+    structure: structure_minimised
+    restraint_reference: structure_minimised
+    topology: topology
+    index: index
+  note: the restraints hold protein and ligand at the minimised coordinates
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: nvt_run
+  tool: gmx_mdrun
+  needs:
+  - tpr_nvt
+  produces:
+  - structure_nvt
+  - energy_nvt
+  values:
+    tpr: tpr_nvt
+  measured_ps: 100
+  estimate_core_h: 4.0
+  estimate_basis: 5 min walltime on a 48-core node; 100 ps of a box of about 48 000 atoms ran at 87
+    ns/day on 48 ranks and used 1.5 core-h; scales with the length asked for
+  stage: {name: nvt, kind: dynamics, ensemble: NVT, temperature_k: 300, duration_ps: 100,
+    restraints: [protein, ligand]}
+
+- name: npt_prep
+  tool: gmx_grompp
+  cites: stage:npt/mdp
+  needs:
+  - structure_nvt
+  - topology
+  - index
+  produces:
+  - tpr_npt
+  values:
+    structure: structure_nvt
+    restraint_reference: structure_nvt
+    topology: topology
+    index: index
+  note: continues from the NVT run's final coordinates and velocities
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: npt_run
+  tool: gmx_mdrun
+  needs:
+  - tpr_npt
+  produces:
+  - structure_npt
+  - energy_npt
+  values:
+    tpr: tpr_npt
+  measured_ps: 100
+  estimate_core_h: 4.0
+  estimate_basis: 5 min walltime on a 48-core node; 100 ps of a box of about 48 000 atoms ran at 85
+    ns/day on 48 ranks and used 1.5 core-h; scales with the length asked for
+  stage: {name: npt, kind: dynamics, ensemble: NPT, temperature_k: 300, pressure_bar: 1,
+    duration_ps: 100, restraints: [protein, ligand]}
+
+- name: production_prep
+  tool: gmx_grompp
+  cites: stage:production/mdp
+  needs:
+  - structure_npt
+  - topology
+  - index
+  produces:
+  - tpr_production
+  values:
+    structure: structure_npt
+    topology: topology
+    index: index
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: production_run
+  tool: gmx_mdrun
+  needs:
+  - tpr_production
+  produces:
+  - trajectory_production
+  - energy_production
+  values:
+    tpr: tpr_production
+  note: how long is the researcher's
+  measured_ps: 1000
+  estimate_core_h: 20.0
+  estimate_basis: 25 min walltime on a 48-core node; 1 ns of a box of about 48 000 atoms ran at 85
+    ns/day on 48 ranks and used 13.7 core-h; scales with the length asked for
+  stage: {name: production, kind: dynamics, ensemble: NPT, temperature_k: 300,
+    pressure_bar: 1, duration_ps: 1000, sampling_ps: 10}
+
+- name: ligand_rmsd
+  tool: traj_analyze
+  needs:
+  - tpr_production
+  - trajectory_production
+  produces:
+  - data_ligand_rmsd
+  values:
+    structure: tpr_production
+    trajectory: trajectory_production
+  note: the ligand's heavy atoms after superposing each frame on the protein backbone, molecules made
+    whole first; how far the ligand moves in its pocket
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+- name: ligand_contact
+  tool: traj_analyze
+  needs:
+  - tpr_production
+  - trajectory_production
+  produces:
+  - data_ligand_mindist
+  values:
+    structure: tpr_production
+    trajectory: trajectory_production
+  note: the minimum distance between the ligand and the protein; whether the ligand stays in contact
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+sources:
+- kind: tutorial
+  text: Lemkul, "Protein-Ligand Complex" GROMACS tutorial — T4 lysozyme L99A with 2-propylphenol
+    (PDB 3HTB); the sequence of selection, ligand topology, assembly, restrained NVT and NPT with the
+    ligand coupled to the protein, and production.
+  locator: http://www.mdtutorials.com/gmx/complex/
+- kind: doi
+  text: Sousa da Silva, Vranken, BMC Res. Notes 5, 367 (2012) — ACPYPE, AnteChamber PYthon Parser
+    interfacE. doi:10.1186/1756-0500-5-367
+  locator: doi:10.1186/1756-0500-5-367
+- kind: doi
+  text: Jakalian, Jack, Bayly, J. Comput. Chem. 23, 1623 (2002) — fast, efficient generation of
+    high-quality atomic charges, AM1-BCC model. doi:10.1002/jcc.10128
+  locator: doi:10.1002/jcc.10128
+- kind: doi
+  text: Wang, Wolf, Caldwell, Kollman, Case, J. Comput. Chem. 25, 1157 (2004) — the general Amber
+    force field (GAFF). doi:10.1002/jcc.20035
+  locator: doi:10.1002/jcc.20035
+pitfalls:
+- LIGAND_HYDROGENS_ABSENT
+- COMPLEX_RESTRAINTS_OUT_OF_RANGE
+- NDX_COMMAND_REJECTED
+notes: 'The tutorial parametrises its ligand with CGenFF for CHARMM36; this sequence keeps its shape
+  and system and takes the Amber route (GAFF2, AM1-BCC), so the ligand and the protein share one
+  combination rule and fudge factors. The steps up to the index run in the session before the
+  mandate is written, and their outputs are the system it names.'
+validated_by:
+- tests/unit/test_gromacs_tools.py::test_a_ligand_is_parametrised_and_placed_where_grompp_reads_it
+version: 4

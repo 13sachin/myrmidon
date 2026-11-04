@@ -1,0 +1,4 @@
+#!/bin/sh
+# Mock mpirun: skip "-np N" and exec the command.
+if [ "$1" = "-np" ]; then shift 2; fi
+exec "$@"

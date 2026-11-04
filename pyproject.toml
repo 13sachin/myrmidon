@@ -1,0 +1,100 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "myrmidon"
+version = "0.6.0"
+description = "An agent harness for molecular dynamics and QM/MM simulation research"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "Sachin Shivakumar" }]
+keywords = ["molecular-dynamics", "qmmm", "agents", "llm", "gromacs", "mimic"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "pydantic>=2.7",
+    "numpy>=1.26",
+    "httpx>=0.27",
+    "typer>=0.12",
+    "mcp>=2",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+analysis = ["MDAnalysis>=2.7"]
+# the model adapter of `run` and the wake. Pinned so runs are comparable across
+# machines; at this version the Anthropic provider needs anthropic<1.
+agent-pydantic = ["pydantic-ai-slim[openai,anthropic]==2.31.1", "anthropic<1"]
+dev = [
+    "pytest>=8",
+    "pytest-timeout>=2.3",
+    "ruff>=0.5",
+    # `lint-imports` holds the package layers ([tool.importlinter] below)
+    "import-linter>=2.1",
+    # the Agent Skills spec's own validator: tests/unit/test_skill_contract.py calls
+    # skills_ref.validate() so the shipped SKILL.md files are judged by the spec.
+    # Pinned: 0.1.1 is the version whose ALLOWED_FIELDS the contract test is written against.
+    "skills-ref==0.1.1",
+]
+
+[project.scripts]
+myrmidon = "myrmidon.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/13sachin/myrmidon"
+Repository = "https://github.com/13sachin/myrmidon"
+Issues = "https://github.com/13sachin/myrmidon/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/myrmidon"]
+
+[tool.pytest.ini_options]
+# Bare `pytest` is unit-only: tests/integration can submit real jobs, so it runs only when
+# named and only with MYRMIDON_REAL_ENGINES=1 (tests/integration/conftest.py).
+testpaths = ["tests/unit"]
+pythonpath = ["."]
+markers = [
+    "gromacs: requires a real GROMACS installation (auto-skipped otherwise)",
+    "slurm: requires a real SLURM scheduler (auto-skipped otherwise)",
+    "mimic: requires real CPMD + MiMiC-enabled GROMACS + mimicpy (auto-skipped otherwise)",
+]
+timeout = 120
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["SIM108"]
+
+[tool.importlinter]
+root_package = "myrmidon"
+
+# Imports flow downward only. A tool is thin: it wires a library's parsers and the
+# kernel's registry to the study; orchestration drives tools through the registry by name,
+# never by import. `:` joins modules of one layer that may import each other.
+[[tool.importlinter.contracts]]
+name = "Imports flow downward"
+type = "layers"
+layers = [
+    "myrmidon.__main__ : myrmidon.cli : myrmidon.cli_call : myrmidon.server : myrmidon.agent : myrmidon.bootstrap : myrmidon.endpoints",
+    "myrmidon.tools",
+    "myrmidon.orchestration",
+    "myrmidon.engines : myrmidon.analysis : myrmidon.knowledge : myrmidon.execution : myrmidon.scripts : myrmidon.viz",
+    "myrmidon.core",
+    "myrmidon.config : myrmidon.errors : myrmidon.text : myrmidon.client_registry : myrmidon.client_entries",
+]
+

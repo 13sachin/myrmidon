@@ -1,0 +1,25 @@
+id: mimic
+kind: coupling
+title: MiMiC electrostatic QM/MM coupling
+applicability: How the QM region feels the MM charges in a MiMiC run, for any QM method and
+  force field it couples.
+parameters:
+  multipole_order:
+    value: 3
+    rationale: MM charges beyond cutoff_bohr enter through a multipole expansion of this order
+    source: 0
+  cutoff_bohr:
+    value: 20.0
+    rationale: inside it MM charges couple explicitly; right for a region of a few tens of atoms,
+      a larger one needs its own extent plus the first solvation shells
+    source: 0
+  sorting_update_steps:
+    value: 100
+    rationale: how often the MM atoms are re-sorted into the short- and long-range sets
+    source: 0
+sources:
+- kind: doi
+  text: Olsen et al., J. Chem. Theory Comput. 15, 3810 (2019) — MiMiC, the multiscale coupling
+    framework, and its multipole long-range coupling.
+  locator: doi:10.1021/acs.jctc.9b00093
+version: 1

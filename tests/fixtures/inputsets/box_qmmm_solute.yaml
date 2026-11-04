@@ -1,0 +1,44 @@
+id: box_qmmm_solute
+system_class: one solute in explicit water that will carry a QM region; the clearance is the solute's, derived per system
+aliases:
+- mimic_acetone_box
+title: Boxing one solute for a QM/MM study
+scope: engine
+applicability: Boxing one solute before solvation for a QM/MM study, with a solute-to-box
+  distance rather than an explicit edge length. It states values for gmx_editconf and renders no
+  file. The cell shape is the method's; the clearance is the solute's and is derived per system.
+renders: none
+parameters:
+  box_type:
+    value: cubic
+    rationale: the tutorial's cell is cubic, and a cubic cell is what the CPMD &SYSTEM CELL
+      the QM region later sits in expects
+    source: 0
+  distance_nm:
+    derivable: the solute-to-box clearance for this solute, in nm. It must exceed the longest
+      cutoff of the run parameters, so the solute never sees its own periodic image, and leave
+      the box large enough for the QM cell (the QM region's extent plus twice its padding).
+      The MiMiC tutorial's own value reproduces its published edge for its solute only
+      (docs/TUTORIAL.md); it is not a default for another.
+    rationale: a clearance is a property of the solute and the cutoffs, never of the harness
+    source: 1
+sources:
+- kind: tutorial
+  text: 'MiMiC acetone-in-water tutorial, the input archive published by the MiMiC project.
+    Downloaded with the command the tutorial gives; sha256 is of template.inp.
+
+    '
+  locator: https://gitlab.com/mimic-project/mimic-docs/-/tree/main/docs/tutorials/AcetoneTutorial
+  sha256: 51e3952370e541dac4f2da20dd526cceba4aa016117daa62878bb73dbe425440
+- kind: in_house
+  text: 'The conversion from the tutorial''s explicit edge to a solute-to-box distance, and
+    what it costs: one water molecule fewer. Measured with GROMACS editconf and solvate on the
+    tutorial''s solute; the example passes the tutorial''s own clearance.
+
+    '
+  locator: in_house
+notes: 'A clearance is a property of the solute and the cutoffs, never of the harness. It is
+  here because a value needs a source, and an input set is where a sourced value lives.
+
+  '
+version: 2

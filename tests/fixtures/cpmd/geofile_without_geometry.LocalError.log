@@ -1,0 +1,10 @@
+ process id's: 0, 0, 0, 0, 0
+ process stops in file: geofile_utils.mod.F90
+               at line: 119
+               in procedure: GEOFILE
+ error message: DO NOT READ OLD COORDINATES
+ call stack:
+            4  initrun
+            3  mddiag
+            2  mdpt
+            1  cpmd

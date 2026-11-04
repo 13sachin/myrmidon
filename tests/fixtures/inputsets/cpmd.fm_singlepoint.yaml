@@ -1,0 +1,40 @@
+id: cpmd.fm_singlepoint
+axis: purpose
+engine: cpmd
+renders: cpmd_inp
+title: MiMiC force-matching single point — cpmd input
+system_class: any MiMiC QM region, under the QM method set the call names
+scope: engine
+applicability: 'The CPMD half of a MiMiC single-point run that writes reference forces for force matching:
+  one SCF per sampled frame, FORCE_MATCHING at the frame pace.'
+parameters:
+  '&CPMD/PCG MINIMIZE':
+    value: true
+    rationale: preconditioned conjugate gradient wavefunction optimizer
+    source: 0
+  '&CPMD/WAVEFUNCTION OPTIMIZATION':
+    value: true
+    rationale: a single point, not dynamics
+    source: 0
+  '&CPMD/FORCE_MATCHING':
+    value: 1
+    rationale: 'pace: write the reference forces every step. 1 means every frame.'
+    source: 0
+  '&SYSTEM/CHARGE':
+    required_from_user: true
+    derivable: sum of the topology charges over the QM selection
+sources:
+- kind: in_house
+  text: 'The acetone force-matching reference pair generated through the harness with MiMiC-enabled
+    CPMD and GROMACS on a SLURM cluster. Inputs kept verbatim in tests/fixtures/acetone/ as fm_singlepoint_template.inp
+    and mimic_fm.mdp; the pace/nstxout rule is stated in that mdp''s own comments.
+
+    '
+  locator: tests/fixtures/acetone/fm_singlepoint_template.inp
+  evidence:
+  - tests/fixtures/acetone/mimic_fm.mdp
+pitfalls:
+- FM_RERUN_MDP_IS_MIMIC
+notes: 'Charge is never supplied here; mimic_prepare requires it confirmed. The classical rerun the
+  fit subtracts is a different mdp, gromacs.rerun: do not reuse the coupled run''s for it.'
+version: 1

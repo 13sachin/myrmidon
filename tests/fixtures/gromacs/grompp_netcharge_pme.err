@@ -1,0 +1,15 @@
+# the same system with coulombtype = PME: the net charge is a WARNING, and grompp refuses without -maxwarn
+  System has non-zero total charge: 1.000000
+  Total charge should normally be an integer. See
+  http://www.gromacs.org/Documentation/Floating_Point_Arithmetic
+  for discussion on how close it should be to an integer.
+WARNING 1 [file topol_solv.top, line 3015]:
+  You are using Ewald electrostatics in a system with net charge. This can
+  lead to severe artifacts, such as ions moving into regions with low
+  dielectric, due to the uniform background charge. We suggest to
+  neutralize your system with counter ions, possibly in combination with a
+  physiological salt concentration.
+
+Number of degrees of freedom in T-Coupling group rest is 16983.00
+Too many warnings (1).
+If you are sure all warnings are harmless, use the -maxwarn option.

@@ -1,0 +1,17 @@
+[frame-consistency]   remap trr[3] -> h5[4] (offset +1, RMSD 1.94e-03 Bohr)
+[frame-consistency]   remap trr[4] -> h5[5] (offset +1, RMSD 1.54e-03 Bohr)
+[frame-consistency]   ... and 10 more remapped frames
+[frame-consistency] proceeding with the REMAPPED pairs -- the fit now uses matched geometries. Regenerate the trr/h5 in lockstep to remove this desync at the source.
+=====> Running fmcheck <=====
+----- trr/h5 compatibility report -----
+  trr frames        : 2000
+  h5 configs        : 2000
+  requested frames  : 20
+  status            : remapped
+  aligned (index)   : 0
+  remapped (coord)  : 20 (offset +1..+1)
+  dropped (no twin) : 0
+  matched total     : 20
+---------------------------------------
+trr and h5 are NOT index-aligned. Re-run with `-o PREFIX` to write an aligned pair (PREFIX.trr + PREFIX.h5).
+=====> Done <=====

@@ -1,0 +1,23 @@
+
+ 	                ***** MiMiCPy *****                  
+
+ 	                Running version 0.3.0
+	For more information type mimicpy [subcommand] --help 
+
+=====> Running prepqm <=====
+
+
+**Reading topology**
+
+
+**Reading coordinates**  |Done
+
+Please enter selection below. For more information type 'help'
+> > rm is an invalid command! Please try again. Type 'help' for more information.
+> The selection did not return any atoms
+> 'ACT' is not a valid logical operator
+> 'foo' is not a valid selection keyword
+> > MDP file not passed! Skipping generation of GROMACS TPR file
+
+=====> Done <=====
+

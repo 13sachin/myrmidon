@@ -1,0 +1,6 @@
+The files in this directory are excerpts of engine documentation, chunked by
+section for `knowledge_search`, each record naming the page it came from and its sha256.
+
+GROMACS documentation (manual.gromacs.org) is distributed under the GNU Lesser General
+Public License, version 2.1 (https://www.gnu.org/licenses/lgpl-2.1.html). The excerpts
+here are reproduced under that licence; the GROMACS authors hold the copyright.

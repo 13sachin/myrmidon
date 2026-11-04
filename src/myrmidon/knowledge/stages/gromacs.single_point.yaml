@@ -1,0 +1,33 @@
+id: gromacs.single_point
+extends: gromacs.interactions
+engine: gromacs
+renders: mdp
+kinds: [single_point]
+regimes: [mm]
+title: Classical energies and forces on given frames (mdrun -rerun)
+applicability: Recomputing energies and forces of a trajectory's frames under a topology —
+  a force-matched one against the stock one, say — without moving an atom.
+pricing: {walltime_min: 5}
+parameters:
+  integrator: {value: md, source: 0}
+  nsteps: {value: 0, source: 0}
+  nstxout: {value: 1, source: 0}
+  nstfout: {value: 1, source: 0}
+  nstcalcenergy: {value: 1, source: 0}
+  constraints:
+    value: none
+    rationale: a rerun recomputes every bond's force from the frame as given
+    source: 0
+  continuation: {value: 'yes', source: 0}
+sources:
+- kind: engine_manual
+  text: GROMACS reference manual, mdrun -rerun.
+  locator: https://manual.gromacs.org/2021.6/onlinehelp/gmx-mdrun.html
+invariants:
+- id: RERUN_MUST_NOT_USE_MIMIC_INTEGRATOR
+  not_equal: [$integrator, mimic]
+  message: 'a classical single point recomputes energies and forces with integrator = md; under
+    the MiMiC integrator GROMACS reports no QM electrostatics, and a fit to those forces absorbs
+    them (FM_RERUN_MDP_IS_MIMIC)'
+pitfalls: [FM_RERUN_MDP_IS_MIMIC]
+version: 1

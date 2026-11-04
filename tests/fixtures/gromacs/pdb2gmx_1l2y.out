@@ -1,0 +1,5 @@
+# gmx_mpi_d pdb2gmx -f 1l2y_model1.pdb -ff amber99sb-ildn -water tip3p -ignh, GROMACS 2021.6 (JUWELS, 2026-10-10), stdout, the lines a parser reads
+Reading 1l2y_model1.pdb...
+Read 'NMR STRUCTURE OF TRP-CAGE MINIPROTEIN CONSTRUCT TC5B', 154 atoms
+Now there are 20 residues with 304 atoms
+Total charge 1.000 e

@@ -1,0 +1,36 @@
+id: gromacs.minimize
+extends: gromacs.interactions
+engine: gromacs
+renders: mdp
+kinds: [minimize]
+regimes: [mm]
+title: Steepest-descent energy minimisation
+applicability: Relaxing the close contacts of a built system before dynamics, or a single frame.
+pricing: {walltime_min: 5}
+parameters:
+  integrator:
+    value: steep
+    rationale: steepest descent is robust to the bad contacts minimisation exists to fix
+    source: 0
+  nsteps:
+    from_stage: steps
+    default: 50000
+    rationale: an upper bound; steep stops once the largest force is below emtol
+  emtol:
+    value: 1000.0
+    rationale: kJ/mol/nm on the largest force, low enough that dynamics starts without a crash
+    source: 0
+  emstep: {value: 0.01, source: 0}
+  constraints:
+    value: none
+    rationale: minimisation relaxes every bond, hydrogens included
+    source: 0
+  define:
+    from_system: restraint_defines
+    for: restraints
+    rationale: the position restraints of the subsystems the stage holds
+sources:
+- kind: engine_manual
+  text: GROMACS reference manual, energy minimisation (steepest descent, emtol, emstep).
+  locator: https://manual.gromacs.org/2021.6/reference-manual/algorithms/energy-minimization.html
+version: 1

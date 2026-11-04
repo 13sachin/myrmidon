@@ -1,0 +1,56 @@
+id: gromacs.minimise
+axis: purpose
+engine: gromacs
+renders: mdp
+title: Steepest-descent energy minimisation
+system_class: any solvated system before dynamics, or single frames of a trajectory
+scope: engine
+applicability: Relaxing close contacts before dynamics, and minimising single frames pulled from a
+  trajectory (gmx_minimize_frames in a force-field comparison). The interactions are the force field's
+  (the method set).
+parameters:
+  integrator:
+    value: steep
+    rationale: steepest descent is robust to the bad contacts minimization exists to fix
+    source: 1
+  nsteps:
+    value: 50000
+    rationale: 'an upper bound, not a target: steep stops at emtol. Raise it for a system straight
+      out of solvate/genion, lower it for single frames off a trajectory.
+
+      '
+    source: 1
+    overrides: researcher
+  emtol:
+    value: 100.0
+    source: 1
+    rationale: 'kJ/mol/nm on the largest force: steep stops once every force is below it'
+  emstep:
+    value: 0.01
+    source: 1
+  constraints:
+    value: none
+    overrides: method
+    rationale: minimisation relaxes every bond, hydrogens included; constrain them only for a
+      topology whose softened hydrogen force constants let a proton wander to an acceptor,
+      as an override
+    source: 1
+  pbc:
+    value: xyz
+    source: 1
+sources:
+- kind: in_house
+  text: 'The integrator/nsteps/emtol a force-field comparison minimises reference frames with: the
+    mdp gmx_minimize_frames takes is rendered from this input set.
+
+    '
+  locator: src/myrmidon/tools/gromacs/minimize.py
+- kind: tutorial
+  text: 'MiMiC acetone-in-water tutorial, the input archive published by the MiMiC project. Downloaded
+    with the command the tutorial gives; template.inp, mini.mdp, heat.mdp, mimic.mdp, sele.dat and
+    pp_info.dat are copied verbatim into tests/fixtures/mimic_tutorial/. sha256 is of template.inp.
+
+    '
+  locator: https://gitlab.com/mimic-project/mimic-docs/-/tree/main/docs/tutorials/AcetoneTutorial
+  sha256: 51e3952370e541dac4f2da20dd526cceba4aa016117daa62878bb73dbe425440
+version: 1

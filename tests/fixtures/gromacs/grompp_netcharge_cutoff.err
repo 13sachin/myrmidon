@@ -1,0 +1,10 @@
+# gmx_mpi_d grompp, GROMACS 2021.6 (JUWELS, 2026-10-10): a +1 protein in water, coulombtype = cutoff. stderr, notes only: grompp succeeds
+NOTE 2 [file topol_solv.top, line 3015]:
+  System has non-zero total charge: 1.000000
+  Total charge should normally be an integer. See
+  http://www.gromacs.org/Documentation/Floating_Point_Arithmetic
+  for discussion on how close it should be to an integer.
+NOTE 3 [file ions.mdp]:
+  You are using a plain Coulomb cut-off, which might produce artifacts.
+  You might want to consider using PME electrostatics.
+There were 3 notes

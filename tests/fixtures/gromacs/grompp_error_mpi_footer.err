@@ -1,0 +1,20 @@
+ERROR 1 [file complex.top, line 24844]:
+  No such moleculetype SOL
+
+
+There was 1 note
+
+-------------------------------------------------------
+Program:     gmx grompp, version 2021.6
+Source file: src/gromacs/gmxpreprocess/toppush.cpp (line 2512)
+
+Fatal error:
+There was 1 error in input file(s)
+
+For more information and tips for troubleshooting, please check the GROMACS
+website at http://www.gromacs.org/Documentation/Errors
+-------------------------------------------------------
+application called MPI_Abort(MPI_COMM_WORLD, 1) - process 0
+[unset]: PMIU_write error; fd=-1 buf=:cmd=abort exitcode=1 message=application called MPI_Abort(MPI_COMM_WORLD, 1) - process 0
+:
+system msg for write_line failure : Bad file descriptor

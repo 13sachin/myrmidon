@@ -1,0 +1,12 @@
+[jwc00n007:1995692:0:1995692] Caught signal 11 (Segmentation fault: Sent by the kernel at address (nil))
+[jwc00n007:1995693:0:1995693] Caught signal 11 (Segmentation fault: Sent by the kernel at address (nil))
+[jwc00n007:1995689:0:1995689] Caught signal 11 (Segmentation fault: Sent by the kernel at address (nil))
+[jwc00n007:1995690:0:1995690] Caught signal 11 (Segmentation fault: Sent by the kernel at address (nil))
+[jwc00n007:1995695:0:1995695] Caught signal 11 (Segmentation fault: Sent by the kernel at address (nil))
+[jwc00n007:1995696:0:1995696] Caught signal 11 (Segmentation fault: Sent by the kernel at address (nil))
+[jwc00n007:1995694:0:1995694] Caught signal 11 (Segmentation fault: Sent by the kernel at address (nil))
+[jwc00n007:1995691:0:1995691] Caught signal 11 (Segmentation fault: Sent by the kernel at address (nil))
+==== backtrace (tid:1995694) ====
+ 0 0x000000000003fb30 __GI___sigaction()  :0
+ 1 0x0000000000028b15 mimic_short_range_mp_compute_sr_potential_electrons_.DIR.OMP.PARALLEL.LOOP.7.split1633()  ifx31dfiD.i90:0
+ 2 0x0000000000136c43 __kmp_invoke_microtask()  ???:0

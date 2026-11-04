@@ -1,0 +1,66 @@
+id: forcefield.amber
+axis: method
+engine: gromacs
+forcefields:
+- amber
+title: Amber-family force fields in GROMACS
+system_class: a topology that includes an Amber-family force field (amber*.ff), with GAFF ligands
+  and its water models
+scope: engine
+applicability: 'How interactions are computed for an Amber-family topology: PME electrostatics and
+  Lennard-Jones cut at 1.0 nm, bonds to hydrogen constrained at a 2 fs step. Every purpose (minimise,
+  NVT, NPT, production, a rerun) takes these unless it says which it overrides and why.'
+parameters:
+  dt:
+    value: 0.002
+    rationale: 2 fs with bonds to hydrogen constrained
+    source: 0
+  cutoff-scheme:
+    value: Verlet
+    source: 0
+  nstlist:
+    value: 10
+    source: 0
+  coulombtype:
+    value: PME
+    source: 0
+  rcoulomb:
+    value: 1.0
+    source: 1
+  rvdw:
+    value: 1.0
+    source: 1
+  DispCorr:
+    value: EnerPres
+    source: 0
+  fourierspacing:
+    value: 0.16
+    source: 0
+  pme_order:
+    value: 4
+    source: 0
+  constraints:
+    value: h-bonds
+    source: 0
+  constraint_algorithm:
+    value: lincs
+    source: 2
+  lincs_iter:
+    value: 1
+    source: 0
+  lincs_order:
+    value: 4
+    source: 0
+sources:
+- kind: tutorial
+  text: Lemkul, "Protein-Ligand Complex" GROMACS tutorial (T4 lysozyme L99A with JZ4, PDB 3HTB), npt.mdp
+    — the restrained NPT stage with the ligand coupled to the protein.
+  locator: http://www.mdtutorials.com/gmx/complex/06_equil.html
+- kind: doi
+  text: Lindorff-Larsen et al., Proteins 78, 1950 (2010) — amber99sb-ildn, the force field whose 1.0
+    nm cutoff convention this follows. doi:10.1002/prot.22711
+  locator: doi:10.1002/prot.22711
+- kind: doi
+  text: Hess, J. Chem. Theory Comput. 4, 116 (2008) — P-LINCS constraints. doi:10.1021/ct700200b
+  locator: doi:10.1021/ct700200b
+version: 1

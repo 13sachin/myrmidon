@@ -1,0 +1,611 @@
+ compiler version: GCC version 14.3.0
+ compiler options: (trimmed)
+ MPI version of the library: === ParaStation MPI 5.13.0-1 ===
+Version(PSMPI): Oct  8 2025 (5.13.0-1)+confset(gcc)+cuda+pmix+ucc+pscom-6.0.0-1+cuda
+MPICH Version:      4.2.3
+MPICH Release date: Wed Oct  2 09:35:21 AM CDT 2024
+MPICH ABI:          15:1:3
+MPICH Device:       psp
+MPICH configure:    --prefix=/opt/cpmd --build=x86_64-pc-linux-gnu --host=x86_64-pc-linux-gnu --with-ucc=/opt/cpmd --with-cuda-sm=70,60 --with-cuda --with-confset=gcc --with-mpichconf=--enable-static --with-file-system=ufs+gpfs --enable-romio --with-pmix=/opt/cpmd build_alias=x86_64-pc-linux-gnu host_alias=x86_64-pc-linux-gnu CC=gcc --with-device=psp --enable-cache --disable-sta
+ MPI version of the standard: 4.1
+ cp_groups: we are using a 1 x 24 grid (groups x nprocs).
+ PROGRAM CPMD STARTED AT: 2026-10-23 14:06:40.813   
+ SETCNST| USING: CODATA 2006 UNITS
+
+
+               ******  ******    ****  ****  ******   
+              *******  *******   **********  *******  
+             ***       **   ***  ** **** **  **   *** 
+             **        **   ***  **  **  **  **    ** 
+             **        *******   **      **  **    ** 
+             ***       ******    **      **  **   *** 
+              *******  **        **      **  *******  
+               ******  **        **      **  ******   
+
+                          VERSION 4.3-rUnversioned directory
+
+                            COPYRIGHT
+                      IBM RESEARCH DIVISION
+                MPI FESTKOERPERFORSCHUNG STUTTGART
+
+                       The CPMD consortium
+                  Home Page: http://www.cpmd.org
+               Mailing List: cpmd-list@cpmd.org
+                     E-mail: cpmd@cpmd.org
+
+
+                  ***  Aug 31 2026 -- 17:21:02  ***
+
+ THE INPUT FILE IS: /scratch/study/04_coupled/02_nve/cpmd_nve.aligned.inp
+ THIS JOB RUNS ON:                               jwc00n025.juwels
+ THE CURRENT DIRECTORY IS: 
+ /scratch/study/04_coupled/02_nve
+ THE TEMPORARY DIRECTORY IS: 
+ /scratch/study/04_coupled/02_nve
+ THE PROCESS ID IS:                                       3076042
+ THE JOB WAS SUBMITTED BY:                                    xxx
+
+
+ ******************************************************************************
+ * INFO - INFO - INFO - INFO - INFO - INFO - INFO - INFO - INFO - INFO - INFO *
+ ******************************************************************************
+ *  written by myrmidon inputset_apply — do not edit by hand                *
+ *  inputset: mimic_cpmd_nve_test v2                                          *
+ *  each value names its origin; the machine-readable map is in nve.inp.myrmi *
+ ******************************************************************************
+ CONTROL| FFT_N_DEVICES_PER_TASK            1  is greater than zero and CPMD was not compiled with -D__HAS_CUDA
+ CONTROL| reset FFT_N_DEVICES_PER_TASK to zero
+ CONTROL| BLAS_N_DEVICES_PER_TASK            1  is greater than zero and CPMD was not compiled with -D__HAS_CUDA
+ CONTROL| reset BLAS_N_DEVICES_PER_TASK to zero
+
+ BORN-OPPENHEIMER MOLECULAR DYNAMICS
+
+ USING SEED       123456 TO INIT. PSEUDO RANDOM NUMBER GEN.
+ PATH TO THE RESTART FILES:                                    ./
+ RESTART WITH OLD ORBITALS
+ RESTART WITH OLD ION POSITIONS
+ RESTART WITH OLD VELOCITIES
+ GRAM-SCHMIDT ORTHOGONALIZATION
+ MAXIMUM NUMBER OF STEPS:                              1000 STEPS
+ MAXIMUM NUMBER OF ITERATIONS FOR SC:                 10000 STEPS
+ PRINT INTERMEDIATE RESULTS EVERY                     10001 STEPS
+ STORE INTERMEDIATE RESULTS EVERY                     10001 STEPS
+ STORE INTERMEDIATE RESULTS EVERY     10001 SELF-CONSISTENT STEPS
+ NUMBER OF DISTINCT RESTART FILES:                              1
+ TEMPERATURE IS CALCULATED ASSUMING AN ISOLATED MOLECULE 
+ FICTITIOUS ELECTRON MASS:                               400.0000
+ TIME STEP FOR ELECTRONS:                                 10.0000
+ TIME STEP FOR IONS:                                      10.0000
+ ELECTRON DYNAMICS: THE TEMPERATURE IS NOT CONTROLLED
+ ION DYNAMICS:      THE TEMPERATURE IS NOT CONTROLLED
+ SPLINE INTERPOLATION IN G-SPACE FOR PSEUDOPOTENTIAL FUNCTIONS
+    NUMBER OF SPLINE POINTS:                                 5000
+
+ EXCHANGE-CORRELATION FUNCTIONALS:
+
+    100.0% CP    GGA_XC_BLYP
+           GC-CUTOFF VALUE FOR GRADIENT SMOOTHING:     1.0000E-08
+ ---------------------------------------------------------------------
+ MiMiC: a framework for multiscale modeling in computational chemistry
+
+ Version: 0.2.0
+
+ Using QM/MM module of MiMiC
+
+ Please cite the following papers:
+ J. Chem. Theory Comput. 2019, 15, 6, 3810–3823 
+ J. Chem. Theory Comput. 2019, 15, 10, 5601–5613
+ ---------------------------------------------------------------------
+
+ ***************************** ATOMS ****************************
+   NR   TYPE        X(BOHR)        Y(BOHR)        Z(BOHR)     MBL
+    1      C      29.782084      13.795001      30.481282       3
+    2      C      27.079775      13.133597      31.104892       3
+    3      C      31.785193      12.150939      31.671810       3
+    4      H      25.889248      14.097357      29.725392       3
+    5      H      26.834111      11.073795      31.085995       3
+    6      H      26.588447      14.059562      32.881235       3
+    7      H      31.993063      12.358809      33.712714       3
+    8      H      31.199378      10.204521      31.293865       3
+    9      H      33.656022      12.358809      30.840330       3
+   10      O      30.311207      15.250090      28.780529       3
+ ****************************************************************
+
+ NUMBER OF STATES:                                             12
+ NUMBER OF ELECTRONS:                                    24.00000
+ CHARGE:                                                  0.00000
+ ELECTRON TEMPERATURE(KELVIN):                            0.00000
+ OCCUPATION
+  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0  2.0
+
+    ============================================================  
+    |    Pseudopotential Report     Tue Jan 14 09:55:25 1997   |  
+    ------------------------------------------------------------  
+    |  Atomic Symbol                   :   C                   |  
+    |  Atomic Number                   :   6                   |  
+    |  Number of core states           :   1                   |  
+    |  Number of valence states        :   2                   |  
+    |  Exchange-Correlation Functional :                       |  
+    |     Slater exchange :   .6667                            |  
+    |     LDA correlation : Lee-Yang-Parr                      |  
+    |     Exchange GC     : Becke (1988)                       |  
+    |     Correlation GC  : Lee-Yang-Parr                      |  
+    |  Electron Configuration :   N   L  Occupation            |  
+    |                             1   S    2.0000              |  
+    |                             2   S    2.0000              |  
+    |                             2   P    2.0000              |  
+    |  Full Potential Total Energy   -37.702121                |  
+    |  Trouiller-Martins normconserving PP                     |  
+    |     n    l        rc       energy                        |  
+    |     2    S    1.2300      -.49630                        |  
+    |     2    P    1.2300      -.19186                        |  
+    |     3    D     .7159      -.19186                        |  
+    |  Number of Mesh Points :   615                           |  
+    |  Pseudoatom Total Energy   -5.370516                     |  
+    ============================================================  
+
+    ============================================================  
+    |    Pseudopotential Report     Thu Nov 30 13:17:19 1995   |  
+    ------------------------------------------------------------  
+    |  Atomic Symbol                   :   H                   |  
+    |  Atomic Number                   :   1                   |  
+    |  Number of core states           :   0                   |  
+    |  Number of valence states        :   1                   |  
+    |  Exchange-Correlation Functional :                       |  
+    |     Slater exchange :   .6667                            |  
+    |     LDA correlation : Lee-Yang-Parr                      |  
+    |     Exchange GC     : Becke (1988)                       |  
+    |     Correlation GC  : Lee-Yang-Parr                      |  
+    |  Electron Configuration :   N   L  Occupation            |  
+    |                             1   S    1.0000              |  
+    |  Full Potential Total Energy     -.462611                |  
+    |  Trouiller-Martins normconserving PP                     |  
+    |     n    l        rc       energy                        |  
+    |     1    S     .5000      -.24002                        |  
+    |     2    P     .5000      -.24002                        |  
+    |  Number of Mesh Points :   511                           |  
+    |  Pseudoatom Total Energy    -.462591                     |  
+    ============================================================  
+
+    ============================================================  
+    |    Pseudopotential Report     Thu Nov 30 13:19:26 1995   |  
+    ------------------------------------------------------------  
+    |  Atomic Symbol                   :   O                   |  
+    |  Atomic Number                   :   8                   |  
+    |  Number of core states           :   1                   |  
+    |  Number of valence states        :   2                   |  
+    |  Exchange-Correlation Functional :                       |  
+    |     Slater exchange :   .6667                            |  
+    |     LDA correlation : Lee-Yang-Parr                      |  
+    |     Exchange GC     : Becke (1988)                       |  
+    |     Correlation GC  : Lee-Yang-Parr                      |  
+    |  Electron Configuration :   N   L  Occupation            |  
+    |                             1   S    2.0000              |  
+    |                             2   S    2.0000              |  
+    |                             2   P    4.0000              |  
+    |  Full Potential Total Energy   -75.023693                |  
+    |  Trouiller-Martins normconserving PP                     |  
+    |     n    l        rc       energy                        |  
+    |     2    S    1.0500      -.87404                        |  
+    |     2    P    1.0500      -.33186                        |  
+    |     3    D    1.0500      -.33186                        |  
+    |  Number of Mesh Points :   631                           |  
+    |  Pseudoatom Total Energy  -15.775323                     |  
+    ============================================================  
+
+ ****************************************************************
+ *   ATOM       MASS   RAGGIO NLCC              PSEUDOPOTENTIAL *
+ *      C    12.0112   1.2000  NO     KLEINMAN      S  NONLOCAL *
+ *                                                  P     LOCAL *
+ *      H     1.0080   1.2000  NO                   S     LOCAL *
+ *      O    15.9994   1.2000  NO     KLEINMAN      S  NONLOCAL *
+ *                                                  P     LOCAL *
+ ****************************************************************
+
+
+ PARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARA
+  NCPU     NGW     NHG  PLANES  GXRAYS  HXRAYS ORBITALS Z-PLANES
+     0    2005   16031       5      98     394       0       1
+     1    2003   16029       5      98     394       1       1
+     2    2005   16025       6      98     394       0       1
+     3    2005   16037       5      98     394       1       1
+     4    1999   16031       5      98     394       0       1
+     5    1997   16031       5      98     394       1       1
+     6    1999   16033       6      98     394       0       1
+     7    1999   16033       5      98     394       1       1
+     8    2003   16033       5      98     394       0       1
+     9    2005   16037       5      98     394       1       1
+    10    2003   16029       6      98     394       0       1
+    11    2003   16035       5      98     394       1       1
+    12    2005   16029       5      98     394       0       1
+    13    2005   16035       5      98     394       1       1
+    14    2003   15979       6      97     393       0       1
+    15    2003   16029       5      98     394       1       1
+    16    2003   16025       5      98     394       0       1
+    17    2001   16037       5      98     394       1       1
+    18    2001   16033       6      98     394       0       1
+    19    2006   16029       5     100     394       1       1
+    20    2006   16027       5     100     394       0       1
+    21    2010   16028       5     100     392       1       1
+    22    2010   16026       6     100     392       0       1
+    23    2012   16024       5     100     392       1       1
+                G=0 COMPONENT ON PROCESSOR :    14
+ PARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARAPARA
+
+
+ OPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPEN
+ OMP: NUMBER OF CPUS PER TASK                                   1
+ OMP: omp_get_nested                                            F
+ OMP: omp_get_dynamic                                           F
+ OMP: omp_get_max_active_levels                                 1
+ OMP: MPI local 0 global 0
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 1 global 1
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 2 global 2
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 3 global 3
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 4 global 4
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 5 global 5
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 6 global 6
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 7 global 7
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 8 global 8
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 9 global 9
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 10 global 10
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 11 global 11
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 12 global 12
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 13 global 13
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 14 global 14
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 15 global 15
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 16 global 16
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 17 global 17
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 18 global 18
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 19 global 19
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 20 global 20
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 21 global 21
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 22 global 22
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OMP: MPI local 23 global 23
+ OMP:   proc_bind 0
+ OMP:   num_places 0
+ OPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPENMPOPEN
+
+
+ ************************** SUPERCELL ***************************
+ THIS IS AN ISOLATED SYSTEM CALCULATION
+ POISSON EQUATION SOLVER  :                   TUCKERMAN & MARTYNA
+ SHORT RANGE POTENTIAL LENGTH * BOX LENGTH                  7.000
+ SYMMETRY:                                           ORTHORHOMBIC
+ LATTICE CONSTANT(a.u.):                                 22.90000
+ CELL DIMENSION:  22.9000  0.9000  0.9000  0.0000  0.0000  0.0000
+ VOLUME(OMEGA IN BOHR^3):                              9727.28109
+ LATTICE VECTOR A1(BOHR):           22.9000     0.0000     0.0000
+ LATTICE VECTOR A2(BOHR):            0.0000    20.6100     0.0000
+ LATTICE VECTOR A3(BOHR):            0.0000     0.0000    20.6100
+ RECIP. LAT. VEC. B1(2Pi/BOHR):      0.0437     0.0000     0.0000
+ RECIP. LAT. VEC. B2(2Pi/BOHR):      0.0000     0.0485     0.0000
+ RECIP. LAT. VEC. B3(2Pi/BOHR):      0.0000     0.0000     0.0485
+ REAL SPACE MESH:                   126          112          112
+ WAVEFUNCTION CUTOFF(RYDBERG):                           70.00000
+ DENSITY CUTOFF(RYDBERG):          (DUAL= 4.00)         280.00000
+ NUMBER OF PLANE WAVES FOR WAVEFUNCTION CUTOFF:             48091
+ NUMBER OF PLANE WAVES FOR DENSITY CUTOFF:                 384685
+ ****************************************************************
+
+
+ GENERATE ATOMIC BASIS SET
+      C        SLATER ORBITALS
+        2S        ALPHA=   1.6083      OCCUPATION= 2.00
+        2P        ALPHA=   1.5679      OCCUPATION= 2.00
+      H        SLATER ORBITALS
+        1S        ALPHA=   1.0000      OCCUPATION= 1.00
+      O        SLATER ORBITALS
+        2S        ALPHA=   2.2458      OCCUPATION= 2.00
+        2P        ALPHA=   2.2266      OCCUPATION= 4.00
+
+
+ INITIALIZATION TIME:                                1.74 SECONDS
+
+
+ RESTART INFORMATION READ ON FILE                       ./RESTART
+        SORTING MM ATOMS INTO SHORT- AND LONG-RANGE DOMAINS
+        SHORT-RANGE ATOMS PER PROCESS GROUP:                  478
+        SHORT-RANGE ATOMS PER PROCESS:                         20
+        LONG-RANGE ATOMS PER PROCESS GROUP:                  3453
+        LONG-RANGE ATOMS PER PROCESS:                         144
+
+ ****************************************************************
+ *                      ATOMIC COORDINATES                      *
+ ****************************************************************
+       1       C          11.518745      11.255236       9.449794
+       2       C           8.809278      10.723231      10.212445
+       3       C          13.576601       9.760471      10.761779
+       4       H           7.480681      11.623962       8.902081
+       5       H           8.456016       8.678554      10.316503
+       6       H           8.496816      11.488745      12.125741
+       7       H          13.651299      10.306806      12.770745
+       8       H          13.141922       7.726586      10.709859
+       9       H          15.419319      10.113912       9.881858
+      10       O          12.056353      12.883414       7.839255
+ ****************************************************************
+
+
+ DEGREES OF FREEDOM FOR SYSTEM:                              7869
+
+ USING NEW CONSTRAINTS SOLVER
+ WITH PRECONDITIONED CONJUGATE GRADIENT
+ MAX NUMBER OF SHAKE ITERATIONS:                             5000
+ MAX NUMBER OF PCG STEPS IN EACH SHAKE ITERATION:              50
+ DEGREES OF FREEDOM FOR QM:                                    30
+ DEGREES OF FREEDOM FOR MM:                                  7842
+ ================================================================
+ ==                     FORCES INITIALIZATION                  ==
+ ================================================================
+ NFI      GEMAX       CNORM           ETOT        DETOT      TCPU
+ EWALD| SUM IN REAL SPACE OVER                      1* 1* 1 CELLS
+   1  1.290E-05   2.611E-07     -36.525508   -3.653E+01      0.24
+   2  7.132E-06   1.452E-07     -36.525508   -1.976E-08      0.07
+
+ ****************************************************************
+ *                      ATOMIC COORDINATES                      *
+ ****************************************************************
+       1       C          11.518745      11.255236       9.449794
+       2       C           8.809278      10.723231      10.212445
+       3       C          13.576601       9.760471      10.761779
+       4       H           7.480681      11.623962       8.902081
+       5       H           8.456016       8.678554      10.316503
+       6       H           8.496816      11.488745      12.125741
+       7       H          13.651299      10.306806      12.770745
+       8       H          13.141922       7.726586      10.709859
+       9       H          15.419319      10.113912       9.881858
+      10       O          12.056353      12.883414       7.839255
+ ****************************************************************
+
+ FILE ENERGIES EXISTS, NEW DATA WILL BE APPENDED
+ ================================================================
+ ==                END OF FORCES INITIALIZATION                ==
+ ================================================================
+
+ TIME FOR INITIALIZATION:                            0.79 SECONDS
+
+
+ ================================================================
+ =                 MOLECULAR DYNAMICS SIMULATION                =
+ ================================================================
+        SHAKE CONVERGED AFTER   3 ITERATIONS. TCPU =         0.00
+        SORTING MM ATOMS INTO SHORT- AND LONG-RANGE DOMAINS
+        SHORT-RANGE ATOMS PER PROCESS GROUP:                  478
+        SHORT-RANGE ATOMS PER PROCESS:                         20
+        LONG-RANGE ATOMS PER PROCESS GROUP:                  3453
+        LONG-RANGE ATOMS PER PROCESS:                         144
+        INFR         GEMAX            ETOT         DETOT     TCPU
+           1     4.167E-05      -36.525545     0.000E+00     0.24
+           2     3.073E-05      -36.525548    -2.874E-06     0.07
+           3     1.634E-05      -36.525548    -2.141E-07     0.07
+           4     1.770E-05      -36.525548    -5.688E-08     0.07
+           5     1.068E-05      -36.525548    -1.163E-08     0.07
+           6     3.769E-06      -36.525548    -3.225E-09     0.07
+        SUBSYSTEM TEMPERATURES:
+        T(QM) =                                              0.56
+        T(MM) =                                              3.52
+
+ ****************************************************************
+ *                      ATOMIC COORDINATES                      *
+ ****************************************************************
+       1       C          11.518727      11.255467       9.449945
+       2       C           8.809168      10.723411      10.212488
+       3       C          13.576475       9.760646      10.762024
+       4       H           7.480831      11.624332       8.901916
+       5       H           8.456137       8.678748      10.316341
+       6       H           8.496947      11.488779      12.126061
+       7       H          13.651191      10.306987      12.770714
+       8       H          13.141539       7.726535      10.710019
+       9       H          15.419169      10.113754       9.881988
+      10       O          12.056338      12.883465       7.839286
+ ****************************************************************
+
+
+ TOTAL INTEGRATED ELECTRONIC DENSITY
+    IN G-SPACE =                                    24.0000000000
+    IN R-SPACE =                                    24.0000000000
+
+ (K+E1+L+N+X+MM+QM/MM)  TOTAL ENERGY =          -59.17200018 A.U.
+ (K+E1+L+N+X)        TOTAL QM ENERGY =          -36.47588204 A.U.
+ (MM)                TOTAL MM ENERGY =          -22.64645171 A.U.
+ (QM/MM)          TOTAL QM/MM ENERGY =           -0.04966643 A.U.
+ (K)                  KINETIC ENERGY =           27.71661511 A.U.
+ (E1=A-S+R)     ELECTROSTATIC ENERGY =          -27.62186556 A.U.
+ (S)                           ESELF =           29.92067103 A.U.
+ (R)                             ESR =            1.67634214 A.U.
+ (L)    LOCAL PSEUDOPOTENTIAL ENERGY =          -29.39787174 A.U.
+ (N)      N-L PSEUDOPOTENTIAL ENERGY =            3.56376518 A.U.
+ (X)     EXCHANGE-CORRELATION ENERGY =          -10.73652504 A.U.
+          GRADIENT CORRECTION ENERGY =          -10.73652504 A.U.
+
+       NFI   TEMPP           EKS      ECLASSIC         DIS    TCPU
+         1     3.5     -59.17200     -59.12827   0.487E-06    0.89
+         2     3.7     -59.17399     -59.12827   0.199E-05    0.82
+         3     3.8     -59.17602     -59.12827   0.456E-05    0.75
+       998    80.1     -60.12680     -59.12817   0.193E+01    0.90
+       999    80.1     -60.12665     -59.12817   0.194E+01    0.98
+      1000    80.1     -60.12650     -59.12817   0.194E+01    0.90
+
+ ****************************************************************
+ *                      AVERAGED QUANTITIES                     *
+ ****************************************************************
+                           MEAN VALUE <x>   DEVIATION <x^2>-<x>^2
+ IONIC TEMPERATURE                 68.00              21.9484    
+ DENSITY FUNCTIONAL ENERGY    -59.975525             0.273488    
+ CLASSICAL ENERGY             -59.128254             0.966515E-04
+ NOSE ENERGY ELECTRONS          0.000000              0.00000    
+ NOSE ENERGY IONS               0.000000              0.00000    
+ ENERGY OF CONSTRAINTS          0.000000              0.00000    
+ ENERGY OF RESTRAINTS           0.000000              0.00000    
+ BOGOLIUBOV CORRECTION          0.000000              0.00000    
+ ION DISPLACEMENT           0.756040                 0.618284    
+ CPU TIME                         0.9378
+
+ ****************************************************************
+ *                                                              *
+ *                        FINAL RESULTS                         *
+ *                                                              *
+ ****************************************************************
+
+ ****************************************************************
+ *                      ATOMIC COORDINATES                      *
+ ****************************************************************
+       1       C          11.515089      11.065141       9.199144
+       2       C           8.833850      10.106438       9.399963
+       3       C          13.375530      10.044226      11.119614
+       4       H           7.630053      10.889541       7.909770
+       5       H           8.798338       8.026046       9.313854
+       6       H           8.074678      10.623353      11.266936
+       7       H          12.695042      10.485871      13.037301
+       8       H          13.454751       7.969959      10.998031
+       9       H          15.269947      10.832370      10.849604
+      10       O          12.183670      12.640041       7.572699
+ ****************************************************************
+
+
+ ****************************************************************
+
+
+ ELECTRONIC GRADIENT:
+    MAX. COMPONENT =    5.94827E-06         NORM =    4.91510E-07
+
+ TOTAL INTEGRATED ELECTRONIC DENSITY
+    IN G-SPACE =                                    24.0000000000
+    IN R-SPACE =                                    24.0000000000
+
+ (K+E1+L+N+X+MM+QM/MM)  TOTAL ENERGY =          -60.12649907 A.U.
+ (K+E1+L+N+X)        TOTAL QM ENERGY =          -36.47417880 A.U.
+ (MM)                TOTAL MM ENERGY =          -23.59610202 A.U.
+ (QM/MM)          TOTAL QM/MM ENERGY =           -0.05621825 A.U.
+ (K)                  KINETIC ENERGY =           27.70935424 A.U.
+ (E1=A-S+R)     ELECTROSTATIC ENERGY =          -27.62560051 A.U.
+ (S)                           ESELF =           29.92067103 A.U.
+ (R)                             ESR =            1.67136282 A.U.
+ (L)    LOCAL PSEUDOPOTENTIAL ENERGY =          -29.38764841 A.U.
+ (N)      N-L PSEUDOPOTENTIAL ENERGY =            3.56625209 A.U.
+ (X)     EXCHANGE-CORRELATION ENERGY =          -10.73653622 A.U.
+          GRADIENT CORRECTION ENERGY =          -10.73653622 A.U.
+
+ ****************************************************************
+
+
+
+ ********************************************************************************
+ *                                                                              *
+ *                                    TIMING                                    *
+ *                                                                              *
+ ********************************************************************************
+ SUBROUTINE                       CALLS             SELF TIME          TOTAL TIME
+                                            AVERAGE   MAXIMUM   AVERAGE   MAXIMUM
+ cpmd                                 1        0.02      0.02    940.33    940.34
+ mdpt                                 1        0.00      0.00    939.68    939.69
+ mddiag                               1        6.64      6.87    939.68    939.69
+ forces_diag                       1001        0.79      0.81    929.99    930.03
+ forcedr                           7559        0.82      0.90    915.78    915.82
+ forces                            7559        1.53      1.60    914.93    915.01
+ forces_a                          7559        0.05      0.05    779.47    779.54
+ rscpot                            7559        4.06      7.91    777.28    777.29
+ vofrho                            7559        0.07      0.07    691.73    694.44
+ updwf                             6558        0.96      1.05    648.34    648.40
+ vofrhot                           7559       45.51     62.92    408.68    408.96
+ EEXT                              7559        0.86      1.08    335.87    379.88
+ vofrhob                           7559       13.30     15.00    282.98    285.74
+ invfftn                         120944      191.76    212.37    191.76    212.37
+ mimic_ifc_compute_forces          1001      163.30    207.18    163.30    207.18
+ fwfftn                           83150      171.47    186.69    171.47    186.69
+ mimic_ifc_compute_potential       1001      128.15    162.47    128.15    162.47
+ gcener                            7559       13.81     15.91    152.16    153.34
+ vpsi                              7559       16.62     17.43    127.93    128.27
+ graden                            7559       20.88     24.85     78.47     83.00
+ rhoofr                            7559       17.73     18.71     81.35     81.36
+ cp_xc_compute                     7559        0.03      0.03     65.59     78.34
+ cp_xc_compute_internal            7559       65.56     78.31     65.56     78.31
+ mimic_ifc_compute_energy          1001       43.54     57.11     43.54     57.11
+ odiis                             6558       10.75     10.88     10.94     11.09
+ forces_b                          7559        1.13      1.37      5.99      6.07
+ eicalc                            7559        4.77      4.94      4.77      4.94
+ do_shake                          1000        0.00      0.02      0.15      3.66
+ new_shake                         1000        0.02      0.40      0.15      3.64
+ fnonloc                           7559        1.09      1.17      3.40      3.50
+ update_constraints                5001        0.11      2.60      0.11      2.60
+ rnlsm                             7559        0.03      0.03      2.14      2.20
+ fnonloc_grps_a                    7559        1.97      2.01      1.97      2.01
+ rnlsm1                            7559        0.57      0.61      1.89      1.95
+ ppener                            7559        1.83      1.93      1.83      1.93
+ ortho                             6558        0.03      0.04      1.51      1.55
+ rgs                               6558        1.21      1.23      1.48      1.51
+ potfor                            1001        1.39      1.42      1.39      1.42
+ sumfnl                            7559        1.32      1.41      1.32      1.41
+ ovlap                             7559        0.37      0.40      1.11      1.15
+ do_rattle                         1001        0.00      0.02      0.05      1.14
+ new_rattle                        1001        0.01      0.17      0.05      1.12
+ fill_matrix                       4001        0.04      1.06      0.04      1.06
+ mimic_update_coords               1003        0.94      0.95      0.94      0.95
+ ********************************************************************************
+
+       CPU TIME :    0 HOURS 15 MINUTES 35.70 SECONDS     
+   ELAPSED TIME :    0 HOURS 15 MINUTES 41.44 SECONDS     
+
+ PROGRAM CPMD ENDED AT:   2026-10-23 14:22:21.157   
+
+ ================================================================
+ = COMMUNICATION TASK  AVERAGE MESSAGE LENGTH  NUMBER OF CALLS  =
+ = SEND/RECEIVE                   0. BYTES                 23.  =
+ = BROADCAST                      0. BYTES                  1.  =
+ = GLOBAL SUMMATION               0. BYTES                  1.  =
+ = GLOBAL MULTIPLICATION          0. BYTES                  1.  =
+ = ALL TO ALL COMM                0. BYTES                  1.  =
+ =                             PERFORMANCE          TOTAL TIME  =
+ = SEND/RECEIVE                0.000  MB/S           0.001 SEC  =
+ = BROADCAST                   0.000  MB/S           0.001 SEC  =
+ = GLOBAL SUMMATION            0.000  MB/S           0.001 SEC  =
+ = GLOBAL MULTIPLICATION       0.000  MB/S           0.001 SEC  =
+ = ALL TO ALL COMM             0.000  MB/S           0.001 SEC  =
+ = SYNCHRONISATION                                   0.240 SEC  =
+ ================================================================

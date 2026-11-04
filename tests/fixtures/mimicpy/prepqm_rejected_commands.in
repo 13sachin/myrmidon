@@ -1,0 +1,7 @@
+add resname is ACT
+rm name is H1
+add resname is LIG
+add resname ACT
+add foo is 3
+delete name is O1
+q

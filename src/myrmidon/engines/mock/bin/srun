@@ -1,0 +1,5 @@
+#!/bin/sh
+# Mock srun: drop the step options (`--ntasks=N --exact`, as the SLURM backend writes a
+# coupled launch's steps) and exec the command.
+while [ $# -gt 0 ] && [ "${1#--}" != "$1" ]; do shift; done
+exec "$@"

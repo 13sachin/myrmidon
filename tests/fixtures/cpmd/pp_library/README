@@ -1,0 +1,2 @@
+The file names of a CPMD pseudopotential library (a MiMiC build's, light elements under
+BLYP/MT), empty: the gates check that CPMD would find a file, not what it holds.
