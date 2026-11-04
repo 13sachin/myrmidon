@@ -506,6 +506,7 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
     if unbound or comp.problems:  # what the researcher would approve cannot bind as written
         return _unbound([*unbound, *comp.problems])
     mandate.cost.estimate_core_h = comp.estimate_core_h
+    mandate.cost.unpriced = list(comp.unpriced)
     mandate = mandates.write_mandate(ws, mandate)
     if mandate.status == "needs_input":
         summary = (f"mandate revision {mandate.revision} waits on the researcher: ask them "

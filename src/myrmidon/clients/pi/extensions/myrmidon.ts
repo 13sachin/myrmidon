@@ -45,7 +45,7 @@ interface ApprovalView {
   study: string;
   digest: string;
   question: string;
-  estimate_core_h?: number;
+  estimate?: string;
   ceiling_core_h: number;
   spent_core_h?: number;
   revision?: number;
@@ -105,7 +105,7 @@ function run(argv: string[], cwd: string, timeout = 120_000): { status: number; 
 /** What the dialog itself shows: a few lines a terminal of any height holds, with the
  *  full mandate already in the transcript above it. */
 function dialogText(view: ApprovalView): string {
-  const estimate = view.estimate_core_h ? `estimated ${view.estimate_core_h} core-h; ` : "";
+  const estimate = view.estimate ? `${view.estimate}; ` : "";
   const spent = view.spent_core_h ? `, ${view.spent_core_h} already booked` : "";
   return [view.question, "",
     `cost      ${estimate}at most ${view.ceiling_core_h} core-h${spent}`,

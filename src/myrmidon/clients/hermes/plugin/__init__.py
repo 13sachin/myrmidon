@@ -79,10 +79,10 @@ def _dialog_text(view: dict) -> str:
     """What the researcher is asked: a dozen lines a terminal of any height holds, with
     the full mandate already above it."""
     digest = str(view.get("digest", ""))
-    estimate = view.get("estimate_core_h") or 0
+    estimate = str(view.get("estimate") or "")
     return "\n".join([
         str(view.get("question", "")), "",
-        f"cost       {f'estimated {estimate:g} core-h; ' if estimate else ''}"
+        f"cost       {estimate + '; ' if estimate else ''}"
         f"at most {view.get('ceiling_core_h', 0):g} core-h"
         + (f", {view.get('spent_core_h'):g} already booked" if view.get("spent_core_h")
            else ""),

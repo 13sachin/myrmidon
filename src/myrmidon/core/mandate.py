@@ -356,6 +356,18 @@ class Deliverable(_Strict):
 class Cost(_Strict):
     estimate_core_h: float = 0.0
     ceiling_core_h: float = 0.0
+    #: stages the estimate leaves out: not priced yet (each one's reason is in the render)
+    unpriced: list[str] = Field(default_factory=list)
+
+
+def estimate_words(cost: Cost) -> str:
+    """The estimate as every approval says it, with the stages it leaves out; "" for a
+    mandate nothing prices at all."""
+    left = ", ".join(cost.unpriced)
+    if cost.estimate_core_h:
+        return (f"estimated {cost.estimate_core_h:g} core-h"
+                + (f" without {left}, which nothing prices yet" if left else ""))
+    return f"not estimated: {left} not priced yet" if left else ""
 
 
 class Recovery(_Strict):
@@ -400,6 +412,7 @@ class Mandate(_Strict):
             decision.pop("locks", None)
         body["system"].pop("subsystems", None)
         body["system"].pop("hamiltonian", None)
+        body["cost"].pop("unpriced", None)
         body["method"]["stages"] = body["method"].pop("described")
         return body
 
@@ -841,8 +854,7 @@ def render(mandate: Mandate, spent_core_h: float = 0.0,
         if (measured or {}).get(d.name):
             lines.append(f"{pad}    → {measured[d.name]}")
     lines.append("")
-    est = (f"estimated {mandate.cost.estimate_core_h:g} core-h"
-           if mandate.cost.estimate_core_h else "not priced")
+    est = estimate_words(mandate.cost) or "not priced"
     lines.append(f"COST          {est}; your ceiling {mandate.cost.ceiling_core_h:g} core-h"
                  + (f"; {spent_core_h:g} core-h already booked in this study"
                     if spent_core_h else "") + ".")
@@ -888,6 +900,7 @@ def view(ws, mandate: Mandate | None, spent_core_h: float = 0.0,
         "status": mandate.status,
         "questions": mandate.questions,
         "estimate_core_h": mandate.cost.estimate_core_h,
+        "estimate": estimate_words(mandate.cost),
         "ceiling_core_h": mandate.cost.ceiling_core_h,
         "spent_core_h": spent_core_h,
         "approved": mandate.digest in approved_digests(ws),

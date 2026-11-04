@@ -605,8 +605,16 @@ def _protein_selection(m):
     return subsystem_selection(m.system.subsystems["protein"], m)
 
 
+#: a coupled stage no QM step measured here prices yet
+QM_STAGE = {"name": "qmmm", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVT",
+            "temperature_k": 300, "steps": 100,
+            "qm_region": {"subsystems": ["ligand"], "charge": 0}}
+
 WRITTEN = [
     ({}, lambda m, o: m.cost.estimate_core_h > 0 and not o.findings),
+    # the estimate names what it leaves out
+    ({"stages": [*STAGES, QM_STAGE]},
+     lambda m, o: m.cost.unpriced == ["qmmm"] and m.cost.estimate_core_h > 0),
     ({"subsystems": {}}, lambda m, o: o.facts and (
         m.system.subsystems["ligand"].resnames, m.system.subsystems["protein"].molecules,
         m.system.hamiltonian.mm) == (["JZ4"], ["Protein_chain_A"], "amber")),
@@ -683,3 +691,4 @@ def test_the_force_field_resolves_to_the_method_that_computes_it(tmp_path, named
     methods = methods_for(mandate, store, included or None)
     assert (methods.specs["mm"].id if "mm" in methods.specs else None) == resolved
     assert bool(methods.missing) is (resolved is None)
+
