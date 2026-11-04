@@ -270,6 +270,33 @@ def test_a_deposited_structure_splits_into_protein_ligand_and_discard(
                 assert sorted(set(numbers)) == list(range(1, n + 1))
 
 
+@pytest.mark.parametrize(("build", "built", "missing"), [
+    (True, {"A:THR21": ["CG2", "OG1"]}, {}),
+    (False, {}, {"A:THR21": ["OG1", "CG2"]}),
+])
+def test_a_residue_the_deposit_leaves_incomplete_is_built_or_named(
+        ws_ctx, build, built, missing):
+    """pdb2gmx refuses a residue without its heavy atoms: they are built and listed, or the
+    deposit's own REMARK 470 names them."""
+    if build:
+        pytest.importorskip("pdbfixer")
+    ws = ws_ctx.workspace
+    pdb = ws.stage("fetch") / "3htb.pdb"
+    lines = (LIGAND_FIXTURES / "3htb_excerpt.pdb").read_text().splitlines()
+    pdb.write_text("\n".join(["REMARK 470     THR A  21    OG1  CG2", *(
+        ln for ln in lines if not (ln[17:26] == "THR A  21" and ln[12:16].strip() in
+                                   ("OG1", "CG2")))]) + "\n")
+    obs = REGISTRY.call("structure_select", ws_ctx, {
+        "structure": ws.relpath(pdb), "chains": ["A"], "ligand": "JZ4",
+        "build_missing_atoms": build})
+    assert obs.ok, obs.summary
+    assert {k: sorted(v) for k, v in obs.built_atoms.items()} == built
+    assert obs.missing_atoms == missing
+    assert obs.protein_atoms == 21 + 2 * build
+    assert {"STRUCTURE_ATOMS_BUILT" if build else "STRUCTURE_ATOMS_MISSING"} <= {
+        w.id for w in obs.findings}
+
+
 #: a protein topology laid out as pdb2gmx writes one: force field, molecule, water, ions
 PROTEIN_TOP = """\
 #include "amber99sb-ildn.ff/forcefield.itp"
@@ -333,6 +360,10 @@ def test_a_ligand_is_parametrised_and_placed_where_grompp_reads_it(
     assert par.ok, par.summary
     assert (par.molecule, par.net_charge, par.charge_method) == ("JZ4", 0.0, "AM1-BCC (sqm)")
     assert par.n_atoms == 10 + par.hydrogens_added
+    radical = REGISTRY.call("ligand_parametrize", ws_ctx, {
+        "structure": ligand, "net_charge": 1, "hydrogens": "add_by_valence",
+        "atom_types": "gaff2", "charge_method": "bcc"})
+    assert [w.id for w in blocking(radical)] == ["LIGAND_ODD_ELECTRONS"]
     made = {a.role: ws.root / a.path for a in par.artifacts}
 
     stage = ws.stage("input")

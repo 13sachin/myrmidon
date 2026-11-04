@@ -22,7 +22,7 @@ steps:
   values:
     structure: structure_deposited
   note: which chains and which ligand copy make the system is the researcher's; crystal waters and
-    buffer molecules are discarded and counted
+    buffer molecules are discarded and counted; heavy atoms a residue lacks are built and listed
   estimate_core_h: 0.0
   estimate_basis: runs in the session, not on the scheduler
 - name: protein_topology

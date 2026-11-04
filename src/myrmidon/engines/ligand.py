@@ -25,6 +25,22 @@ def hydrogen_count(path: Path) -> int | None:
     return sum(a.element in ("H", "D") for a in atoms)
 
 
+#: atomic numbers of the elements a small organic molecule carries
+ATOMIC_NUMBER = {"H": 1, "D": 1, "B": 5, "C": 6, "N": 7, "O": 8, "F": 9, "SI": 14, "P": 15,
+                 "S": 16, "CL": 17, "SE": 34, "BR": 35, "I": 53}
+
+
+def nuclear_charge(path: Path) -> int | None:
+    """The sum of a PDB molecule's atomic numbers: its electron count when neutral. None
+    for another format, a record without its element column (a name such as CL1 does not
+    say whether it is chlorine), or an element outside ATOMIC_NUMBER."""
+    if path.suffix.lower() != ".pdb":
+        return None
+    atoms, _, _ = parse_pdb_atoms(path.read_text(errors="replace"))
+    z = [ATOMIC_NUMBER.get(a.element) if a.line[76:78].strip() else None for a in atoms]
+    return sum(z) if atoms and None not in z else None
+
+
 def run_acpype(argv: list[str], cwd: Path, env: dict, timeout: int) -> subprocess.CompletedProcess:
     return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True,  # noqa: S603
                           timeout=timeout)

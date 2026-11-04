@@ -24,7 +24,7 @@ from myrmidon.core.tool import ToolContext, precheck, tool
 from myrmidon.core.validation import Precondition
 from myrmidon.engines.gromacs.itp import itp_rows, parse_itp_atoms
 from myrmidon.engines.inputs import require_input, resolve_in_ws
-from myrmidon.engines.ligand import hydrogen_count, residue_name, run_acpype
+from myrmidon.engines.ligand import hydrogen_count, nuclear_charge, residue_name, run_acpype
 from myrmidon.errors import EngineNotFoundError
 from myrmidon.text import tail
 
@@ -123,6 +123,24 @@ def ligand_parametrize(ctx: ToolContext, params: LigandParams) -> Observation:
                                      command=argv, log_tail=tail(proc.stderr + proc.stdout))
         before, after = hydrogen_count(given), hydrogen_count(structure)
         added = after - before if before is not None and after is not None else None
+
+    z = nuclear_charge(structure)
+    if params.charge_method == "bcc" and z is not None and (z - params.net_charge) % 2:
+        h = hydrogen_count(structure)
+        return Observation(
+            ok=False, molecule=name, hydrogens=h, hydrogens_added=added,
+            electrons=z - params.net_charge,
+            summary=f"{name} with {h} hydrogens and net charge {params.net_charge} has "
+            f"{z - params.net_charge} electrons: an open shell, which AM1-BCC cannot charge",
+            findings=[Precondition(
+                id="LIGAND_ODD_ELECTRONS",
+                message=f"{h} hydrogens and net charge {params.net_charge} leave "
+                f"{z - params.net_charge} electrons, an odd number",
+                means="the hydrogens and the charge describe a radical; with these "
+                f"hydrogens a closed shell has net charge {params.net_charge - 1} or "
+                f"{params.net_charge + 1}",
+                suggestion="state the net charge of the protonation the hydrogens give, or "
+                "another protonation", needs=["net_charge", "hydrogens"])])
 
     argv = [info.path, "-i", structure.name, "-b", name, "-c", params.charge_method,
             "-a", params.atom_types, "-n", str(params.net_charge), "-o", "gmx"]

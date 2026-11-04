@@ -264,7 +264,7 @@ def _as_text(value: Any, width: int = 160) -> str:
             return text
         keys = list(value)
         more = f", +{len(keys) - 6} more" if len(keys) > 6 else ""
-        return f"{len(keys)} entries: {', '.join(keys[:6])}{more}"
+        return f"{len(keys)} entries: {', '.join(map(str, keys[:6]))}{more}"
     return str(value)
 
 

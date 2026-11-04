@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from pydantic import BaseModel
 
 from myrmidon.core.validation import Finding, Precondition
@@ -95,6 +97,82 @@ def pdb_records(polymer: list[PdbAtom], hetero: list[PdbAtom], chains: dict[str,
             lines.append(rechained(a.line, chain, n))
         lines.append("TER")
     return "\n".join([*lines, "END"]) + "\n"
+
+
+def pdb_atom_line(serial: int, name: str, resname: str, chain: str, resseq: int,
+                  icode: str, xyz: tuple[float, float, float], element: str) -> str:
+    """An ATOM record in the PDB's columns: a name shorter than four characters of a
+    one-letter element starts in column 14."""
+    field = f" {name:<3s}" if len(name) < 4 and len(element) == 1 else f"{name:<4s}"
+    x, y, z = xyz
+    return (f"ATOM  {serial % 100000:5d} {field} {resname:>3s} {chain:1s}{resseq:4d}"
+            f"{icode or ' ':1s}   {x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}{0.0:6.2f}"
+            f"          {element:>2s}")
+
+
+def build_missing_atoms(polymer: list[PdbAtom], serial: int = 0
+                        ) -> tuple[list[PdbAtom], dict[str, list[str]]]:
+    """The polymer with the heavy atoms its residues lack built in, and what was built per
+    residue (``"A:LYS141"``), read from the atoms written. PDBFixer places each from the
+    residue's template and relaxes the new atoms against the fixed rest; missing residues and
+    hydrogens are not built. New records continue from ``serial`` and carry the residue's
+    deposited name. Raises ImportError when PDBFixer is not installed."""
+    import io
+
+    from openmm import unit
+    from pdbfixer import PDBFixer
+
+    def key(res) -> tuple[str, int, str]:
+        return (res.chain.id.strip(), int(res.id), res.insertionCode.strip())
+
+    fixer = PDBFixer(pdbfile=io.StringIO(pdb_records(polymer, [], {}, "REMARK")))
+    fixer.missingResidues = {}
+    fixer.findMissingAtoms()
+    wanted = {key(r): {a.name for a in atoms} for r, atoms in fixer.missingAtoms.items()}
+    if not wanted:
+        return polymer, {}
+    fixer.addMissingAtoms()
+    resnames = {a.residue: a.resname for a in polymer}
+    serial = max([serial, *(a.serial for a in polymer)])
+    built: dict[tuple, list[PdbAtom]] = {}
+    for res in fixer.topology.residues():
+        k = key(res)
+        for atom in res.atoms():
+            if atom.name not in wanted.get(k, ()) or k not in resnames:
+                continue
+            serial += 1
+            xyz = tuple(fixer.positions[atom.index].value_in_unit(unit.angstrom))
+            element = atom.element.symbol.upper()
+            line = pdb_atom_line(serial, atom.name, resnames[k], *k, xyz, element)
+            built.setdefault(k, []).append(PdbAtom(
+                record="ATOM", serial=serial, name=atom.name, altloc="",
+                resname=resnames[k], chain=k[0], resseq=k[1], icode=k[2], element=element,
+                line=line))
+    out: list[PdbAtom] = []
+    names: dict[str, list[str]] = {}
+    for i, a in enumerate(polymer):
+        out.append(a)
+        if (i + 1 == len(polymer) or polymer[i + 1].residue != a.residue) \
+                and a.residue in built:
+            new = built.pop(a.residue)
+            out.extend(new)
+            names[f"{a.chain}:{a.resname}{a.resseq}{a.icode}"] = [b.name for b in new]
+    return out, names
+
+
+#: REMARK 470 rows after the optional model number: residue, chain, number (may be
+#: negative, may run into the chain from 1000 on), insertion code, then the atoms
+_REMARK_470 = re.compile(r"^\s*(?:\d+\s+)?([A-Z0-9]{1,3})\s+(\S)\s*(-?\d+)([A-Z]?)\s+(.+)$")
+
+
+def remark_missing_atoms(text: str, chains: list[str]) -> dict[str, list[str]]:
+    """What the deposit's REMARK 470 says residues of ``chains`` lack (``"A:LYS141"``)."""
+    out: dict[str, list[str]] = {}
+    for ln in text.splitlines():
+        m = _REMARK_470.match(ln[10:]) if ln.startswith("REMARK 470") else None
+        if m and m.group(2) in chains:
+            out[f"{m.group(2)}:{m.group(1)}{int(m.group(3))}{m.group(4)}"] = m.group(5).split()
+    return out
 
 
 def resolve_altlocs(atoms: list[PdbAtom], keep: str) -> tuple[list[PdbAtom], int, list[str]]:

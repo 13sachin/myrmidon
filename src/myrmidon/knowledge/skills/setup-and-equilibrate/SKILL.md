@@ -56,7 +56,8 @@ names, sampling intervals the deliverables need, ranks.
 Build in the session, one call at a time, using the file each call returns:
 
 - A deposited complex: `structure_select` (chains kept, one ligand copy, the rest counted
-  and discarded) → `lookup source=ligand` with its residue code for what it is (name,
+  and discarded, heavy atoms the deposit leaves out built and listed: name them in the
+  report) → `lookup source=ligand` with its residue code for what it is (name,
   formula, the dictionary's reference charge; its protonation and net charge here stay the
   researcher's) → `gmx_pdb2gmx` on the protein → `ligand_parametrize` →
   `gmx_make_ndx` and `gmx_genrestr` on the ligand's own coordinates and topology →

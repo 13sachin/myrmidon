@@ -24,9 +24,11 @@ from myrmidon.engines.gromacs.common import stage_output
 from myrmidon.engines.inputs import resolve_in_ws
 from myrmidon.engines.structure import (
     PdbAtom,
+    build_missing_atoms,
     hetero_chain_ids,
     parse_pdb_atoms,
     pdb_records,
+    remark_missing_atoms,
     resolve_altlocs,
     selection_finding,
 )
@@ -91,6 +93,10 @@ def fetch_pdb(ctx: ToolContext, params: FetchPdbParams) -> Observation:
     )
 
 
+def _listed(atoms: dict[str, list[str]]) -> str:
+    return "; ".join(f"{r} {' '.join(n)}" for r, n in atoms.items())
+
+
 WATER_RESIDUES = frozenset({"HOH", "WAT", "DOD", "SOL"})
 
 
@@ -114,6 +120,12 @@ class StructureSelectParams(BaseModel):
         "structural metal such as 'ZN', crystal waters as 'HOH'), each written after TER "
         "as a chain of its own so pdb2gmx types it apart from the polymer; every other "
         "HETATM residue is discarded and counted")
+    build_missing_atoms: bool = Field(
+        default=True,
+        description="build the heavy atoms residues of the kept chains lack (a side chain "
+        "the deposit leaves out as disordered; pdb2gmx refuses a residue without them) from "
+        "the residue's template with PDBFixer, each one listed; false keeps the residues "
+        "as deposited. Missing residues are never built")
     altloc: str = Field(
         default="A", min_length=1, max_length=1,
         description="the alternate location kept where atoms have more than one")
@@ -137,7 +149,8 @@ class StructureSelectParams(BaseModel):
 def structure_select(ctx: ToolContext,
                      params: StructureSelectParams) -> Observation:
     source = resolve_in_ws(ctx, params.structure)
-    raw, models, conect = parse_pdb_atoms(source.read_text(errors="replace"))
+    text = source.read_text(errors="replace")
+    raw, models, conect = parse_pdb_atoms(text)
     atoms, n_alt, lacking = resolve_altlocs(raw, params.altloc)
 
     def refuse(summary: str, finding: Finding) -> Observation:
@@ -208,6 +221,34 @@ def structure_select(ctx: ToolContext,
         else:
             discarded[a.resname] += first
 
+    advisory = []
+    built: dict[str, list[str]] = {}
+    unbuilt = "build_missing_atoms is false"
+    if params.build_missing_atoms:
+        try:
+            polymer, built = build_missing_atoms(polymer, max(
+                (a.serial for a in hetero), default=0))
+            unbuilt = "PDBFixer did not build them (no template, or not in the kept polymer)"
+        except ImportError:
+            unbuilt = "PDBFixer is not installed (pip install 'myrmidon[structure]')"
+        except Exception as exc:  # noqa: BLE001 - the residues stay as deposited, said
+            unbuilt = f"PDBFixer could not build them: {exc}"
+    lacking_atoms = {r: n for r, n in remark_missing_atoms(text, params.chains).items()
+                     if r not in built}
+    if built:
+        advisory.append(Finding(
+            id="STRUCTURE_ATOMS_BUILT",
+            message=f"built the heavy atoms {len(built)} residue(s) lacked "
+            f"({_listed(built)}) from their templates with PDBFixer: their positions are "
+            "modelled, not observed",
+            suggestion="say so in the report; build_missing_atoms false keeps the residues "
+            "as deposited"))
+    if lacking_atoms:
+        advisory.append(Finding(
+            id="STRUCTURE_ATOMS_MISSING",
+            message=f"{len(lacking_atoms)} residue(s) lack heavy atoms in the deposit "
+            f"({_listed(lacking_atoms)}) and were not built: {unbuilt}",
+            means="pdb2gmx refuses a residue without its heavy atoms"))
     # what is kept beside the macromolecule is written as chains of its own, after TER:
     # pdb2gmx types a chain by its residues and refuses one that mixes them
     kept_chains = hetero_chain_ids(list(kept_hetero), {a.chain for a in atoms})
@@ -217,10 +258,10 @@ def structure_select(ctx: ToolContext,
     protein_path.write_text(pdb_records(
         polymer, hetero, kept_chains,
         f"REMARK   myrmidon structure_select from {source.name}: chains "
-        f"{' '.join(params.chains)}, altloc {params.altloc}"))
+        f"{' '.join(params.chains)}, altloc {params.altloc}"
+        + (f"\nREMARK   built by PDBFixer: {_listed(built)}" if built else "")))
     artifacts = [ArtifactRef.from_path(protein_path, "structure", root=ctx.workspace.root)]
     n_residues = len({a.residue for a in polymer})
-    advisory = []
     ligand_h = None
     if ligand_atoms:
         serials = {a.serial for a in ligand_atoms}
@@ -274,7 +315,9 @@ def structure_select(ctx: ToolContext,
                   for name, cid in kept_chains.items())
         + f"; discarded {dropped}"
         + (f" and chains {', '.join(sorted(discarded_chains))}" if discarded_chains else "")
-        + (f"; altloc {params.altloc} kept for {n_alt} atoms" if n_alt else ""),
+        + (f"; altloc {params.altloc} kept for {n_alt} atoms" if n_alt else "")
+        + (f"; built {sum(map(len, built.values()))} missing heavy atoms in "
+           f"{', '.join(built)}" if built else ""),
         artifacts=artifacts,
         inputs=[ArtifactRef.from_path(source, "structure", root=ctx.workspace.root)],
         findings=advisory,
@@ -292,6 +335,8 @@ def structure_select(ctx: ToolContext,
         discarded_chains=sorted(discarded_chains),
         altloc=params.altloc if n_alt else None,
         altloc_atoms=n_alt,
+        built_atoms=built,
+        missing_atoms=lacking_atoms,
         models=models,
         residue_map=res_map,
         system_profile=profile.model_dump(exclude_defaults=True, exclude={"triggered_rules"}),
