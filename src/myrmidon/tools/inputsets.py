@@ -108,14 +108,23 @@ def _protocol_hit(inputset, *, full: bool = False, values: bool = False) -> Inpu
     )
 
 
+#: where a key read from the run before comes from, in words
+FROM_RUN_WORDS = ("the final ionic temperature of temperature_k.from_stage's collected run, "
+                  "read from its CPMD log at render, unless temperature_k.start_k is stated")
+
+
 def _said(form, reads: str):
     """Where a template's key takes its value from, in words: its source, then what shapes
     it — the states it is written in, a default, its unit, the numbers beside it, how often
     it repeats."""
+    from myrmidon.knowledge.stage import FROM_RUN
+
     if form.value is not None and not (form.when or form.repeat):
         return form.value
     if form.value is not None:
         out = f"{form.value}"
+    elif form.from_stage in FROM_RUN:
+        out = FROM_RUN_WORDS
     elif form.from_stage:
         out = f"the stage's {form.from_stage}"
     elif form.from_method:
@@ -141,7 +150,7 @@ def _said(form, reads: str):
 def _template_hit(template, store, *, full: bool = False, values: bool = False) -> InputSetHit:
     """A stage template on the wire, as an input set is: what a stage of its kinds renders,
     each key with where its value comes from."""
-    from myrmidon.knowledge.stage import flattened, with_inherited
+    from myrmidon.knowledge.stage import FROM_RUN, flattened, with_inherited
 
     template = with_inherited(template, store)
     forms, sources = flattened(template, store)
@@ -153,9 +162,11 @@ def _template_hit(template, store, *, full: bool = False, values: bool = False) 
         renders=template.renders,
         parameters={k: _said(f, template.reads) for k, f in forms.items()}
         if full or values else {},
-        # what the stage must state for the file to be written
+        # what the stage must state for the file to be written; what the render reads from
+        # the run before (a ramp's start) is derivable, not the researcher's
         required_from_user={k: f"the stage's {f.from_stage}" for k, f in forms.items()
-                            if f.required and f.from_stage},
+                            if f.required and f.from_stage and f.from_stage not in FROM_RUN},
+        derivable={k: FROM_RUN_WORDS for k, f in forms.items() if f.from_stage in FROM_RUN},
         rationale={k: f.rationale for k, f in forms.items() if f.rationale} if full else {},
         sources=[InputSetSource(**x.model_dump()) for x in sources] if full else [],
         pitfalls=template.pitfalls,

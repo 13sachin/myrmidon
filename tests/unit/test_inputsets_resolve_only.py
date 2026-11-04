@@ -77,6 +77,11 @@ def test_lookup_listings_fit_within_client_cap_and_single_id_returns_full(ws_ctx
     assert all(not h.parameters for h in all_sets.inputsets)
     nvt_summary = next(h for h in all_sets.inputsets if h.id == "gromacs.nvt")
     assert "nsteps" in nvt_summary.required_from_user
+    # a ramp's start is read from the run before: derivable, never the researcher's
+    dyn = next(h for h in all_sets.inputsets if h.id == "cpmd.dynamics")
+    assert "&CPMD/MAXSTEP" in dyn.required_from_user
+    assert {"&CPMD/TEMPERATURE RAMP", "&CPMD/BERENDSEN IONS"} <= set(dyn.derivable)
+    assert not {"&CPMD/TEMPERATURE RAMP", "&CPMD/BERENDSEN IONS"} & set(dyn.required_from_user)
 
     one_set = REGISTRY.call("inputset_lookup", ws_ctx, {"query": "gromacs.nvt@v1"})
     assert one_set.ok and len(one_set.inputsets) == 1
