@@ -78,13 +78,16 @@ def wait_job(ctx, job_id, timeout=3000):
     raise AssertionError(f"{job_id} did not finish within {timeout}s")
 
 
-def test_generate_reference_pair(ctx):
+def test_generate_reference_pair(ctx, approve_mandate):
     call(ctx, "study_create", name="acetone-fm-ref",
          description=f"clean FM reference pair, {STEPS} steps")
     ws = ctx.workspace
     inputs = ws.stage("inputs")
     for f in FIXTURES.iterdir():
-        shutil.copy(f, inputs / f.name)
+        if f.is_dir():
+            shutil.copytree(f, inputs / f.name)
+        else:
+            shutil.copy(f, inputs / f.name)
     rel = lambda name: ws.relpath(inputs / name)  # noqa: E731
 
     sel = call(
@@ -105,6 +108,9 @@ def test_generate_reference_pair(ctx):
     report = call(ctx, "file_check", path=art(prep, "cpmd_input"), tpr=art(tpr, "tpr"))
     assert not blocking(report), report.summary
 
+    approve_mandate(ctx, "Generate a force-matching reference pair", 256.0,
+                    structure=rel("acetone_equilibrated.gro"),
+                    topology=rel("acetone_equilibrated.top"))
     job = call(
         ctx, "mimic_run", cpmd_input=art(prep, "cpmd_input"), tpr=art(tpr, "tpr"),
         cpmd_ranks=CPMD_RANKS, gromacs_ranks=1,

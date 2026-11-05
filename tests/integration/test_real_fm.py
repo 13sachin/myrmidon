@@ -75,7 +75,7 @@ def wait_job(ctx, job_id, timeout=2400):
     raise AssertionError(f"{job_id} did not finish within {timeout}s")
 
 
-def test_force_matching_on_reference_dataset(ctx):
+def test_force_matching_on_reference_dataset(ctx, approve_mandate):
     call(ctx, "study_create", name="acetone-fm", description="real FM integration")
     ws = ctx.workspace
     inputs = ws.stage("inputs")
@@ -102,6 +102,8 @@ def test_force_matching_on_reference_dataset(ctx):
     )
     assert plan.n_snapshots == ds.frames
 
+    approve_mandate(ctx, "Fit force-field parameters to the reference dataset", 256.0,
+                    structure=rel("acetone.gro"), topology=rel("acetone.top"))
     job = call(
         ctx, "fm_fit",
         topology=rel("acetone.top"), coords=rel("acetone.gro"),
