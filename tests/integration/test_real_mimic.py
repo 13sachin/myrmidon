@@ -75,12 +75,15 @@ def wait_job(ctx, job_id, timeout=2400):
     raise AssertionError(f"{job_id} did not finish within {timeout}s")
 
 
-def test_acetone_qmmm_chain(ctx):
+def test_acetone_qmmm_chain(ctx, approve_mandate):
     call(ctx, "study_create", name="acetone-qmmm", description="real MiMiC integration")
     ws = ctx.workspace
     inputs = ws.stage("inputs")
     for f in FIXTURES.iterdir():
-        shutil.copy(f, inputs / f.name)
+        if f.is_dir():
+            shutil.copytree(f, inputs / f.name)
+        else:
+            shutil.copy(f, inputs / f.name)
     rel = lambda name: ws.relpath(inputs / name)  # noqa: E731
 
     # --- QM region via real prepqm (charge reported, not trusted) ---
@@ -110,6 +113,10 @@ def test_acetone_qmmm_chain(ctx):
     report = call(ctx, "file_check", path=art(prep, "cpmd_input"), tpr=art(tpr, "tpr"))
     assert not blocking(report), report.summary
 
+    approve_mandate(ctx, "Run 20 coupled QM/MM steps of acetone in water", 128.0,
+                    structure=rel("acetone_equilibrated.gro"),
+                    topology=rel("acetone_equilibrated.top"))
+
     # --- coupled launch ---
     job = call(
         ctx, "mimic_run", cpmd_input=art(prep, "cpmd_input"), tpr=art(tpr, "tpr"),
@@ -123,8 +130,8 @@ def test_acetone_qmmm_chain(ctx):
     assert diag.finished_normally
     assert diag.md_steps_completed == MAXSTEPS
     assert diag.energy_last is not None and diag.energy_last < -30  # acetone/BLYP ≈ -36 a.u.
-    stage = ws.stage("qmmm")
-    assert (stage / "mimic.log").exists() and (stage / "ENERGIES").exists()
+    run_dir = next(ws.stage("qmmm").glob("*_mimic"))
+    assert (run_dir / "mimic.log").exists() and (run_dir / "ENERGIES").exists()
 
     events = list(ws.ledger.events())
     tools = {e.tool for e in events}

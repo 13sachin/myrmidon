@@ -13,6 +13,14 @@ import pytest
 
 AUTHORISED = os.environ.get("MYRMIDON_REAL_ENGINES") == "1"
 
+if AUTHORISED:
+    # the test modules look for the engines on import: without the machine's env script a
+    # real-engine run would skip every test instead of running it
+    from myrmidon.config import MyrmidonConfig
+    from myrmidon.core.envscript import apply_env_script
+
+    apply_env_script(MyrmidonConfig.load().env_script)
+
 
 def pytest_collection_modifyitems(config, items):
     if AUTHORISED:
@@ -24,3 +32,23 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if str(item.path).startswith(here):
             item.add_marker(skip)
+
+
+@pytest.fixture
+def approve_mandate():
+    """Write a mandate over the built system and record the researcher's yes, so the jobs
+    run under the gate the way a study's jobs do."""
+
+    def approve(ctx, question, ceiling_core_h, **files):
+        from myrmidon.core import mandate as mandates
+        from myrmidon.core.tool import REGISTRY
+
+        system = [{"path": path, "kind": kind} for kind, path in files.items()]
+        written = REGISTRY.call("mandate_write", ctx, {
+            "question": question, "ceiling_core_h": ceiling_core_h, "system_files": system})
+        assert written.ok, written.summary
+        ws = ctx.workspace
+        mandates.record_approval(ws, mandates.read_mandate(ws), approver="researcher",
+                                 via="terminal")
+
+    return approve

@@ -91,7 +91,7 @@ def wait_job(ctx, job_id, timeout=None):
     raise AssertionError(f"{job_id} did not finish within {timeout}s")
 
 
-def test_full_chain_on_trp_cage(real_ctx):
+def test_full_chain_on_trp_cage(real_ctx, approve_mandate):
     ctx = real_ctx
     call(ctx, "study_create", name="1l2y-nvt", description="integration test")
     ws = ctx.workspace
@@ -144,13 +144,16 @@ def test_full_chain_on_trp_cage(real_ctx):
         structure=art(ionized, "structure"), topology=art(ionized, "topology"),
         output="em.tpr",
     )
+    approve_mandate(ctx, "Minimize and run 10 ps of NVT on Trp-cage", 64.0,
+                    structure=art(ionized, "structure"), topology=art(ionized, "topology"))
     em_job = call(ctx, "gmx_mdrun", tpr=art(em_tpr, "tpr"), deffnm="em")
     em_done = wait_job(ctx, em_job.job_id)
     assert em_done.state == "COMPLETED", em_done.summary
     em_res = call(ctx, "job_status", job_id=em_job.job_id)
 
     # --- NVT with the gate exercised: an NVE input runs with the finding on record ---
-    nve_text = NVT_MDP.replace("tcoupl = v-rescale\n", "").replace("ref_t = 300\n", "")
+    nve_text = NVT_MDP.replace("tcoupl = v-rescale\nref_t = 300\ntau_t = 0.1\ntc_grps = System\n",
+                               "")
     (run_stage / "nve.mdp").write_text(nve_text)
     refused = REGISTRY.call(
         "gmx_grompp",
