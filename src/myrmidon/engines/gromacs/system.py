@@ -196,6 +196,18 @@ def qm_group(ndx: Path, name: str | None = None) -> SystemFact | None:
                       sha256=_hash(ndx))
 
 
+def atom_count(structure: Path) -> SystemFact | None:
+    """The atoms a .gro holds, from its second line: what a run's ranks divide."""
+    try:
+        with structure.open() as fh:
+            fh.readline()
+            count = int(fh.readline().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    return SystemFact(key="atoms", value=str(count), rule="atoms", read=[str(structure)],
+                      sha256=_hash(structure))
+
+
 def system_facts(top: Path | None = None, ndx: Path | None = None,
                  structure: Path | None = None, data_dir: Path | None = None,
                  rules: set[str] | None = None) -> dict[str, SystemFact]:
@@ -218,6 +230,8 @@ def system_facts(top: Path | None = None, ndx: Path | None = None,
         facts.append(fact)
     if structure is not None and wanted("starting_state"):
         facts += starting_state(structure)
+    if structure is not None and wanted("atoms") and (fact := atom_count(structure)) is not None:
+        facts.append(fact)
     return {f.key: f for f in facts}
 
 

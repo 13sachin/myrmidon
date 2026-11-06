@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from functools import cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, PrivateAttr
@@ -41,6 +41,9 @@ class Catalog(BaseModel):
     sources: list[Source]
     obsolete: list[str] = Field(default_factory=list)
     renamed: dict[str, str] = Field(default_factory=dict)
+    #: how a run of this engine divides among ranks and threads (engines/<engine>/layout.py),
+    #: and how a QM step's cost scales: constants of the engine, not of a machine
+    decomposition: dict[str, Any] = Field(default_factory=dict)
     keys: dict[str, EngineKey]
     _sections: dict[str, list[EngineKey]] | None = PrivateAttr(default=None)
 

@@ -24,6 +24,21 @@ _ADAPTERS = {
 }
 
 
+@dataclass(frozen=True)
+class Layout:
+    """How a run divides the cores it is given: MPI ranks and threads per rank of its main
+    program, ranks of a coupled partner, and why it is so."""
+
+    ntasks: int
+    cpus_per_task: int = 1
+    partner_ntasks: int = 0
+    why: str = ""
+
+    @property
+    def cores(self) -> int:
+        return (self.ntasks + self.partner_ntasks) * self.cpus_per_task
+
+
 @dataclass
 class StageRender:
     """A mandate stage's compiled values on their way into the file its engine reads."""

@@ -65,6 +65,21 @@ class PartitionCompute(BaseModel):
     billed_per_node_h: float = Field(gt=0)
     node_exclusive: bool = True
     note: str = ""  # what the scheduler bills that this price leaves out
+    # the longest a job may run here, by the partition's own limit and its QoS; None: no limit
+    max_walltime_min: int | None = None
+
+
+class PlausibleStep(BaseModel):
+    """What one coupled QM/MM step plausibly takes on this machine, for a QM region of a stated
+    size at a stated cutoff on a stated number of cores: the reference a first coupled run is
+    booked from, scaled to its own region (the catalog's ``qm_step_scaling``), before any step
+    has been measured here. The default is a measurement: 15.27 s and 14.46 s per step of a
+    10-atom QM region at 70 Ry on 48 cores (tests/fixtures/cpmd/nose_steps.out)."""
+
+    s_per_step: float = Field(default=15.0, gt=0)
+    qm_atoms: int = Field(default=10, gt=0)
+    cutoff_ry: float = Field(default=70.0, gt=0)
+    cores: int = Field(default=48, gt=0)
 
 
 class ComputeDefaults(BaseModel):
@@ -81,6 +96,7 @@ class ComputeDefaults(BaseModel):
     # the fastest a single MD job plausibly runs here (ns/day, small system, one
     # node); a booking that needs more than this cannot finish the run it carries
     plausible_ns_per_day: float = 1000.0
+    plausible_s_per_step: PlausibleStep = Field(default_factory=PlausibleStep)
     # the least a dynamics run is booked for before any run here has been measured: its
     # pace above is a ceiling, so a booking from it alone would be too short
     unmeasured_walltime_min: int = 10

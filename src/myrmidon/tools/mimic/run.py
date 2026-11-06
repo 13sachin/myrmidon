@@ -42,7 +42,8 @@ FALLBACK_WALLTIME_MIN = 60
 
 class MimicRunParams(BaseModel):
     #: the fields this submission's cost is computed from
-    RESOURCE_FIELDS: ClassVar[tuple[str, ...]] = ("cpmd_ranks", "gromacs_ranks", "walltime_min")
+    RESOURCE_FIELDS: ClassVar[tuple[str, ...]] = ("cpmd_ranks", "gromacs_ranks", "cpus_per_task",
+                                                  "walltime_min")
 
     preview: bool = Field(default=False, description=PREVIEW_HELP)
 
@@ -68,6 +69,8 @@ class MimicRunParams(BaseModel):
     gromacs_ranks: int | None = Field(
         default=None, ge=1, description="MPI ranks for GROMACS (MM); unset, one in six of "
         "the node's cores on a partition that bills whole nodes, else 1")
+    cpus_per_task: int = Field(default=1, ge=1, description="OpenMP threads per rank of both "
+                               "programs (OMP_NUM_THREADS)")
     deffnm: str = Field(default="mimic")
     walltime_min: int | None = Field(
         default=None, ge=1, description="batch walltime (minutes); unset, sized from the "
@@ -91,6 +94,7 @@ class MimicRunParams(BaseModel):
         would be presented to the human as 0.0 core-h."""
         return Resources(
             ntasks=(self.cpmd_ranks or 4) + (self.gromacs_ranks or 1),
+            cpus_per_task=self.cpus_per_task,
             walltime_min=self.walltime_min or FALLBACK_WALLTIME_MIN,
             partition=self.partition,
             account=self.account,
@@ -130,11 +134,16 @@ class MimicRunParams(BaseModel):
                     steps=int(float(steps)),
                     qm_atoms=(qm_geometry(sections) or {}).get("n_atoms"),
                     cutoff_ry=float(cutoff.split()[0]) if cutoff else None,
-                    cores=self.cpmd_ranks + self.gromacs_ranks,
-                    paces=[*study_paces(ctx.workspace), *read_paces(ctx.config.studies_root)])
+                    cores=(self.cpmd_ranks + self.gromacs_ranks) * self.cpus_per_task,
+                    paces=[*study_paces(ctx.workspace), *read_paces(ctx.config.studies_root)],
+                    compute=ctx.config.compute)
         except Exception as exc:  # noqa: BLE001 — the booking is the default, and says why
             minutes, why = None, f"the input could not be read ({exc})"
         booked = booked_minutes(minutes) if minutes is not None else FALLBACK_WALLTIME_MIN
+        _, node = ctx.config.compute.billing(self.partition)
+        if node.max_walltime_min and booked > node.max_walltime_min:
+            booked = node.max_walltime_min
+            why += f"; capped at the {booked} min the partition grants"
         out = self.model_copy(update={"walltime_min": booked})
         out._sizing = (f"walltime sized to {booked} min: {why}" if minutes is not None
                        else f"walltime {booked} min, not sized: {why}")
@@ -389,6 +398,7 @@ def mimic_run(ctx: ToolContext, params: MimicRunParams) -> Observation:
         stdout="cpmd.out",
         stderr="cpmd.err",
         mpi_ranks=params.cpmd_ranks,
+        env={"OMP_NUM_THREADS": str(params.cpus_per_task)},
         # what the node reads: the run input as aligned into the run directory, the tpr,
         # and the restart and geometry staged beside them
         receipt_inputs=[str(inp), str(tpr), *map(str, staged)],

@@ -13,6 +13,28 @@ sources:
   sha256: 1b996a770abce2a8c1c18e2b4dcc36b28fc69444053aeef783a2ad0e1c36bac9
 obsolete: []
 renamed: {}
+decomposition:
+  thread_counts:
+  - 1
+  - 2
+  - 4
+  - 8
+  - 16
+  fft_primes:
+  - 2
+  - 3
+  - 5
+  - 7
+  dd_primes:
+  - 2
+  - 3
+  - 5
+  - 7
+  mm_share: 6
+  qm_step_scaling:
+    qm_atoms: 2.0
+    cutoff_ry: 1.5
+    cores: -0.8
 keys:
   ATOMS/ATOMIC CHARGES:
     name: ATOMIC CHARGES

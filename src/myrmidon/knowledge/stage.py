@@ -831,17 +831,40 @@ def walltime(*, ns: float, atoms: int | None, cores: int, paces: list[Pace], com
     return ns / rate * 24 * 60 * margin, why, measured
 
 
+def plausible_s_per_step(compute, qm_atoms: int | None, cutoff_ry: float | None, cores: int
+                         ) -> tuple[float, str]:
+    """(seconds, why) one coupled step plausibly takes before any has been measured here: the
+    machine's reference step (``compute.plausible_s_per_step``), scaled to this QM region, this
+    cutoff and these cores by the exponents the engine's catalog states."""
+    scaling = load("cpmd").decomposition.get("qm_step_scaling", {})
+    ref = compute.plausible_s_per_step
+    atoms, cutoff = qm_atoms or ref.qm_atoms, cutoff_ry or ref.cutoff_ry
+    seconds = (ref.s_per_step
+               * (atoms / ref.qm_atoms) ** scaling.get("qm_atoms", 2.0)
+               * (cutoff / ref.cutoff_ry) ** scaling.get("cutoff_ry", 1.5)
+               * (cores / ref.cores) ** scaling.get("cores", -0.8))
+    return seconds, (f"unmeasured here: {seconds:.3g} s/step, scaled from {ref.s_per_step:g} "
+                     f"s/step on {ref.qm_atoms} QM atoms at {ref.cutoff_ry:g} Ry and "
+                     f"{ref.cores} cores (compute.plausible_s_per_step) to {atoms} QM atoms at "
+                     f"{cutoff:g} Ry and {cores} cores; re-priced once a step is measured")
+
+
 def qm_walltime(*, steps: int, qm_atoms: int | None, cutoff_ry: float | None, cores: int,
-                paces: list[Pace]) -> tuple[float | None, str]:
-    """(minutes, why) a coupled run of ``steps`` needs here, at the seconds per step
-    measured on the same QM region size and cutoff — a step's cost grows steeply with
-    both, so no other measurement stands in; (None, why) without one."""
+                paces: list[Pace], compute=None) -> tuple[float | None, str]:
+    """(minutes, why) a coupled run of ``steps`` needs here, at the seconds per step measured
+    on the same QM region size and cutoff — a step's cost grows steeply with both, so no other
+    measurement stands in; with none, at the machine's reference step scaled to this region,
+    so the first coupled run survives to measure the real pace. (None, why) when given no
+    machine to scale from."""
     same = [p for p in paces if p.s_per_step and p.atoms == qm_atoms
             and p.cutoff_ry == cutoff_ry]
     pace, factor = pace_for(same, "s_per_step", cores, booking=True)
     if pace is None:
-        return None, (f"no coupled step measured here on {qm_atoms} QM atoms at "
-                      f"{cutoff_ry} Ry")
+        if compute is None:
+            return None, (f"no coupled step measured here on {qm_atoms} QM atoms at "
+                          f"{cutoff_ry} Ry")
+        seconds, why = plausible_s_per_step(compute, qm_atoms, cutoff_ry, cores)
+        return steps * seconds / 60 * MARGIN, f"{steps} steps; {why}"
     seconds = pace.s_per_step / factor
     return (steps * seconds / 60 * MARGIN,
             f"{steps} steps at {seconds:.3g} s/step, measured on {qm_atoms} QM atoms at "
@@ -856,12 +879,14 @@ def booked_minutes(minutes: float, start: float = 2.0) -> int:
 
 def price_stage(mandate: Mandate, stage: Stage, *, templates: TemplateStore,
                 methods: Methods, atoms: int | None, paces: list[Pace], compute,
-                margin: float = MARGIN) -> Price:
+                margin: float = MARGIN, qm_atoms: int | None = None) -> Price:
     """A stage's booking, one node of the default partition: its walltime from the
     template's fixed walltime, or from its length at the pace measured on this machine
     (the study's own runs first, then the machine's cache), scaled to the system's atoms
     and the node's cores; unmeasured, at ``compute.plausible_ns_per_day``, the fastest a
-    run plausibly goes here, so the price is a floor and says so."""
+    run plausibly goes here, so the price is a floor and says so, and a coupled stage at the
+    machine's reference step scaled to its QM region. A walltime is capped at what the
+    partition grants."""
     view = stage.model_dump(mode="json")
     chosen = templates_for(view, templates)
     pricing = next((t.pricing for t in chosen if t.pricing.get("throughput")),
@@ -885,13 +910,20 @@ def price_stage(mandate: Mandate, stage: Stage, *, templates: TemplateStore,
             paces=paces, compute=compute, margin=margin)
     elif pricing.get("throughput") == "s_per_step":
         pace, factor = pace_for(paces, "s_per_step", billing.cores_per_node)
-        if pace is None or not steps:
-            price.basis = ("unpriced: no QM step measured on this machine yet; priced after "
-                           "the first coupled stage")
+        if not steps:
+            price.basis = "unpriced: no length"
             return price
-        minutes = steps * pace.s_per_step / factor / 60 * margin
-        price.basis = f"{steps} steps at {pace.s_per_step / factor:.3g} s/step ({pace.where})"
-        price.measured = True
+        if pace is None:
+            cutoff = methods.values.get("qm", {}).get("cutoff_ry")
+            seconds, why = plausible_s_per_step(compute, qm_atoms,
+                                                float(cutoff[0]) if cutoff else None,
+                                                billing.cores_per_node)
+            minutes = steps * seconds / 60 * margin
+            price.basis = f"{steps} steps; {why}"
+        else:
+            minutes = steps * pace.s_per_step / factor / 60 * margin
+            price.basis = f"{steps} steps at {pace.s_per_step / factor:.3g} s/step ({pace.where})"
+            price.measured = True
     else:
         price.basis = "unpriced: no template prices this stage"
         return price
@@ -899,6 +931,10 @@ def price_stage(mandate: Mandate, stage: Stage, *, templates: TemplateStore,
         minutes *= len(stage.scan.values)
         price.basis += f", × {len(stage.scan.values)} scan points"
     price.walltime_min = booked_minutes(minutes, start)
+    if billing.max_walltime_min and price.walltime_min > billing.max_walltime_min:
+        price.basis += (f", capped at the {billing.max_walltime_min} min the partition grants: "
+                        "the stage runs in segments")
+        price.walltime_min = billing.max_walltime_min
     price.core_h = round(price.walltime_min / 60 * billing.billed_per_node_h, 3)
     return price
 
@@ -954,8 +990,10 @@ def compile_mandate(mandate: Mandate, *, templates: TemplateStore, methods: Meth
                      if k in forms and forms[k].depends()]
             lines.append(f"{template.id}: " + (", ".join(shown) or "nothing of the stage's")
                          + (f"; set at render: {', '.join(later)}" if later else ""))
+        qm_atoms = facts.get("qm_atoms")
         price = price_stage(mandate, stage, templates=templates, methods=methods, atoms=atoms,
-                            paces=paces, compute=compute)
+                            paces=paces, compute=compute,
+                            qm_atoms=int(qm_atoms.value) if qm_atoms else None)
         out.priced[stage.name] = (f"{price.core_h:g} core-h ({price.walltime_min} min): "
                                   if price.core_h is not None else "") + price.basis
         if price.core_h is None:

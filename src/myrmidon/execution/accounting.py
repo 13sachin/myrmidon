@@ -108,4 +108,19 @@ def budget_warnings(
             id="COMPUTE_ESTIMATE", message=f"estimated {est} core-h ({detail})",
         )
     fit = fit_warning(res, compute, backend)
-    return est, [w] + ([fit] if fit else [])
+    return est, [w, *([fit] if fit else []), *walltime_limit(res, compute)]
+
+
+def walltime_limit(res: Resources, compute: ComputeDefaults) -> list[Finding]:
+    """A walltime the partition cannot grant: the scheduler would hold the job pending for
+    ever, or refuse it, with nothing run."""
+    name, node = compute.billing(res.partition)
+    limit = node.max_walltime_min
+    if limit is None or res.walltime_min <= limit:
+        return []
+    return [Precondition(
+        id="WALLTIME_EXCEEDS_PARTITION_LIMIT",
+        message=f"{res.walltime_min} min is more than partition {name} grants a job "
+        f"({limit} min)",
+        suggestion="run the stage in segments that restart from each other, or name a "
+        "partition that grants the walltime")]

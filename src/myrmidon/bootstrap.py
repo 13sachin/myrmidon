@@ -200,12 +200,14 @@ def render_config(plan: InitPlan) -> str:
         lines += [
             "# Each partition as the scheduler states it (sinfo, scontrol), read by `init`:",
             "# physical cores per node, what one node-hour is billed, whether nodes are",
-            "# allocated whole. A submission is priced on the partition it goes to.",
+            "# allocated whole, the longest a job may run. A submission is priced on the",
+            "# partition it goes to.",
             "# Re-run `init` when the machine changes; `doctor` says when these disagree.",
             "[compute.partitions]",
             *(f"{name} = {{ cores_per_node = {pc.cores_per_node}, billed_per_node_h = "
               f"{pc.billed_per_node_h!r}, node_exclusive = "
               f"{'true' if pc.node_exclusive else 'false'}"
+              + (f", max_walltime_min = {pc.max_walltime_min}" if pc.max_walltime_min else "")
               + (f", note = {_q(pc.note)}" if pc.note else "") + " }"
               for name, pc in sorted(plan.partitions.items())),
         ]

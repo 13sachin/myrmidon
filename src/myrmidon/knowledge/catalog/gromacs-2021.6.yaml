@@ -60,6 +60,23 @@ renamed:
   verlet_buffer_drift: verlet-buffer-tolerance
   xtc_grps: compressed-x-grps
   xtc_precision: compressed-x-precision
+decomposition:
+  atoms_per_rank: 500
+  thread_counts:
+  - 1
+  - 2
+  - 4
+  - 8
+  - 16
+  - 32
+  - 64
+  dd_primes:
+  - 2
+  - 3
+  - 5
+  - 7
+  single_rank_integrators:
+  - l-bfgs
 keys:
   include:
     name: include

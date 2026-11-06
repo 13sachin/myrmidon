@@ -560,9 +560,10 @@ def test_a_coupled_stage_is_priced_from_the_seconds_a_qmmm_step_took_here():
                           paces=paces, compute=ComputeDefaults(cores_per_node=48,
                                                                node_exclusive=True))
               for paces in ([], [Pace(engine="cpmd", atoms=10, cores=48, s_per_step=seconds)])]
-    # unmeasured, unpriced; measured, 1000 steps × 15.27 s × 1.5 in the scheduler's 5-min steps
-    assert [(p.core_h is None, p.measured) for p in priced] == [(True, False), (False, True)]
-    assert priced[1].walltime_min == 385
+    # unmeasured, the machine's reference step, which is this region at 15 s on this many
+    # cores; measured, 1000 steps × 15.27 s × 1.5; both in the scheduler's 5-min steps
+    assert [(p.core_h is None, p.measured) for p in priced] == [(False, False), (False, True)]
+    assert [p.walltime_min for p in priced] == [380, 385]
 
 
 def test_a_file_the_topology_includes_is_the_system_and_an_input(ws_ctx, complex_system):
@@ -604,9 +605,8 @@ def _protein_selection(m):
     return subsystem_selection(m.system.subsystems["protein"], m)
 
 
-#: a coupled stage no QM step measured here prices yet
-QM_STAGE = {"name": "qmmm", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVT",
-            "temperature_k": 300, "steps": 100,
+#: a coupled stage with no length nothing can price
+QM_STAGE = {"name": "qmmm", "kind": "minimize", "regime": "qmmm",
             "qm_region": {"subsystems": ["ligand"], "charge": 0}}
 
 WRITTEN = [

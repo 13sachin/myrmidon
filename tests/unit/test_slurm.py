@@ -101,6 +101,29 @@ BILLED = [
 ]
 
 
+# (sinfo's limit, the partition's QoS, sacctmgr's walls for each QoS, the job's QoS there, the
+# longest a job may run). A site may leave every partition `infinite` and hold jobs to a QoS.
+WALLS = [
+    ("infinite", "part_devel", "part_devel|02:00:00|\nnormal|1-00:00:00|\n", "devel|normal", 120),
+    ("infinite", "part_batch", "part_batch||\nnormal|1-00:00:00|\n", "devel|normal", 1440),
+    ("infinite", "part_batch", "part_batch||\n", "", None),
+    ("1-12:00:00", "", "", "", 2160),
+    ("30", "", "", "", 30),
+]
+
+
+@pytest.mark.parametrize("limit,qos,walls,assoc,minutes", WALLS)
+def test_a_partitions_time_limit_is_the_least_the_scheduler_holds_a_job_to(limit, qos, walls,
+                                                                           assoc, minutes):
+    from myrmidon.execution.billing import parse_partitions
+
+    (node,) = parse_partitions(
+        f"devel|2|16|2|256|(null)|{limit}",
+        f"PartitionName=devel OverSubscribe=EXCLUSIVE TRESBillingWeights=CPU=0.5 QoS={qos}",
+        walls, assoc)[0].values()
+    assert node.max_walltime_min == minutes
+
+
 @pytest.mark.parametrize("sinfo,scontrol,expected", BILLED)
 def test_a_billing_rule_is_read_as_slurm_applies_it(sinfo, scontrol, expected):
     from myrmidon.execution.billing import parse_partitions

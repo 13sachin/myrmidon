@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from myrmidon.engines.gromacs import mdp, parse, run, system
+from myrmidon.engines.gromacs import layout, mdp, parse, run, system
 from myrmidon.engines.registry import EngineAdapter
 
 
@@ -44,4 +44,5 @@ ADAPTER = EngineAdapter(
     run_facts=parse.run_facts,
     fact_labels=parse.GROMACS_FACTS,
     run_log=_run_log,
+    resolve_layout=layout.resolve_layout,
 )
