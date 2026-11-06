@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 
@@ -20,7 +20,29 @@ from pathlib import Path
 _ADAPTERS = {
     "cpmd": "myrmidon.engines.mimic.adapter",
     "gromacs": "myrmidon.engines.gromacs.adapter",
+    "mimicpy": "myrmidon.engines.mimic.fit_adapter",
 }
+
+
+@dataclass
+class StageRender:
+    """A mandate stage's compiled values on their way into the file its engine reads."""
+
+    stage: object  # the mandate's Stage
+    values: dict
+    origin: dict
+    header: list[str]
+    #: what the system holds, by file kind
+    system: dict[str, Path] = field(default_factory=dict)
+
+
+@dataclass
+class StageText:
+    """What a stage's file holds, what its sidecar adds, and what was noticed writing it."""
+
+    text: str
+    sidecar: dict = field(default_factory=dict)
+    findings: list = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -34,6 +56,19 @@ class EngineAdapter:
     system_facts: Callable[[Mapping[str, Path], Path | None, set[str] | None], dict] | None = None
     #: (files by kind, the engine's data directory) -> the system's parts by name
     system_parts: Callable[[Mapping[str, Path], Path | None], dict] | None = None
+    #: the kinds of input file it renders (knowledge/inputsets.RENDERED_FILES)
+    renders: tuple[str, ...] = ()
+    #: (values, origin of each, header lines) -> the file's text
+    render: Callable[[dict, dict, list[str]], str] | None = None
+    #: a stage's values -> its file, where the engine adds to them what the system holds
+    stage_text: Callable[[StageRender], StageText] | None = None
+    #: an engine key as a caller spells it -> whether this engine reads it
+    reads_key: Callable[[str], bool] | None = None
+    #: (ctx, the rendered file, the system's files by kind, the stage's directory, the stage's
+    #: name, warnings allowed) -> an observation holding the run input it compiled to
+    compile_run_input: Callable[..., object] | None = None
+    #: (ctx, a file a stage reads) -> facts a render takes from it, by the key each decides
+    input_facts: Callable[..., dict] | None = None
     #: a log's text -> whether this engine wrote it
     is_log_text: Callable[[str], bool] | None = None
     #: a file -> whether it is this engine's log, read from its head
@@ -63,6 +98,11 @@ def adapter(engine: str) -> EngineAdapter:
     if engine not in _ADAPTERS:
         raise KeyError(engine)
     return importlib.import_module(_ADAPTERS[engine]).ADAPTER
+
+
+def adapter_rendering(renders: str) -> EngineAdapter | None:
+    """The adapter that renders this kind of input file; None for a kind none renders."""
+    return next((a for a in adapters() if renders in a.renders), None)
 
 
 def adapters_reading(kinds: set[str] | Mapping[str, object]) -> Iterator[EngineAdapter]:

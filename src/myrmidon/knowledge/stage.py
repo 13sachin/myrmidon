@@ -71,6 +71,9 @@ DERIVED = {
 STEP_BOUND = ("duration_ps", "sampling_ps")
 #: derived quantities a render supplies from the run before (a ramp starts where it ended)
 FROM_RUN = ("temperature_ramp", "ramp_start_k")
+#: the fact a render passes when the stage it starts from ran and left no state to restart
+#: from (a classical stage before a coupled one)
+FRESH_START = "fresh_start"
 
 
 class Form(BaseModel):
@@ -128,6 +131,7 @@ class Template(BaseModel):
     title: str
     engine: str
     renders: str
+    file_name: str = ""  # the file a stage renders to, when not named after the stage
     kinds: list[str] = Field(default_factory=list)  # none: only extended, never chosen
     regimes: list[str] = Field(default_factory=list)
     ensembles: list[str] = Field(default_factory=list)  # none: any the stage has
@@ -356,6 +360,10 @@ def derived(stage: dict, mandate: Mandate, step_ps: float | None,
     temp = stage.get("temperature_k")
     ramp = temp if isinstance(temp, dict) else None
     out: dict[str, Any] = {"kind": stage.get("kind")}
+    # no run to continue: the first stage, or a run before it that left no wavefunction
+    source = mandate.method.starts_from(stage["name"]) if stage.get("name") else None
+    out["fresh_start"] = bool(facts and FRESH_START in facts) or (
+        source is None and bool(mandate.method.stages))
     steps = stage.get("steps")
     if steps is None and stage.get("duration_ps") and step_ps:
         steps = round(stage["duration_ps"] / step_ps)
@@ -368,12 +376,10 @@ def derived(stage: dict, mandate: Mandate, step_ps: float | None,
         out["thermostat"] = "ramp" if ramp is not None else "constant"
     # a free box continues earlier dynamics, or starts from rest — after a minimisation, as
     # the first stage, or from a structure that carries no velocities — and draws them afresh
-    names = [s.name for s in mandate.method.stages]
-    at = names.index(stage["name"]) if stage.get("name") in names else 0
     if facts and "gen-vel" in facts:  # the structure says it
         continues = str(facts["gen-vel"].value).lower() != "yes"
     else:
-        continues = at > 0 and mandate.method.stages[at - 1].kind == "dynamics"
+        continues = source is not None and source.kind == "dynamics"
     out["barostat"] = ("none" if stage.get("ensemble") != "NPT"
                        else "NPT_restrained" if stage.get("restraints")
                        else "NPT_free" if continues else "NPT_from_rest")
@@ -393,7 +399,7 @@ def derived(stage: dict, mandate: Mandate, step_ps: float | None,
 
 def ramp_started(stage: Stage, start_k: float, step_ps: float | None,
                  hold_au: float | None = None) -> Stage:
-    """The stage with its ramp started where the stage it ramps from ended (``start_k``,
+    """The stage with its ramp started where the stage it starts from ended (``start_k``,
     unless the stage states its start), and, when the stage states no rate, the rate that
     reaches the target ``hold_au`` before the stage ends (its template's hold; at most half
     the stage, so a short stage still ramps over half of it), at the method's integration

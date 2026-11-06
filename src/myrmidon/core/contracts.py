@@ -159,6 +159,8 @@ class Contract:
     produces: tuple[Produces, ...] = ()
     #: the parameter naming the file this tool's outputs take their scientific content from
     upstream: str | None = None
+    #: what it reads by itself, from the study, under a role no parameter names (role -> kind)
+    reads: Mapping[str, str] = field(default_factory=dict)
 
     def accepts(self, param: str) -> tuple[str, ...]:
         kinds = self.consumes[param]

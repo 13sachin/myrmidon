@@ -105,11 +105,11 @@ def _current_values(root: Path, relpath: str, renders: str | None) -> dict[str, 
 
         return parse_mdp_file(path)
     if kind == "cpmd_inp":
-        return _cpmd_values(path.read_text())
+        return cpmd_values(path.read_text())
     return None
 
 
-def _cpmd_values(text: str) -> dict[str, str]:
+def cpmd_values(text: str) -> dict[str, str]:
     """A CPMD input back as ``&SECTION/KEYWORD -> value`` — the inverse of the render.
 
     CPMD carries a keyword's argument either on the keyword line or on the line after
@@ -210,6 +210,8 @@ def file_origin(ctx, relpath: str) -> FileOrigin:
                 status=CHANGED,
                 protocol_value=str(value), rationale=rationale,
             ))
+    # what the file takes from the system input it was merged onto is the system's
+    seen |= {_normalize(k, kind) for k in data.get("system_keys") or []}
     for key, value in current.items():
         if _normalize(key, kind) in seen:
             continue

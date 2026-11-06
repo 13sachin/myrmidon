@@ -126,6 +126,19 @@ sensors:
         text: CPMD manual, MAXSTEP under WAVEFUNCTION OPTIMIZATION
         locator: https://gitlab.com/mimic-project/cpmd/-/tree/72922c3/doc/manual/manual.tex#cpmd-maxstep
 
+  - id: FM_FEW_SNAPSHOTS
+    subject: fm_input
+    engine: mimicpy
+    when: {n_snapshots: {lt: 100}}
+    sees: "the fit's stride selects only {n_snapshots} snapshot(s)"
+    means: "a parameter fit on fewer than 100 snapshots overfits them and validates poorly"
+    usual_move: "widen the stride, or collect more reference frames"
+    status: verified
+    sources:
+      - kind: url
+        text: MiMiC documentation, the force-matching tutorial's reference set
+        locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
+
   - id: PP_LMAX_ALL_S_ON_HEAVY_ATOMS
     subject: qm_region
     engine: cpmd

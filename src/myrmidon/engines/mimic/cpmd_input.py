@@ -389,6 +389,23 @@ def apply_method(system: dict[str, list[str]], method: dict[str, list[str]],
     return out
 
 
+def set_spin(sections: dict[str, list[str]], charge: int, multiplicity: int
+             ) -> dict[str, list[str]]:
+    """The QM region's charge and spin written into its input. CPMD accepts MULTIPLICITY only
+    in a spin-polarized (LSD) run and aborts in sysin otherwise, so a closed-shell singlet
+    carries neither keyword (CPMD 4.3)."""
+    out = dict(sections)
+    out["SYSTEM"] = set_keyword(out.get("SYSTEM", []), "CHARGE", str(charge))
+    cpmd = out.get("CPMD", [])
+    if multiplicity > 1:
+        out["SYSTEM"] = set_keyword(out["SYSTEM"], "MULTIPLICITY", str(multiplicity))
+        out["CPMD"] = cpmd if has_keyword(cpmd, "LSD") else ["LSD", *cpmd]
+    else:
+        out["SYSTEM"] = drop_keyword(out["SYSTEM"], "MULTIPLICITY")
+        out["CPMD"] = [line for line in cpmd if line.strip().upper() != "LSD"]
+    return out
+
+
 def set_keyword(lines: list[str], keyword: str, value: str) -> list[str]:
     """Replace (or append) a keyword + value-line pair."""
     out = list(lines)

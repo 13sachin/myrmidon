@@ -1,0 +1,35 @@
+id: mimicpy.parameter_fit
+engine: mimicpy
+renders: fminput
+file_name: fminput.dat
+kinds: [parameter_fit]
+regimes: [mm, qmmm, qm]
+title: A force-matching fit of a topology's parameters against QM/MM reference forces
+applicability: The fit's own input. It reads every frame of the reference dataset unless the
+  call narrows the stride; the charge is the QM region's, the weights the published fit's.
+pricing: {walltime_min: 120}
+parameters:
+  stride:
+    from_system: reference_dataset
+    rationale: every frame of the reference dataset collected for this fit
+  wv:
+    value: 1.0
+    rationale: DRESP weight on the electrostatic potential, a weight fits of a small solute in
+      water use; nothing derived it for this system
+    source: 0
+  we: {value: 0.01, rationale: DRESP weight on the electric field, source: 0}
+  wh: {value: 0.01, rationale: DRESP weight on the Hirshfeld charges, source: 0}
+  wq: {value: 100000.0, rationale: DRESP weight holding the total charge, source: 0}
+  eq_atoms:
+    value: use_atomtypes
+    rationale: atoms of one atom type share one charge in the fit
+    source: 0
+  qm_total_charge: {from_stage: qm_region.charge, required: true}
+  reference_charges: {value: ff_charges, source: 0}
+  optimization_method: {value: simultaneous, source: 0}
+sources:
+- kind: url
+  text: MiMiC documentation, the force-matching tutorial and MiMiCPy fm's fminput.dat.
+  locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
+pitfalls: [FM_FEW_SNAPSHOTS]
+version: 1

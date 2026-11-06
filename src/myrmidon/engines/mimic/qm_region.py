@@ -128,6 +128,7 @@ def region_chemistry(sections: dict[str, list[str]], charge: int | None,
         electrons = valence_electrons(sections, charge)
         total = electron_count(sections, charge)
     chemistry = {"charge": charge, "multiplicity": multiplicity, "spin_why": why,
+                 "boundary_atoms": bound,
                  "electrons": electrons, "electrons_all": total, "guessed_elements": guessed}
     heavy = heavy_species_all_s(sections)
     findings = evaluate("qm_region", {

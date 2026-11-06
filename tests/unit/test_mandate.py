@@ -1,6 +1,7 @@
 """The mandate's stages in physical terms: compiled into what each engine reads, held at
 submission to what the researcher locked, and measured over the stage a deliverable names."""
 
+import json
 import shutil
 
 import pytest
@@ -190,10 +191,14 @@ UNWRITTEN = [
                         "over": "prod"}]}, "MANDATE_STAGE"),
     # a ramp needs a thermostat to carry it (GROMACS has none), and an earlier stage to
     # ramp from
-    ({"stages": [STAGES[0], {**STAGES[1], "temperature_k": {"from_stage": "em", "to_k": 300}},
+    ({"stages": [STAGES[0], {**STAGES[1], "temperature_k": {"to_k": 300}},
                  *STAGES[2:]], "decisions_yours": []}, "MANDATE_STAGE"),
     ({**QMMM_WRITE, "decisions_yours": [], "stages": [
-        {**QMMM_WRITE["stages"][0], "temperature_k": {"from_stage": "cool", "to_k": 300}},
+        {**QMMM_WRITE["stages"][0], "temperature_k": {"to_k": 300}},
+        {**QMMM_WRITE["stages"][0], "name": "cool"}]}, "MANDATE_STAGE"),
+    # a stage starts from an earlier stage, or itself to extend its run
+    ({**QMMM_WRITE, "decisions_yours": [], "stages": [
+        {**QMMM_WRITE["stages"][0], "starts_from": "cool"},
         {**QMMM_WRITE["stages"][0], "name": "cool"}]}, "MANDATE_STAGE"),
     ({"hamiltonian": {"mm": "amber", "qm": {"method": "blyp_mt"},
                       "coupling": {"scheme": "mimic"}},
@@ -701,9 +706,9 @@ def test_the_force_field_resolves_to_the_method_that_computes_it(tmp_path, named
 # (the stage's temperature, the ramp a render tells the engine): a ramp starts where its
 # stage-before ended and reaches the target its template's hold (5000 a.u.) before the end
 # of 1500 steps of 10 a.u.; a stated start or rate stands
-RAMPS = [({"from_stage": "anneal", "to_k": 300}, (3.4, 300, 0.02966)),
-         ({"from_stage": "anneal", "to_k": 300, "rate_k_per_au": 0.05}, (3.4, 300, 0.05)),
-         ({"from_stage": "anneal", "to_k": 300, "start_k": 10}, (10, 300, 0.029)),
+RAMPS = [({"to_k": 300}, (3.4, 300, 0.02966)),
+         ({"to_k": 300, "rate_k_per_au": 0.05}, (3.4, 300, 0.05)),
+         ({"to_k": 300, "start_k": 10}, (10, 300, 0.029)),
          (300, None)]
 
 
@@ -717,3 +722,143 @@ def test_a_ramp_starts_where_the_stage_before_ended(temperature, ramp):
     out = ramp_started(stage, 3.4, 10 * PS_PER["au"], hold_au=5000).temperature_k
     assert ((out.start_k, out.to_k, out.rate_k_per_au) if isinstance(out, Ramp)
             else None) == ramp
+
+
+def _coupled_study(ws_ctx, stages):
+    """Acetone in water, its QM region selected, under an approved mandate of these stages."""
+    from myrmidon.core import mandate as mandates
+
+    ws = ws_ctx.workspace
+    stage = ws.stage("input")
+    for name in ("acetone_equilibrated.top", "acetone.itp", "acetone_equilibrated.gro"):
+        (stage / name).write_text((ACETONE / name).read_text())
+    shutil.copytree(ACETONE / "amber03.ff", stage / "amber03.ff")
+    rel = ws.relpath
+    top, gro = rel(stage / "acetone_equilibrated.top"), rel(stage / "acetone_equilibrated.gro")
+    selected = REGISTRY.call("qm_region", ws_ctx, {
+        "topology": top, "coords": gro, "selections": ["add resname is ACT"], "padding_nm": 0.4})
+    assert selected.ok, selected.summary
+    written = REGISTRY.call("mandate_write", ws_ctx, {
+        "question": "Run acetone in water under QM/MM", "ceiling_core_h": 5000.0,
+        "system_files": [{"path": gro, "kind": "structure"}, {"path": top, "kind": "topology"}],
+        "subsystems": {"solute": {"kind": "ligand", "resnames": ["ACT"]},
+                       "solvent": {"kind": "solvent", "molecules": ["SOL"]}},
+        **{k: v for k, v in QMMM.items() if k != "subsystems"},
+        "stages": stages})
+    assert written.ok and written.status == "ready", written.summary
+    held = mandates.read_mandate(ws)
+    mandates.record_approval(ws, held, approver="researcher", via="terminal")
+    return held
+
+
+REGION = {"subsystems": ["solute"], "charge": 0}
+
+
+def test_a_coupled_stage_is_prepared_in_one_call_from_the_mandate_alone(ws_ctx):
+    """Each stage of a coupled study gets a complete run input and its compiled MM half, the
+    selection's files are the mandate's system, and the charge and spin are the stage's."""
+    from myrmidon.engines.mimic.cpmd_input import keyword_value, parse_cpmd
+
+    held = _coupled_study(ws_ctx, [
+        {"name": "anneal", "kind": "minimize", "regime": "qmmm", "steps": 300,
+         "temperature_k": 300, "qm_region": REGION},
+        {"name": "nve_check", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE",
+         "steps": 1000, "starts_from": "anneal", "qm_region": REGION},
+        {"name": "heat", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVT", "steps": 1500,
+         "starts_from": "anneal", "temperature_k": {"to_k": 300, "start_k": 3.4},
+         "qm_region": REGION},
+        {"name": "production", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVT",
+         "steps": 5000, "temperature_k": 300, "qm_region": REGION}])
+    assert {f.kind for f in held.system.files} >= {"cpmd_input", "index", "qm_selection"}
+    assert held.method.starts_from("heat").name == "anneal"
+    assert held.method.starts_from("production").name == "heat"
+    ws = ws_ctx.workspace
+    for name in ("anneal", "nve_check", "heat", "production"):
+        obs = REGISTRY.call("stage_prepare", ws_ctx, {"stage": name})
+        assert obs.ok, obs.summary
+        assert {"cpmd_input", "mdp", "tpr"} <= set(obs.files)
+        sections = parse_cpmd(ws.resolve(obs.files["cpmd_input"]).read_text())
+        assert any(line.startswith("*C_MT") for line in sections["ATOMS"])
+        assert keyword_value(sections, "&MIMIC/BOX") is not None
+        assert keyword_value(sections, "&SYSTEM/CHARGE") == "0"
+        sidecar = json.loads(ws.resolve(obs.files["cpmd_input"] + ".myrmidon.json").read_text())
+        assert (sidecar["charge"], sidecar["multiplicity"]) == (0, 1)
+        assert sidecar["stage"] == name
+    tools = {ev.tool for ev in ws.ledger.events()}
+    assert "stage_prepare" in tools and not tools & {"mimic_prepare", "gmx_grompp"}
+    from myrmidon.engines.file_origin import edit_findings
+
+    assert not edit_findings(ws_ctx, obs.files["cpmd_input"])
+
+
+def test_a_stage_after_a_classical_run_starts_with_a_fresh_wavefunction(ws_ctx):
+    """A coupled stage continues a run's restart, unless the run it starts from left none."""
+    from myrmidon.core.lineage import stage_run as collected
+    from myrmidon.engines.mimic.cpmd_input import keyword_value, parse_cpmd
+
+    _coupled_study(ws_ctx, [
+        {"name": "em", "kind": "minimize", "steps": 100},
+        {"name": "first", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE",
+         "steps": 10, "qm_region": REGION}])
+    restart = "&CPMD/RESTART COORDINATES VELOCITIES WAVEFUNCTION"
+    ws = ws_ctx.workspace
+    assert collected(ws, "em") is None
+    before = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "first"})
+    assert before.ok, before.summary
+    sections = parse_cpmd(ws.resolve(before.files["cpmd_input"]).read_text())
+    assert keyword_value(sections, restart) == "True"  # what the run before leaves is not known
+    em = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "em"})
+    assert em.ok, em.summary
+    run = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": em.files["tpr"], "walltime_min": 5})
+    assert run.ok, run.summary
+    assert REGISTRY.call("job_status", ws_ctx, {"job_id": run.job_id,
+                                                "wait_seconds": 15}).ok
+    after = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "first"})
+    assert after.ok, after.summary
+    sections = parse_cpmd(ws.resolve(after.files["cpmd_input"]).read_text())
+    assert keyword_value(sections, restart) is None
+
+
+def test_a_fit_stage_is_compiled_to_its_input_over_the_collected_dataset(ws_ctx):
+    """A parameter_fit stage compiles to fminput.dat in one call: its charge is the stage's QM
+    region's, its stride every frame of the dataset a collection registered."""
+    from pydantic import BaseModel
+
+    from myrmidon.core.artifacts import ArtifactRef
+    from myrmidon.core.observation import Observation
+    from myrmidon.core.tool import ToolRegistry, tool
+    from myrmidon.engines.mimic.fm import parse_fminput
+
+    _coupled_study(ws_ctx, [
+        {"name": "reference", "kind": "single_point", "regime": "qmmm", "qm_region": REGION},
+        {"name": "fit", "kind": "parameter_fit", "qm_region": {**REGION, "charge": -1}}])
+    ws = ws_ctx.workspace
+    no_data = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit"})
+    assert not no_data.ok and "stride" in no_data.error.message
+    given = REGISTRY.call("stage_prepare", ws_ctx, {
+        "stage": "fit", "overrides": {"stride": "[0,10,1]"}})
+    assert given.ok, given.summary
+    assert parse_fminput(ws.resolve(given.files["fm_input"]))["stride"] == "[0,10,1]"
+    # the mock's h5info counts 12 configurations; what is read is said with what it read
+    stage = ws.stage("fm")
+    (stage / "reference.h5").write_bytes(b"h5")
+    registry = ToolRegistry()
+
+    class _Nothing(BaseModel):
+        pass
+
+    @tool("collected_here", description="d", registry=registry)
+    def collected_here(ctx, params: _Nothing) -> Observation:
+        return Observation(ok=True, summary="a dataset", artifacts=[
+            ArtifactRef.from_path(stage / "reference.h5", "fm_dataset", root=ws.root)])
+
+    registry.call("collected_here", ws_ctx, {})
+    fit = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit"})
+    assert fit.ok, fit.summary
+    assert fit.files["fm_input"].endswith("fminput.dat")
+    written = parse_fminput(ws.resolve(fit.files["fm_input"]))
+    assert (written["stride"], written["qm_total_charge"]) == ("[0,12,1]", "-1")
+    assert "FM_FEW_SNAPSHOTS" in {f.id for f in fit.findings}
+    sidecar = json.loads(ws.resolve(fit.files["fm_input"] + ".myrmidon.json").read_text())
+    assert sidecar["stage"] == "fit"
+    assert sidecar["origin"]["stride"] == "system:reference_dataset"

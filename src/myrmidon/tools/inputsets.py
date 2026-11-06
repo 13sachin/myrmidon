@@ -109,8 +109,8 @@ def _protocol_hit(inputset, *, full: bool = False, values: bool = False) -> Inpu
 
 
 #: where a key read from the run before comes from, in words
-FROM_RUN_WORDS = ("the final ionic temperature of temperature_k.from_stage's collected run, "
-                  "read from its CPMD log at render, unless temperature_k.start_k is stated")
+FROM_RUN_WORDS = ("the final ionic temperature of the collected run the stage starts from, "
+                  "read from its log at render, unless temperature_k.start_k is stated")
 
 
 def _said(form, reads: str):
@@ -435,7 +435,6 @@ def _resolve_stage(ctx: ToolContext, params: InputSetApplyParams):
     """(template, None, resolution, findings) for a mandate stage: the template of the
     engine the output's suffix names, compiled over the mandate and the system's facts."""
     from myrmidon.core.mandate import read_mandate
-    from myrmidon.knowledge.inputsets import ENGINE_OF_RENDERS
     from myrmidon.knowledge.stage import (
         MethodStore,
         TemplateStore,
@@ -459,23 +458,24 @@ def _resolve_stage(ctx: ToolContext, params: InputSetApplyParams):
     renders = _RENDERERS.get(Path(params.output).suffix) if params.output else None
     store = TemplateStore.default()
     view = stage.model_dump(mode="json")
-    found = templates_for(view, store, ENGINE_OF_RENDERS.get(renders or ""))
+    found = [t for t in templates_for(view, store) if renders is None or t.renders == renders]
     if len(found) != 1:
         engines = ", ".join(sorted({t.engine for t in templates_for(view, store)})) or "none"
         return None, None, None, [Precondition(
             id="MANDATE_STAGE_TEMPLATE",
             message=f"stage {stage.name} ({stage.kind}, {stage.regime}) is told to: {engines}"
-            + ("; name the file it renders: its suffix (.mdp, .inp) says which" if found
+            + ("; name the file it renders: its suffix (.mdp, .inp, .dat) says which" if found
                else "; no template tells an engine this stage — run it with its own tool")
             + "; or omit stage to render a named input set outside the mandate",
             needs=["output"])]
     template = with_inherited(found[0], store)
 
     def system(kind: str, given: str | None) -> str | None:
-        return given or next((f.path for f in mandate.system.files if f.kind == kind), None)
+        return given or system_file(ctx, mandate, kind)
 
     facts = read_facts(ctx, system("topology", params.topology), system("index", params.index),
                        params.structure)
+    facts |= _starting_facts(ctx, mandate, stage, template)
     ff = facts.get("forcefield")
     methods = methods_for(mandate, MethodStore.default(), ff.value if ff else None)
     if methods.missing:
@@ -483,7 +483,9 @@ def _resolve_stage(ctx: ToolContext, params: InputSetApplyParams):
             id="INPUTSET_METHOD_MISSING", message="; ".join(methods.missing),
             suggestion="a method for it goes in the site layer, ~/.config/myrmidon/methods/",
             needs=["topology"])]
-    stage, read, started = _ramp_from_run(ctx, stage, methods, template.ramp_hold_au)
+    begins = mandate.method.starts_from(stage)
+    stage, read, started = _ramp_from_run(ctx, stage, begins.name if begins else None, methods,
+                                          template.ramp_hold_au)
     resolution = compile_stage(mandate, stage, template, templates=store, methods=methods,
                                facts=facts, overrides=params.overrides)
     if read is not None:  # the ramp's keys trace to the log they were read from
@@ -519,11 +521,43 @@ def _from_run_keys(template, store) -> set[str]:
     return {key for key, form in forms.items() if form.from_stage in FROM_RUN}
 
 
-def _ramp_from_run(ctx: ToolContext, stage, methods, hold_au: float | None = None):
-    """(the stage with its ramp started where the stage it ramps from ended, the record
-    of what was read, what to say): the final ionic temperature the engine log of that
-    stage's latest collected run states, read only when the log is the one collected.
-    The stage as it is, with why, while that stage has not run."""
+def system_file(ctx: ToolContext, mandate, kind: str) -> str | None:
+    """The study's file of a system kind: the mandate's, else what the QM selection wrote."""
+    from myrmidon.core.lineage import latest_outputs
+
+    named = next((f.path for f in mandate.system.files if f.kind == kind), None)
+    return named or latest_outputs(ctx.workspace, "qm_region").get(kind)
+
+
+def _starting_facts(ctx: ToolContext, mandate, stage, template) -> dict:
+    """What a render reads from the run its stage starts from: that its run left no state to
+    restart from, and what the engine takes from the file that run's stage collected."""
+    from myrmidon.core.lineage import stage_run
+    from myrmidon.engines.registry import adapter
+    from myrmidon.knowledge.catalog import SystemFact
+    from myrmidon.knowledge.stage import FRESH_START
+
+    begins = mandate.method.starts_from(stage)
+    run = stage_run(ctx.workspace, begins.name) if begins is not None else None
+    facts: dict = {}
+    if run is not None and not any(a.role == "restart" for a in run[0]):
+        facts[FRESH_START] = SystemFact(key=FRESH_START, value="yes", rule="starting_run")
+    engine = adapter(template.engine)
+    if engine.input_facts is not None:
+        from myrmidon.core.lineage import latest_dataset
+
+        dataset = latest_dataset(ctx.workspace)
+        if dataset is not None:
+            facts |= engine.input_facts(ctx, ctx.workspace.resolve(dataset))
+    return facts
+
+
+def _ramp_from_run(ctx: ToolContext, stage, begins: str | None, methods,
+                   hold_au: float | None = None):
+    """(the stage with its ramp started where the stage it starts from ended, the record of
+    what was read, what to say): the final ionic temperature the engine log of that stage's
+    latest collected run states, read only when the log is the one collected. The stage as
+    it is, with why, while that stage has not run."""
     from myrmidon.core.artifacts import sha256_file
     from myrmidon.core.lineage import stage_run
     from myrmidon.core.mandate import Ramp
@@ -537,27 +571,27 @@ def _ramp_from_run(ctx: ToolContext, stage, methods, hold_au: float | None = Non
     step = methods.step_ps(stage.regime)
     if ramp.start_k is not None:
         return ramp_started(stage, ramp.start_k, step, hold_au), None, ""
-    run = stage_run(ctx.workspace, ramp.from_stage)
+    run = stage_run(ctx.workspace, begins) if begins else None
     log = next((a for a in (run[0] if run else []) if a.role == "qm_log"), None)
     if run is None:
-        return stage, None, (f"stage {stage.name} ramps from where {ramp.from_stage} ended, "
-                             f"and no run of {ramp.from_stage} has been collected: run and "
+        return stage, None, (f"stage {stage.name} ramps from where {begins} ended, "
+                             f"and no run of {begins} has been collected: run and "
                              f"collect it first, or state the ramp's start_k")
     if log is None:
-        return stage, None, (f"{ramp.from_stage}'s collected run wrote no CPMD log to read "
+        return stage, None, (f"{begins}'s collected run wrote no log to read "
                              "its final ionic temperature from: state the ramp's start_k")
     path = ctx.workspace.root / log.path
     if not path.is_file() or sha256_file(path) != log.sha256:
-        return stage, None, (f"{log.path} is not the log {ramp.from_stage}'s collected run "
+        return stage, None, (f"{log.path} is not the log {begins}'s collected run "
                              "wrote: the ramp's start is not read from it")
     start = run_facts(path.read_text(errors="replace")).get("final_temperature_k")
     if start is None:
         return stage, None, f"{log.path} states no final ionic temperature to ramp from"
     started = ramp_started(stage, start, step, hold_au)
-    read = {"rule": f"final ionic temperature of {ramp.from_stage}'s run",
+    read = {"rule": f"final ionic temperature of {begins}'s run",
             "files": [log.path], "sha256": log.sha256}
     return started, read, (
-        f"stage {stage.name} ramps from {start:g} K, where {ramp.from_stage} ended "
+        f"stage {stage.name} ramps from {start:g} K, where {begins} ended "
         f"({log.path}), to {ramp.to_k:g} K at {started.temperature_k.rate_k_per_au:g} K per "
         "a.u. at the method's time step"
         + (f", reaching it {hold_au:g} a.u. before the stage ends and holding it" if hold_au
@@ -573,7 +607,7 @@ def _render_kind(resolution, output: str | None) -> str | None:
     if output is None or resolution.renders == "none":
         return None
     kind = resolution.renders or _RENDERERS.get(Path(output).suffix)
-    return kind if kind in ("mdp", "cpmd_inp", "fminput") else None
+    return kind if kind in RENDERED_FILES else None
 
 
 def _sidecar_values(ctx: ToolContext) -> dict[str, dict]:
@@ -674,9 +708,8 @@ def inputset_apply_gate(ctx: ToolContext, params: InputSetApplyParams):
             )
         else:
             message = (
-                "inputset_apply renders .mdp and CPMD input files; declare the inputset's "
-                "`renders` or give the output an .mdp/.inp suffix. Force-matching inputs "
-                "go through fm_plan."
+                "inputset_apply renders .mdp, CPMD input and fit input files; declare the "
+                "inputset's `renders` or give the output an .mdp/.inp/.dat suffix."
             )
         warnings.append(
             Precondition(
@@ -740,18 +773,17 @@ def _rendered_kind(ctx, params: dict) -> str | None:
 
 @tool(
     "inputset_apply",
-    description="Render an input set into a run-parameter file, recording where every value came "
-                "from (the set, the system, or you). A purpose set is rendered with a method set "
-                "and the facts read from the system's topology, index and structure: pass those "
-                "files. Never write an .mdp by hand.",
+    description="Render a run-parameter file, recording where every value came from (the set, "
+                "the system, or you); a stage's input complete, for a run outside the stages an "
+                "input set. stage_prepare renders every file of a stage in one call. Never write "
+                "an .mdp by hand.",
     tags={"knowledge", "inputsets", "files"},
     contract=Contract(produces=(Produces(kind_of=_rendered_kind),)),
 )
 def inputset_apply(ctx: ToolContext, params: InputSetApplyParams) -> Observation:
     precheck(ctx, inputset_apply_gate(ctx, params)[0])
-    from myrmidon.engines.gromacs.mdp import render_mdp
-    from myrmidon.engines.mimic.cpmd_input import render_cpmd_from_values
-    from myrmidon.engines.mimic.fm import render_fminput
+    from myrmidon.core.mandate import read_mandate
+    from myrmidon.engines.registry import StageRender, adapter_rendering
 
     inputset, method, resolution, findings = _resolve_protocol(ctx, params)
     if resolution is None:  # the gate already refused; belt and braces
@@ -822,16 +854,22 @@ def inputset_apply(ctx: ToolContext, params: InputSetApplyParams) -> Observation
     ]
     kind = _render_kind(resolution, params.output)
     target.parent.mkdir(parents=True, exist_ok=True)
-    if kind == "cpmd_inp":
-        # an input set supplies the method, never the system: &MIMIC PATHS/BOX/OVERLAPS
-        # and &ATOMS are written per system by mimicpy's prepqm, so this is a template
-        target.write_text(render_cpmd_from_values(resolution.values, header))
-    elif kind == "fminput":
-        # a force-matching recipe: the ~40 settings mimicpy fm reads. A campaign's arms
-        # are typically one key apart, and the rendered file records which key and why
-        target.write_text(render_fminput(resolution.values, resolution.origin, header))
+    # an input set supplies the method, never the system: a stage's file takes the rest from
+    # what the system holds, as its engine says
+    engine = adapter_rendering(kind)
+    mandate = read_mandate(ctx.workspace) if rendered_stage else None
+    extra: dict = {}
+    if mandate is not None and engine.stage_text is not None:
+        files = {k: ctx.workspace.resolve(path) for k in ("cpmd_input",)
+                 if (path := system_file(ctx, mandate, k))}
+        text = engine.stage_text(StageRender(
+            mandate.method.stage(params.stage), resolution.values, resolution.origin, header,
+            files))
+        target.write_text(text.text)
+        extra = text.sidecar
+        findings = [*findings, *text.findings]
     else:
-        target.write_text(render_mdp(resolution.values, resolution.origin, header))
+        target.write_text(engine.render(resolution.values, resolution.origin, header))
 
     invariants = _check_invariants(ctx, inputset, resolution, method,
                                    params.stage if rendered_stage else None)
@@ -854,6 +892,7 @@ def inputset_apply(ctx: ToolContext, params: InputSetApplyParams) -> Observation
                 "invariants": [r.model_dump() for r in invariants],
                 "sources": [s.model_dump(exclude_none=True) for s in resolution.sources],
                 "written_by": "inputset_apply",
+                **extra,
             },
             indent=1,
             sort_keys=True,
@@ -900,6 +939,7 @@ def inputset_apply(ctx: ToolContext, params: InputSetApplyParams) -> Observation
         additions=resolution.additions,
         sources=[InputSetSource(**s.model_dump()) for s in resolution.sources],
         sidecar=ctx.workspace.relpath(sidecar),
+        findings=[f for f in findings if f.severity != "block"],
         artifacts=[
             ArtifactRef.from_path(target, kind, root=root),
             ArtifactRef.from_path(sidecar, "provenance", root=root),

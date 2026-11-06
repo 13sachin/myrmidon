@@ -18,7 +18,9 @@ ramp_hold_au: 5000
 parameters:
   '&CPMD/RESTART COORDINATES VELOCITIES WAVEFUNCTION':
     value: true
-    rationale: a dynamics stage continues the one before it
+    when: {fresh_start: false}
+    rationale: a dynamics stage continues the run it starts from; a run that left no
+      wavefunction to read (a classical stage before the first coupled one) starts fresh
     source: 0
   '&CPMD/MOLECULAR DYNAMICS BO': {value: true, source: 0}
   '&CPMD/TIMESTEP': {from_method: timestep_au}

@@ -53,10 +53,11 @@ class MandateWriteParams(BaseModel):
     stages: list[mandates.Stage] = Field(
         default_factory=list, description="what physically happens, stage by stage, in "
         "order: {name, kind: minimize|dynamics|single_point|parameter_fit, regime: "
-        "mm|qmmm|qm, ensemble: NVE|NVT|NPT, temperature_k, pressure_bar, duration_ps or "
+        "mm|qmmm|qm, starts_from: <stage it continues, default the one before>, ensemble: "
+        "NVE|NVT|NPT, temperature_k, pressure_bar, duration_ps or "
         "steps, restraints: [subsystems held], sampling_ps, qm_region {subsystems, charge, "
         "multiplicity, padding_nm}, scan {parameter, values}, converge}. Each stage's "
-        "engine file is compiled from these; render it with inputset_apply stage=<name>")
+        "engine file is compiled from these; stage_prepare stage=<name> writes them")
     decisions_yours: list[mandates.Decision] = Field(
         default_factory=list, description="what the researcher decided in this "
         "conversation: their words in `said`, and in `locks` the stage fields it fixes by "
@@ -199,6 +200,17 @@ def _unread_targets(ctx: ToolContext, decisions: list[mandates.Decision]
                    "hold keeps its words with no keys")
     return [Finding(id="MANDATE_TARGET_UNREAD", message=m)
             for m in out]
+
+
+def _selection_files(ws, stated: set[str]) -> list[mandates.SystemFile]:
+    """What the QM selection wrote is the system too, for a stage with a QM region: the kinds
+    the call does not state, as the selection left them."""
+    from myrmidon.core.lineage import latest_outputs
+
+    wrote = latest_outputs(ws, "qm_region")
+    return [mandates.SystemFile(path=wrote[kind], kind=kind)
+            for kind in ("cpmd_input", "index", "qm_selection")
+            if kind in wrote and kind not in stated]
 
 
 def _spent(ws) -> float:
@@ -526,6 +538,8 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
 
     files = [mandates.SystemFile(path=ws.relpath(ws.resolve(f.path)), kind=f.kind)
              for f in params.system_files]
+    if any(s.qm_region is not None for s in params.stages):
+        files += _selection_files(ws, {f.kind for f in files})
     for f in list(files):  # what a topology includes is the system too
         for path in includes_of(f.kind, ws.resolve(f.path)):
             if ws.relpath(path) not in {x.path for x in files}:

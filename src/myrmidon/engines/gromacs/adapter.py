@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from myrmidon.engines.gromacs import parse, system
+from myrmidon.engines.gromacs import mdp, parse, run, system
 from myrmidon.engines.registry import EngineAdapter
 
 
@@ -35,6 +35,10 @@ ADAPTER = EngineAdapter(
     file_kinds=("topology", "index", "structure"),
     system_facts=_system_facts,
     system_parts=_system_parts,
+    renders=("mdp",),
+    render=lambda values, origin, header: mdp.render_mdp(values, origin, header),
+    reads_key=lambda key: not key.startswith("&"),
+    compile_run_input=run.compile_stage_run_input,
     is_log_text=parse.is_gromacs_text,
     is_log=parse.is_gromacs_log,
     run_facts=parse.run_facts,

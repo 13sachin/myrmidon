@@ -208,7 +208,7 @@ steps:
   estimate_core_h: 54.0
   estimate_basis: one of four coupled runs that booked 216.0 core-h together for a 10-atom QM
     region in a box of about 1500 atoms; scales with the QM atom count and the cutoff
-  stage: {name: nve_check, kind: dynamics, regime: qmmm, ensemble: NVE, steps: 1000,
+  stage: {name: nve_check, kind: dynamics, regime: qmmm, starts_from: anneal, ensemble: NVE, steps: 1000,
     qm_region: {subsystems: [ligand], charge: 0, multiplicity: 1}}
 
 - name: heating_method
@@ -250,7 +250,7 @@ steps:
   estimate_basis: one of four coupled runs that booked 216.0 core-h together for a 10-atom QM
     region in a box of about 1500 atoms; scales with the QM atom count and the cutoff
   stage: {name: heat, kind: dynamics, regime: qmmm, ensemble: NVT, steps: 1500,
-    temperature_k: {from_stage: anneal, to_k: 300}, qm_region: {subsystems: [ligand], charge: 0, multiplicity: 1}}
+    starts_from: anneal, temperature_k: {to_k: 300}, qm_region: {subsystems: [ligand], charge: 0, multiplicity: 1}}
 
 - name: production_method
   tool: inputset_apply

@@ -201,9 +201,11 @@ def kind_read(tool: str, param: str) -> str | None:
     from myrmidon.core.tool import contract_of
 
     contract = contract_of(tool)
-    if contract is None or param not in contract.consumes:
+    if contract is None:
         return None
-    return canonical(contract.accepts(param)[0])
+    if param in contract.consumes:
+        return canonical(contract.accepts(param)[0])
+    return canonical(contract.reads[param]) if param in contract.reads else None
 
 
 def lineage(ws) -> Lineage:
@@ -296,6 +298,26 @@ def stage_run(ws, stage: str):
         if stage in stages:
             found.append((ev.outputs, submission.inputs))
     return (*found[-1], len(found)) if found else None
+
+
+def latest_outputs(ws, tool: str) -> dict[str, str]:
+    """Role -> path of what the latest successful call of ``tool`` wrote; empty when it has
+    not run."""
+    found = [ev for ev in ws.ledger.events()
+             if ev.tool == tool and ev.ok and ev.kind == "call" and ev.outputs]
+    return {a.role: a.path for a in found[-1].outputs} if found else {}
+
+
+def latest_dataset(ws) -> str | None:
+    """The path of the reference dataset a parameter fit reads: the latest one collected."""
+    from myrmidon.core.contracts import canonical
+
+    for ev in reversed(list(ws.ledger.events())):
+        if ev.ok and ev.kind == "call":
+            for out in ev.outputs:
+                if canonical(out.role) == "reference_dataset":
+                    return out.path
+    return None
 
 
 def stages_run(ws) -> set[str]:

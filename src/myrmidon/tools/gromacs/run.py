@@ -15,14 +15,13 @@ from pydantic import BaseModel, Field, PrivateAttr
 
 from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.contracts import Contract, Produces
-from myrmidon.core.observation import Observation, ToolError
+from myrmidon.core.observation import Observation
 from myrmidon.core.tool import PREVIEW_HELP, ToolContext, precheck, tool
 from myrmidon.core.validation import Finding, Precondition
 from myrmidon.engines.gromacs.collect import collect_run, run_progress
 from myrmidon.engines.gromacs.common import run_gmx, stage_output, tail
 from myrmidon.engines.gromacs.mdp import parse_mdp_file, validate_mdp
-from myrmidon.engines.gromacs.prep import artifact
-from myrmidon.engines.gromacs.run import grompp_warnings, minimisation_warning, throughput_warning
+from myrmidon.engines.gromacs.run import grompp, minimisation_warning, throughput_warning
 from myrmidon.engines.inputs import require_input, resolve_in_ws
 from myrmidon.execution.backend import JobSpec, Resources
 from myrmidon.execution.collect import collector, progress
@@ -95,12 +94,6 @@ def grompp_gate(ctx: ToolContext, params: GromppParams):
     return warnings + mdp_warnings, checked + mdp_checked
 
 
-def _posres_defines(mdp: Path) -> list[str]:
-    """The ``-DPOSRES*`` switches the mdp's ``define`` turns on."""
-    return [d for d in parse_mdp_file(mdp).get("define", "").split()
-            if d.startswith("-DPOSRES")]
-
-
 #: a run is carried on from its checkpoint by checkpoint_continue, which appends to the
 #: run's own files; how much further is `extend_ps`
 #: what a run leaves under its deffnm when the job is collected: the log and the final
@@ -133,64 +126,13 @@ RUN_OUTPUTS = (
 def gmx_grompp(ctx: ToolContext, params: GromppParams) -> Observation:
     precheck(ctx, grompp_gate(ctx, params)[0])
     stage = ctx.workspace.stage(params.stage)
-    mdp = resolve_in_ws(ctx, params.mdp)
-    structure = resolve_in_ws(ctx, params.structure)
-    topology = resolve_in_ws(ctx, params.topology)
-    tpr = stage_output(stage, params.output)
-    args = [
-        "grompp", "-f", str(mdp), "-c", str(structure), "-p", str(topology),
-        "-o", str(tpr), "-po", str(stage / "mdout.mdp"),
-        "-maxwarn", str(params.max_warn),
-    ]
-    if params.index:
-        args += ["-n", str(resolve_in_ws(ctx, params.index))]
-    notes: list[Finding] = []
-    reference = params.restraint_reference
-    defines = _posres_defines(mdp)
-    if defines and not reference:
-        # restraints hold atoms where the run starts unless told otherwise
-        reference = params.structure
-        notes.append(Finding(
-            id="GROMPP_RESTRAINT_REFERENCE_DEFAULTED",
-            message=f"{params.mdp} switches position restraints on ({' '.join(defines)}) "
-            f"and no restraint_reference was given: they hold atoms at {params.structure}, "
-            "the structure this run starts from"))
-    if reference:
-        args += ["-r", str(resolve_in_ws(ctx, reference))]
-    proc = run_gmx(ctx, args, cwd=stage)
-    command = list(proc.args)
-    engine_notes = grompp_warnings(proc.stderr)
-    notes += engine_notes
-    if proc.returncode != 0 or not tpr.exists():
-        errors = [w for w in engine_notes if w.id in ("GROMPP_ERROR", "GROMPP_FATAL")]
-        warned = [w.id for w in engine_notes if w.id in ("GROMPP_WARNING", "GROMPP_NET_CHARGE")]
-        hint = ("neutralise first: gmx_genion builds its own run input from the structure, "
-                "then this grompp runs on the structure and topology it returns"
-                if "GROMPP_NET_CHARGE" in warned else
-                "fix what grompp's error names" if errors else
-                "read grompp's words in the log tail and fix the cause; max_warn only hides it")
-        first = (errors or [w for w in engine_notes if w.id in warned])[:1]
-        return Observation(
-            ok=False,
-            summary=f"grompp failed (exit {proc.returncode})"
-            + (f": {errors[0].message}" if errors else
-               f" on grompp warning(s) {warned} — read them, fix the cause; max_warn only "
-               "hides them" if warned else " — see log tail"),
-            command=command,
-            findings=notes,
-            log_tail=tail(proc.stderr, 40),
-            error=ToolError(code=first[0].id if first else "GROMPP_FAILED",
-                            message=first[0].message if first
-                            else f"grompp exited {proc.returncode}", hint=hint),
-        )
-    return Observation(
-        ok=True,
-        summary=f"Run input written: {ctx.workspace.relpath(tpr)}"
-        + (f" ({len(notes)} grompp note(s) attached)" if notes else ""),
-        command=command,
-        findings=notes,
-        artifacts=[artifact(ctx, tpr, "tpr")],
-    )
+    return grompp(
+        ctx, resolve_in_ws(ctx, params.mdp), resolve_in_ws(ctx, params.structure),
+        resolve_in_ws(ctx, params.topology),
+        resolve_in_ws(ctx, params.index) if params.index else None,
+        resolve_in_ws(ctx, params.restraint_reference) if params.restraint_reference else None,
+        stage_output(stage, params.output), stage, params.max_warn,
+        mdp_name=params.mdp, structure_name=params.structure)
 
 
 class SubmitParams(BaseModel):

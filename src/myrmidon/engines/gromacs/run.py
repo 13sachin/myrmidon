@@ -4,7 +4,10 @@ booked walltime can cover the dynamics or the minimisation it carries."""
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
+from myrmidon.core.artifacts import ArtifactRef
+from myrmidon.core.observation import Observation, ToolError
 from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding
 
@@ -114,3 +117,96 @@ def minimisation_warning(
         message=f"minimising {n_atoms} atoms, at most {nsteps} steps; {walltime_min} min "
         f"covers about {reach} steps here",
     )
+
+
+def posres_defines(mdp: Path) -> list[str]:
+    """The ``-DPOSRES*`` switches the mdp's ``define`` turns on."""
+    from myrmidon.engines.gromacs.mdp import parse_mdp_file
+
+    return [d for d in parse_mdp_file(mdp).get("define", "").split()
+            if d.startswith("-DPOSRES")]
+
+
+def grompp(ctx: ToolContext, mdp: Path, structure: Path, topology: Path, index: Path | None,
+           reference: Path | None, tpr: Path, cwd: Path, max_warn: int = 0, *,
+           mdp_name: str = "", structure_name: str = "") -> Observation:
+    """grompp as one call: the run input it wrote and its own notes as findings, or why it
+    stopped. Restraints the mdp switches on hold atoms where the run starts unless told
+    otherwise."""
+    from myrmidon.engines.gromacs.common import run_gmx, tail
+
+    args = ["grompp", "-f", str(mdp), "-c", str(structure), "-p", str(topology),
+            "-o", str(tpr), "-po", str(cwd / "mdout.mdp"), "-maxwarn", str(max_warn)]
+    if index is not None:
+        args += ["-n", str(index)]
+    notes: list[Finding] = []
+    defines = posres_defines(mdp)
+    if defines and reference is None:
+        reference = structure
+        notes.append(Finding(
+            id="GROMPP_RESTRAINT_REFERENCE_DEFAULTED",
+            message=f"{mdp_name or mdp.name} switches position restraints on "
+            f"({' '.join(defines)}) and no restraint_reference was given: they hold atoms at "
+            f"{structure_name or structure.name}, the structure this run starts from"))
+    if reference is not None:
+        args += ["-r", str(reference)]
+    proc = run_gmx(ctx, args, cwd=cwd)
+    command = list(proc.args)
+    engine_notes = grompp_warnings(proc.stderr)
+    notes += engine_notes
+    if proc.returncode != 0 or not tpr.exists():
+        errors = [w for w in engine_notes if w.id in ("GROMPP_ERROR", "GROMPP_FATAL")]
+        warned = [w.id for w in engine_notes if w.id in ("GROMPP_WARNING", "GROMPP_NET_CHARGE")]
+        hint = ("neutralise first: gmx_genion builds its own run input from the structure, "
+                "then this grompp runs on the structure and topology it returns"
+                if "GROMPP_NET_CHARGE" in warned else
+                "fix what grompp's error names" if errors else
+                "read grompp's words in the log tail and fix the cause; max_warn only hides it")
+        first = (errors or [w for w in engine_notes if w.id in warned])[:1]
+        return Observation(
+            ok=False,
+            summary=f"grompp failed (exit {proc.returncode})"
+            + (f": {errors[0].message}" if errors else
+               f" on grompp warning(s) {warned} — read them, fix the cause; max_warn only "
+               "hides them" if warned else " — see log tail"),
+            command=command,
+            findings=notes,
+            log_tail=tail(proc.stderr, 40),
+            error=ToolError(code=first[0].id if first else "GROMPP_FAILED",
+                            message=first[0].message if first
+                            else f"grompp exited {proc.returncode}", hint=hint),
+        )
+    return Observation(
+        ok=True,
+        summary=f"Run input written: {ctx.workspace.relpath(tpr)}"
+        + (f" ({len(notes)} grompp note(s) attached)" if notes else ""),
+        command=command,
+        findings=notes,
+        artifacts=[ArtifactRef.from_path(tpr, "tpr", root=ctx.workspace.root)],
+    )
+
+
+def compile_stage_run_input(ctx: ToolContext, mdp: Path, files: dict[str, Path], stage_dir: Path,
+                            name: str, max_warn: int = 0) -> Observation | None:
+    """A stage's .tpr, one per stage since the output stride is the stage's own. The mdp's
+    sensors judge it first, and a blocking one refuses as grompp's own error does. None while
+    the stage's structure or topology is not yet there."""
+    from myrmidon.engines.gromacs.mdp import parse_mdp_file, validate_mdp
+    from myrmidon.knowledge.catalog import for_engine
+
+    structure, topology = files.get("structure"), files.get("topology")
+    if structure is None or topology is None:
+        return None
+    found, _ = validate_mdp(parse_mdp_file(mdp), for_engine(ctx.engines, "gromacs"))
+    stopping = [f for f in found if f.severity == "block"]
+    if stopping:
+        return Observation(
+            ok=False, summary=f"{mdp.name} would not run as meant: "
+            + " ".join(f.message for f in stopping),
+            findings=found,
+            error=ToolError(code=stopping[0].id, message=stopping[0].message,
+                            hint=stopping[0].suggestion or ""))
+    out = grompp(ctx, mdp, structure, topology, files.get("index"), None,
+                 stage_dir / f"{name}.tpr", stage_dir, max_warn)
+    out.findings = [*found, *out.findings]
+    return out

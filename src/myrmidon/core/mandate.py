@@ -173,10 +173,9 @@ class QMRegion(_Strict):
 
 
 class Ramp(_Strict):
-    """A temperature carried from where ``from_stage`` ended to ``to_k``: the start is a
-    fact of that stage's run, known once it has run."""
+    """A temperature carried from where the stage the ramping stage starts from ended to
+    ``to_k``: the start is a fact of that stage's run, known once it has run."""
 
-    from_stage: str
     to_k: float
     start_k: float | None = None
     rate_k_per_au: float | None = None
@@ -203,6 +202,9 @@ class Stage(_Strict):
     name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
     kind: StageKind
     regime: Regime = "mm"
+    #: the stage whose collected run this one continues from: unset, the stage before it; an
+    #: earlier one when stages branch; itself to extend a finished run
+    starts_from: str = ""
     ensemble: Ensemble | None = None
     temperature_k: float | Ramp | None = None
     pressure_bar: float | None = None
@@ -265,14 +267,30 @@ class Method(_Strict):
             raise ValueError(f"stage name(s) {', '.join(twice)} used twice: name each "
                              "stage once and run it as often as needed")
         for i, stage in enumerate(self.stages):
-            ramp = stage.temperature_k
-            if isinstance(ramp, Ramp) and ramp.from_stage not in names[:i]:
-                raise ValueError(f"stage {stage.name} ramps from {ramp.from_stage!r}, which "
+            if stage.starts_from and stage.starts_from not in [*names[:i], stage.name]:
+                raise ValueError(f"stage {stage.name} starts from {stage.starts_from!r}, which "
                                  "is no earlier stage")
+            ramp = stage.temperature_k
+            if isinstance(ramp, Ramp) and ramp.start_k is None and i == 0:
+                raise ValueError(f"stage {stage.name} ramps from where the stage before it "
+                                 "ended, and no stage comes before it: state the ramp's start_k")
         return self
 
     def stage(self, name: str | None) -> Stage | None:
         return next((s for s in self.stages if s.name == name), None)
+
+    def starts_from(self, stage: Stage | str) -> Stage | None:
+        """The stage whose collected run this one continues from: the one it names, else the
+        one before it; None for the first stage."""
+        name = stage if isinstance(stage, str) else stage.name
+        names = [s.name for s in self.stages]
+        if name not in names:
+            return None
+        found = self.stages[names.index(name)]
+        if found.starts_from:
+            return self.stage(found.starts_from)
+        at = names.index(name)
+        return self.stages[at - 1] if at else None
 
 
 #: the stage fields whose value is a list: a lock of nothing on one is the empty list
@@ -746,7 +764,8 @@ def stage_words(stage: Stage) -> str:
             + (f" ({stage.regime})" if stage.regime != "mm" else "")]
     temp = stage.temperature_k
     if isinstance(temp, Ramp):
-        bits.append(f"from where {temp.from_stage} ends to {temp.to_k:g} K")
+        begins = stage.starts_from or "the stage before it"
+        bits.append(f"from where {begins} ends to {temp.to_k:g} K")
     elif temp is not None:
         bits.append(f"{temp:g} K")
     if stage.pressure_bar is not None:

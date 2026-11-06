@@ -11,7 +11,7 @@ import math
 import re
 from pathlib import Path
 
-from myrmidon.core.contracts import declare_alias
+from myrmidon.core.contracts import declare_alias, define_kind
 from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding, Precondition
 from myrmidon.engines.gromacs.itp import atom_charges, bond_angle_rows
@@ -242,7 +242,50 @@ def parse_validation_force_residuals(text: str, n_atoms_listed: int = 10) -> dic
     }
 
 
+def parse_fminput(path: Path) -> dict[str, str]:
+    """An ``fminput.dat`` back as key -> value as written, comments off."""
+    out: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        text = line.split("#", 1)[0].strip()
+        if ":" in text:
+            key, _, value = text.partition(":")
+            out[key.strip()] = value.strip()
+    return out
+
+
 declare_alias("fminput", "fm_input")
+#: a force-matching dataset is this engine's reference dataset
+declare_alias("fm_dataset", "reference_dataset")
+define_kind("fm_input", parse_fminput,
+            lookup=lambda values, key: values.get(key))
+
+
+def stride_count(values: dict) -> int | None:
+    """How many snapshots a fit's ``stride`` selects; None when it states none readably."""
+    try:
+        first, last, step = (int(v) for v in str(values.get("stride")).strip("[] ").split(","))
+    except ValueError:
+        return None
+    return len(range(first, last, step))
+
+
+def dataset_facts(ctx: ToolContext, dataset: Path) -> dict:
+    """What a fit reads from its reference dataset: every frame it holds, as the ``stride`` to
+    fit (mimicpy h5info); none when its frames cannot be counted."""
+    import subprocess
+
+    from myrmidon.core.artifacts import sha256_file
+    from myrmidon.engines.mimic.qm_region import mimicpy_bin
+    from myrmidon.knowledge.catalog import SystemFact
+
+    proc = subprocess.run(  # noqa: S603
+        [mimicpy_bin(ctx), "h5info", "-i", str(dataset)], capture_output=True, text=True,
+        timeout=600, cwd=dataset.parent)
+    frames = parse_h5info(proc.stdout + proc.stderr).get("frames")
+    if not frames:
+        return {}
+    return {"stride": SystemFact(key="stride", value=f"[0,{frames},1]", rule="reference_dataset",
+                                 read=[str(dataset)], sha256=sha256_file(dataset))}
 
 
 def render_fminput(
