@@ -24,6 +24,16 @@ def fft_planes(cell_bohr: float, cutoff_ry: float, primes: list[int] | None = No
         n += 1
 
 
+def layout_facts(inputs: Mapping) -> dict:
+    """What a coupled run's layout reads from its inputs: the QM cell and cutoff its run input
+    states, and the atoms its MM half divides."""
+    from myrmidon.engines.gromacs.layout import layout_facts as classical
+    from myrmidon.engines.mimic.system import system_facts
+
+    return {**classical({"structure": inputs.get("structure")}),
+            **system_facts(inputs.get("cpmd_input"), {"qm_size"})}
+
+
 def resolve_layout(cores: int, facts: Mapping) -> Layout:
     """``cores`` as CPMD ranks and GROMACS ranks, threads per rank the fewest that keep CPMD's
     ranks within its mesh's planes along x."""

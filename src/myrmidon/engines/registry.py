@@ -40,6 +40,20 @@ class Layout:
 
 
 @dataclass
+class StageJob:
+    """A stage as its engine runs it: the job, the collector that reads it when it ends, and
+    what the call that submits it records."""
+
+    spec: object  # execution/backend.JobSpec
+    kind: str
+    label: str
+    summary: str = ""
+    meta: dict = field(default_factory=dict)
+    inputs: list = field(default_factory=list)
+    artifacts: list = field(default_factory=list)
+
+
+@dataclass
 class StageRender:
     """A mandate stage's compiled values on their way into the file its engine reads."""
 
@@ -96,10 +110,21 @@ class EngineAdapter:
     run_log: Callable[[object], Path | None] | None = None
     #: (cores, system facts) -> the ranks and threads a run takes on them
     resolve_layout: Callable[..., object] | None = None
-    #: (stage, compiled inputs, layout) -> the job, single, coupled or frame batch
-    build_job: Callable[..., object] | None = None
-    #: (a run's directory) -> the typed artifacts it wrote
-    collect: Callable[..., object] | None = None
+    #: (a stage's inputs by kind) -> the facts its layout is resolved from
+    layout_facts: Callable[[Mapping[str, Path]], dict] | None = None
+    #: (ctx, mandate, stage, the inputs prepared for it, a run asked to continue?) -> what else
+    #: its run reads, by kind, from the run it starts from and the system
+    stage_inputs: Callable[..., dict] | None = None
+    #: (ctx, stage, inputs by kind, walltime) -> what stops or is worth saying of the run
+    job_findings: Callable[..., list] | None = None
+    #: (ctx, stage, inputs, layout, cores) -> (minutes, why) its run is booked for
+    size_walltime: Callable[..., tuple] | None = None
+    #: (ctx, stage, inputs by kind, layout, run request) -> the job, single, coupled or batch
+    build_job: Callable[..., StageJob] | None = None
+    #: (ctx, job record, state, exit code) -> the typed artifacts a finished run wrote
+    collect: Mapping[str, Callable] | None = None
+    #: (ctx, stage files, stage dir) -> force the fit reads back
+    force_rmse: Callable[..., object] | None = None
 
 
 @cache
@@ -118,6 +143,11 @@ def adapter(engine: str) -> EngineAdapter:
 def adapter_rendering(renders: str) -> EngineAdapter | None:
     """The adapter that renders this kind of input file; None for a kind none renders."""
     return next((a for a in adapters() if renders in a.renders), None)
+
+
+def adapter_running(engines: list[str]) -> EngineAdapter | None:
+    """The adapter that runs a stage told to these engines: a coupled stage's main program."""
+    return next((a for a in adapters() if a.name in engines and a.build_job), None)
 
 
 def adapters_reading(kinds: set[str] | Mapping[str, object]) -> Iterator[EngineAdapter]:

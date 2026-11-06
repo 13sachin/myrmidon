@@ -161,13 +161,15 @@ class Contract:
     upstream: str | None = None
     #: what it reads by itself, from the study, under a role no parameter names (role -> kind)
     reads: Mapping[str, str] = field(default_factory=dict)
+    #: a parameter mapping artifact kinds to files: each entry is read as the kind it is under
+    by_kind: str | None = None
 
     def accepts(self, param: str) -> tuple[str, ...]:
         kinds = self.consumes[param]
         return (kinds,) if isinstance(kinds, str) else tuple(kinds)
 
     def params_named(self) -> set[str]:
-        out = set(self.consumes)
+        out = set(self.consumes) | ({self.by_kind} if self.by_kind else set())
         for p in self.produces:
             out |= p.params_named()
         return out

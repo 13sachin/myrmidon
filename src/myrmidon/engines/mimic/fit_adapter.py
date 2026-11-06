@@ -3,7 +3,7 @@ sees it."""
 
 from __future__ import annotations
 
-from myrmidon.engines.mimic import fm
+from myrmidon.engines.mimic import fit_collect, fm
 from myrmidon.engines.registry import EngineAdapter, StageRender, StageText
 from myrmidon.knowledge.sensors import evaluate
 
@@ -22,4 +22,10 @@ ADAPTER = EngineAdapter(
     stage_text=_stage_text,
     reads_key=lambda key: not key.startswith("&"),
     input_facts=fm.dataset_facts,
+    resolve_layout=fit_collect.resolve_layout,
+    layout_facts=fit_collect.layout_facts,
+    stage_inputs=fit_collect.stage_inputs,
+    job_findings=fit_collect.job_findings,
+    size_walltime=fit_collect.size_walltime,
+    build_job=fit_collect.build_job,
 )

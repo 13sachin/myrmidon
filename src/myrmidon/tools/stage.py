@@ -1,22 +1,30 @@
-"""A mandate stage as one step: what its run reads, compiled in one call."""
+"""A mandate stage as one step: what its run reads, compiled in one call; and its run, submitted
+in one call, whichever engine and job shape the stage comes to."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
 from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.contracts import Contract
+from myrmidon.core.lineage import stage_files
 from myrmidon.core.lineage import stage_run as collected_run
 from myrmidon.core.mandate import read_mandate
 from myrmidon.core.observation import Observation, ToolError
-from myrmidon.core.tool import REGISTRY, ToolContext, tool
+from myrmidon.core.tool import PREVIEW_HELP, REGISTRY, ToolContext, precheck, tool
+from myrmidon.core.validation import Finding, Precondition
 from myrmidon.engines.inputs import resolve_in_ws
-from myrmidon.engines.registry import adapter
+from myrmidon.engines.registry import Layout, adapter, adapter_running, adapters
+from myrmidon.execution.backend import Resources
+from myrmidon.execution.jobs import submit_job
 from myrmidon.knowledge.inputsets import RENDERED_FILES
 from myrmidon.knowledge.stage import TemplateStore, templates_for
 from myrmidon.tools.inputsets import system_file
+
+adapters()  # each engine registers what collects its jobs
 
 
 class StagePrepareParams(BaseModel):
@@ -140,8 +148,137 @@ def _with_run_input(ctx: ToolContext, params: StagePrepareParams, stage, stage_d
 
 
 def _later(stage: str, why: str):
-    from myrmidon.core.validation import Finding
-
     return Finding(id="STAGE_RUN_INPUT_LATER",
                    message=f"stage {stage}'s run input is not compiled yet: {why}; prepare the "
                    "stage again once it is there")
+
+
+class StageRunParams(BaseModel):
+    #: the fields this submission's cost is computed from
+    RESOURCE_FIELDS: ClassVar[tuple[str, ...]] = ("cores", "walltime_min", "partition")
+
+    preview: bool = Field(default=False, description=PREVIEW_HELP)
+    stage: str = Field(description="a stage the study's mandate names; stage_prepare it first")
+    walltime_min: int | None = Field(
+        default=None, ge=1, description="scheduler time limit; unset, sized from the stage's "
+        "length at the pace measured on this machine, within what the partition grants")
+    cores: int | None = Field(
+        default=None, ge=1, description="cores to divide among the engine's ranks and threads; "
+        "unset, one node of the partition, which is what a whole-node partition bills")
+    partition: str | None = Field(default=None, description="scheduler partition for this run "
+                                  "(default: the machine config's)")
+    account: str | None = Field(default=None, description="scheduler account to bill for this "
+                                "run, instead of the machine config's")
+    continue_run: bool = Field(
+        default=False, description="go on from what this stage's last run left: a run stopped at "
+        "its walltime, or one a stage that starts from itself extends")
+    extend_ps: float | None = Field(default=None, gt=0, description="with continue_run: how many "
+                                    "ps further than the run's end; unset, to the end it states")
+    inputs: dict[str, str] = Field(
+        default_factory=dict, description="files by kind, each read in place of what the ledger "
+        "says the stage reads (trajectory, restart, geometry, ...); the rest are resolved")
+    layout: dict = Field(default_factory=dict, description="filled by the harness: the ranks and "
+                         "threads the engine's rules chose, and why")
+
+    def resources(self) -> Resources:
+        """What the run books: its layout's ranks and threads for its walltime."""
+        return Resources(
+            ntasks=(self.layout.get("ntasks", 1) + self.layout.get("partner_ntasks", 0)),
+            cpus_per_task=self.layout.get("cpus_per_task", 1),
+            walltime_min=self.walltime_min or 60,
+            partition=self.partition, account=self.account)
+
+    def sized(self, ctx: ToolContext) -> StageRunParams:
+        """The call with what it leaves to the harness filled: the files the ledger says the
+        stage reads (so the gate holds each to the mandate), its layout on these cores, and its
+        walltime within what the partition grants."""
+        mandate = read_mandate(ctx.workspace)
+        stage = mandate.method.stage(self.stage) if mandate is not None else None
+        engine = _engine_of(stage)
+        if engine is None:
+            return self
+        begins = mandate.method.starts_from(stage)
+        continuing = self.continue_run or (begins is not None and begins.name == stage.name)
+        inputs = {**stage_files(ctx.workspace, stage.name), **self.inputs}
+        inputs |= {**engine.stage_inputs(ctx, mandate, stage, inputs, continuing), **self.inputs}
+        inputs = {k: v for k, v in inputs.items() if k in _RUN_KINDS}
+        files = {k: ctx.workspace.resolve(v) for k, v in inputs.items()}
+        _, node = ctx.config.compute.billing(self.partition)
+        cores = self.cores or node.cores_per_node
+        found = engine.resolve_layout(cores, engine.layout_facts(files))
+        minutes, why = self.walltime_min, ""
+        if minutes is None:
+            minutes, why = engine.size_walltime(ctx, stage, files, found, found.cores)
+            minutes = minutes or 60
+            if node.max_walltime_min and minutes > node.max_walltime_min:
+                minutes = node.max_walltime_min
+                why += f"; capped at the {minutes} min the partition grants: continue the stage"
+        return self.model_copy(update={
+            "inputs": inputs, "cores": cores, "walltime_min": minutes,
+            "continue_run": continuing,
+            "layout": {"ntasks": found.ntasks, "cpus_per_task": found.cpus_per_task,
+                       "partner_ntasks": found.partner_ntasks, "why": found.why,
+                       "walltime_why": why}})
+
+
+#: the kinds a stage's run reads: what its preparation wrote that a run does not (sidecars,
+#: provenance) is no input of it
+_RUN_KINDS = frozenset({
+    "mdp", "tpr", "cpmd_input", "fm_input", "restart", "geometry", "checkpoint", "structure",
+    "topology", "index", "qm_selection", "reference_dataset", "trajectory"})
+
+
+def _engine_of(stage):
+    """The adapter that runs this stage; None for no stage or one no template tells."""
+    if stage is None:
+        return None
+    templates = templates_for(stage.model_dump(mode="json"), TemplateStore.default())
+    return adapter_running([t.engine for t in templates])
+
+
+def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
+    """What stops the stage's run: no such stage, or what its engine says of its inputs."""
+    mandate = read_mandate(ctx.workspace)
+    stage = mandate.method.stage(params.stage) if mandate is not None else None
+    if stage is None:
+        names = ", ".join(s.name for s in mandate.method.stages) if mandate else ""
+        return [Precondition(id="MANDATE_STAGE_UNKNOWN",
+                             message=f"the mandate names no stage {params.stage!r}"
+                             + (f"; its stages: {names}" if names else ""),
+                             needs=["stage"])]
+    engine = _engine_of(stage)
+    if engine is None:
+        return [Precondition(id="MANDATE_STAGE_TEMPLATE",
+                             message=f"no engine here runs stage {stage.name} ({stage.kind}, "
+                             f"{stage.regime})")]
+    files = {k: ctx.workspace.resolve(v) for k, v in params.inputs.items()}
+    return engine.job_findings(ctx, stage, files, params.walltime_min or 60)
+
+
+@tool(
+    "stage_run",
+    description="Submit a mandate stage's run under the approved mandate: its compiled inputs and "
+    "starting state come from the ledger, its ranks and threads from the engine's rules, its "
+    "walltime from its length. Returns a job_id; job_status collects it.",
+    tags={"mandate", "run"},
+    expensive=True,
+    contract=Contract(by_kind="inputs"),
+)
+def stage_run(ctx: ToolContext, params: StageRunParams) -> Observation:
+    precheck(ctx, _run_findings(ctx, params))
+    mandate = read_mandate(ctx.workspace)
+    stage = mandate.method.stage(params.stage)
+    engine = _engine_of(stage)
+    files = {k: ctx.workspace.resolve(v) for k, v in params.inputs.items()}
+    layout = Layout(params.layout["ntasks"], params.layout["cpus_per_task"],
+                    params.layout["partner_ntasks"], params.layout["why"])
+    job = engine.build_job(ctx, stage, files, layout, params)
+    job_id, est = submit_job(ctx, job.spec, kind=job.kind, label=job.label, meta=job.meta)
+    walltime_why = params.layout.get("walltime_why")
+    return Observation(
+        ok=True,
+        summary=f"stage {stage.name} submitted as {job_id}: {job.summary} ({layout.why}; booked "
+        f"{est} core-h for {params.walltime_min} min"
+        + (f": {walltime_why}" if walltime_why else "") + "). Poll with job_status.",
+        command=job.spec.argv, artifacts=job.artifacts, job_id=job_id, state="QUEUED",
+        core_h_estimate=est, refs=[f"stage:{stage.name}"])

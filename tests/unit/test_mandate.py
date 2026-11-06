@@ -862,3 +862,100 @@ def test_a_fit_stage_is_compiled_to_its_input_over_the_collected_dataset(ws_ctx)
     sidecar = json.loads(ws.resolve(fit.files["fm_input"] + ".myrmidon.json").read_text())
     assert sidecar["stage"] == "fit"
     assert sidecar["origin"]["stride"] == "system:reference_dataset"
+
+
+def _run_stage(ws_ctx, name, **call):
+    """A stage's run through the one run tool, waited for and collected."""
+    obs = REGISTRY.call("stage_run", ws_ctx, {"stage": name, **call})
+    assert obs.ok, obs.summary
+    collected = REGISTRY.call("job_status", ws_ctx, {"job_id": obs.job_id, "wait_seconds": 20})
+    return obs, collected
+
+
+def test_every_shape_of_stage_runs_through_one_tool(ws_ctx):
+    """A classical run, a coupled one, a rerun over frames, a batch minimising frames and a fit
+    each go through stage_run: its inputs and starting state come from the ledger, the gate
+    holds them to the mandate, and the collection is found again as that stage's run."""
+    from myrmidon.core.lineage import stage_run as collected_run
+
+    _coupled_study(ws_ctx, [
+        {"name": "md", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300,
+         "steps": 100, "sampling_ps": 0.05},
+        {"name": "cool", "kind": "minimize", "regime": "qmmm", "steps": 10, "temperature_k": 300,
+         "qm_region": REGION},
+        {"name": "hot", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE", "steps": 10,
+         "qm_region": REGION},
+        {"name": "again", "kind": "single_point", "starts_from": "md"},
+        {"name": "frames", "kind": "minimize", "starts_from": "md", "steps": 10,
+         "scan": {"parameter": "frames", "values": [0]}},
+        {"name": "fit", "kind": "parameter_fit", "qm_region": REGION}])
+    ws = ws_ctx.workspace
+    unprepared = REGISTRY.call("stage_run", ws_ctx, {"stage": "md"})
+    assert not unprepared.ok and unprepared.error.code == "STAGE_NOT_PREPARED"
+    assert not REGISTRY.call("stage_run", ws_ctx, {"stage": "nothing"}).ok
+
+    # a classical run: the mandate holds it, and a measurement finds it as the stage's run
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "md"}).ok
+    md, done = _run_stage(ws_ctx, "md")
+    assert done.ok, done.summary
+    assert md.command[1] == "mdrun"
+    assert (collected_run(ws, "md")[2], "trajectory" in {a.role for a in done.artifacts}) == (
+        1, True)
+    event = next(e for e in ws.ledger.events() if e.tool == "stage_run" and e.ok)
+    assert {i.role for i in event.inputs} >= {"inputs.tpr", "inputs.mdp"}
+    assert event.params["layout"]["ntasks"] >= 1 and event.params["layout"]["why"]
+
+    # a coupled run takes the restart of the stage it starts from without being told
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "cool"}).ok
+    cool, done = _run_stage(ws_ctx, "cool")
+    assert done.ok, done.summary
+    assert cool.command[0].endswith("cpmd.x")
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "hot"}).ok
+    hot, done = _run_stage(ws_ctx, "hot")
+    assert done.ok, done.summary
+    held = next(e for e in reversed(list(ws.ledger.events())) if e.tool == "stage_run" and e.ok)
+    assert "inputs.restart" in {i.role for i in held.inputs}
+
+    # a rerun of existing frames, and a batch minimising them: a job shape each
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "again"}).ok
+    import MDAnalysis as mda
+
+    left = next(a.path for a in collected_run(ws, "md")[0] if a.role == "structure")
+    structure = str(ws.resolve(left))
+    frames_file = ws.stage("frames_in") / "frames.trr"
+    system = mda.Universe(structure)
+    with mda.Writer(str(frames_file), n_atoms=system.atoms.n_atoms) as writer:
+        writer.write(system.atoms)
+    again, done = _run_stage(ws_ctx, "again", inputs={"trajectory": ws.relpath(frames_file)})
+    assert "-rerun" in again.command
+    assert collected_run(ws, "again") is not None, (done.summary, done.log_tail)
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "frames"}).ok
+    frames = REGISTRY.call("stage_run", ws_ctx, {"stage": "frames"})
+    assert frames.ok, frames.summary
+    assert frames.command[1:3] == ["-m", "myrmidon.engines.gromacs.batch"]
+
+    # a fit: nothing runs before its dataset is collected
+    assert REGISTRY.call("stage_prepare", ws_ctx, {
+        "stage": "fit", "overrides": {"stride": "[0,10,1]"}}).ok
+    refused = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit"})
+    assert not refused.ok and refused.error.code == "STAGE_NOT_PREPARED"
+
+
+def test_a_stage_run_is_held_to_the_mandate_like_any_booking(ws_ctx):
+    """stage_run names only a stage, and the gate still reads the files it runs on: an edited
+    system file lapses the approval, a lock broken in its input refuses it."""
+    held = _coupled_study(ws_ctx, [
+        {"name": "md", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300, "steps": 100}])
+    ws = ws_ctx.workspace
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "md"})
+    assert prepared.ok, prepared.summary
+    preview = REGISTRY.call("stage_run", ws_ctx, {"stage": "md", "preview": True})
+    assert preview.ok, preview.summary
+    assert "mandate" in " ".join(f.id.lower() for f in preview.findings)
+    # a run input built from a structure outside the system is not this mandate's
+    other = ws.stage("elsewhere") / "other.gro"
+    other.write_text(ws.resolve(prepared.files["tpr"]).parent.joinpath("mdout.mdp").read_text())
+    foreign = REGISTRY.call("stage_run", ws_ctx, {"stage": "md", "inputs": {
+        "structure": ws.relpath(other)}})
+    assert not foreign.ok and foreign.error.code == "MANDATE_SYSTEM", foreign.summary
+    assert held.digest

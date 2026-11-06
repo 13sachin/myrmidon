@@ -11,25 +11,19 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 
 import numpy as np
 from pydantic import Field
 
-from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.contracts import Contract, Produces
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext, precheck, tool
 from myrmidon.core.validation import Finding, Precondition
-from myrmidon.engines.gromacs.batch import LOG_FILENAME, RESULTS_FILENAME
 from myrmidon.engines.gromacs.common import gmx_bin, stage_topology
 from myrmidon.engines.gromacs.mdp import parse_mdp_file
 from myrmidon.engines.inputs import require_input, resolve_in_ws
 from myrmidon.execution.backend import JobSpec
-from myrmidon.execution.collect import collector
 from myrmidon.execution.jobs import submit_job
-from myrmidon.execution.jobstore import JobRecord
-from myrmidon.text import tail
 from myrmidon.tools.gromacs.run import EM_INTEGRATORS, SubmitParams
 
 
@@ -156,39 +150,4 @@ def gmx_minimize_frames(ctx: ToolContext, params: MinimizeFramesParams
         "frame's convergence.",
         command=spec.argv, job_id=job_id, state="QUEUED", core_h_estimate=est,
         n_requested=len(frames),
-    )
-
-
-@collector("minimize_frames")
-def _collect_minimized(ctx: ToolContext, record: JobRecord, state, exit_code
-                       ) -> Observation:
-    """A minimisation job that has ended: the minimised frames' trajectory and what each
-    frame's mdrun log says."""
-    stage = Path(record.spec.cwd)
-    root = ctx.workspace.root
-    results = stage / RESULTS_FILENAME
-    log = stage / LOG_FILENAME
-    if not results.is_file():
-        text = log.read_text(errors="replace") if log.is_file() else ""
-        err = stage / record.spec.stderr
-        text += ("\n" + err.read_text(errors="replace")) if err.is_file() else ""
-        return Observation(
-            ok=False, summary="the minimisation job wrote no results", log_tail=tail(text, 20))
-    data = json.loads(results.read_text())
-    frames = data["frames"]
-    converged = sum(1 for f in frames if f.get("converged"))
-    artifacts = [ArtifactRef.from_path(results, "data", root=root)]
-    if data.get("output") and (stage / data["output"]).is_file():
-        artifacts.insert(0, ArtifactRef.from_path(stage / data["output"], "trajectory",
-                                                  root=root))
-    if log.is_file():
-        artifacts.append(ArtifactRef.from_path(log, "log", root=root))
-    failed = [f["index"] for f in frames if not f.get("ok")]
-    return Observation(
-        ok=data["n_minimised"] > 0,
-        summary=f"{data['n_minimised']} of {data['n_requested']} frame(s) minimised, "
-        f"{converged} converged to the mdp's force tolerance"
-        + (f"; frames {failed} failed (see {LOG_FILENAME})" if failed else ""),
-        artifacts=artifacts, frames=frames, n_requested=data["n_requested"],
-        n_minimised=data["n_minimised"], n_converged=converged,
     )

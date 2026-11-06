@@ -14,27 +14,20 @@ from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.contracts import Contract, Produces
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import PREVIEW_HELP, ToolContext, precheck, tool
-from myrmidon.core.validation import Finding, Precondition
-from myrmidon.engines.gromacs.collect import collect_run, spec_deffnm
-from myrmidon.engines.inputs import require_input, resolve_in_ws
+from myrmidon.engines.inputs import resolve_in_ws
+from myrmidon.engines.mimic.collect import coupled_findings, coupled_geometry
 from myrmidon.engines.mimic.cpmd_input import (
-    cpmd_findings,
-    get_keyword,
     keyword_value,
     parse_cpmd,
     qm_geometry,
 )
 from myrmidon.engines.mimic.launch import (
-    GEOMETRY_NAME,
     align_mimic_paths,
     stage_geometry,
     stage_restart,
 )
-from myrmidon.engines.mimic.system import pp_findings
 from myrmidon.execution.backend import CoupledCmd, JobSpec, Resources
-from myrmidon.execution.collect import collector, progress
 from myrmidon.execution.jobs import submit_job
-from myrmidon.knowledge.catalog import for_engine
 
 #: the walltime a coupled run is booked for when nothing sizes it
 FALLBACK_WALLTIME_MIN = 60
@@ -170,174 +163,13 @@ class MimicRunParams(BaseModel):
 
 
 def mimic_gate(ctx: ToolContext, params: MimicRunParams):
-    warnings: list[Finding] = []
-    checked = ["input_files", "cpmd_engine", "cpmd_sections", "charge_multiplicity", "qm_cell"]
-
-    cpmd_info = ctx.engines.get("cpmd")
-    if cpmd_info is None or not cpmd_info.available:
-        warnings.append(
-            Precondition(
-                id="CPMD_UNAVAILABLE",
-                message="CPMD is not available on this machine"
-                + (f" — {cpmd_info.hint}" if cpmd_info else ""),
-            )
-        )
-
-    inp, missing = require_input(ctx, "cpmd_input", params.cpmd_input, "INPUT_MISSING_CPMD",
-                                 f"cpmd input not found: {params.cpmd_input}")
-    if missing:
-        warnings.append(missing)
-        return warnings, checked
-    _, missing = require_input(ctx, "tpr", params.tpr, message=f"tpr not found: {params.tpr}")
-    if missing:
-        warnings.append(missing)
-
-    sections = parse_cpmd(inp.read_text())
-    warnings.extend(cpmd_findings(sections, for_engine(ctx.engines, "cpmd"),
-                                  params.restart_from))
-    uncovered, ran = pp_findings(sections, inp.parent)
-    if ran:
-        checked.append("pseudopotentials")
-        warnings.extend(uncovered)
-    if "MIMIC" not in sections:
-        warnings.append(
-            Precondition(
-                id="CPMD_NO_MIMIC_SECTION",
-                message="input has no &MIMIC section — not a MiMiC run input",
-            )
-        )
-    else:
-        if get_keyword(sections["MIMIC"], "PATHS") is None:
-            warnings.append(
-                Precondition(
-                    id="MIMIC_PATHS_MISSING",
-                    message="&MIMIC has no PATHS — the coupled programs cannot find "
-                    "each other",
-                )
-            )
-    system = sections.get("SYSTEM", [])
-    if get_keyword(system, "CHARGE") is None:
-        warnings.append(
-            Precondition(
-                id="QM_CHARGE_MISSING",
-                message="&SYSTEM has no CHARGE — run mimic_prepare (charge must be "
-                "explicit, never assumed)",
-            )
-        )
-    multiplicity = get_keyword(system, "MULTIPLICITY")
-    sidecar = inp.with_name(inp.name + ".myrmidon.json")
-    if multiplicity is None and not _reviewed(sidecar):
-        warnings.append(
-            Precondition(
-                id="QM_MULTIPLICITY_UNCONFIRMED",
-                message="the input states no multiplicity — run mimic_prepare (closed-shell "
-                "runs carry it in the .myrmidon.json sidecar, open-shell runs in &SYSTEM)",
-            )
-        )
-    checked.append("restart_available")
-    wants_restart = any(
-        line.strip().upper().startswith("RESTART") for line in sections.get("CPMD", [])
-    )
-    if wants_restart and not params.restart_from:
-        warnings.append(
-            Precondition(
-                id="CPMD_RESTART_FILE_MISSING",
-                message="the run input asks to RESTART, and no restart_from was given: "
-                "CPMD reads the wavefunction from the file LATEST names in the working "
-                "directory and stops in ZHRWF with FILE NOT FOUND when it is not there.",
-                suggestion="pass restart_from=<the previous segment's `restart` artifact>, "
-                "or render an input without a RESTART line for a run that starts fresh",
-            )
-        )
-    if params.restart_from:
-        restart, missing = require_input(ctx, "restart_from", params.restart_from,
-                                         "INPUT_MISSING_RESTART",
-                                         f"restart file not found: {params.restart_from}")
-        if missing:
-            warnings.append(missing)
-        else:
-            warnings.extend(restart_as_recorded(ctx, restart, params.restart_from))
-
-    checked.append("geometry_available")
-    wants_geofile = any(
-        line.strip().upper().startswith("RESTART") and "GEOFILE" in line.upper()
-        for line in sections.get("CPMD", [])
-    )
-    if params.geometry_from:
-        _, missing = require_input(ctx, "geometry_from", params.geometry_from,
-                                   "INPUT_MISSING_GEOMETRY",
-                                   f"geometry file not found: {params.geometry_from}")
-        if missing:
-            warnings.append(missing)
-    elif wants_geofile and geometry_for(ctx, params) is None:
-        warnings.append(
-            Precondition(
-                id="CPMD_GEOFILE_WITHOUT_GEOMETRY",
-                message="the run input's RESTART line has GEOFILE, so CPMD reads the ions' "
-                "coordinates from a GEOMETRY file in the working directory, and no "
-                "geometry_from was given nor a GEOMETRY found beside restart_from: CPMD "
-                "stops in GEOFILE with DO NOT READ OLD COORDINATES.",
-                suggestion="pass geometry_from=<the previous segment's `geometry` artifact> "
-                "(or a snapshot of this box), or drop GEOFILE from the RESTART line",
-            )
-        )
-
-    return warnings, checked
-
-
-def _reviewed(sidecar) -> bool:
-    """Whether this input's spin was settled for a stage: a sidecar beside it that the QM
-    selection did not write (it states what the selection leaves, for a render to settle)."""
-    import json
-
-    try:
-        return json.loads(sidecar.read_text()).get("written_by") != "qm_region"
-    except (OSError, ValueError):
-        return False
-
-
-def restart_as_recorded(ctx: ToolContext, restart, given: str) -> list[Finding]:
-    """The blocking finding when the restart a continuation names is not the file the
-    ledger recorded under that path. A continuation is the continuation of a recorded run
-    only while its restart hashes to what that run's collection recorded; a file replaced
-    since — by another run writing into the same directory, or by hand — makes a chain the
-    ledger cannot vouch for. A path no call ever produced has nothing to compare against
-    and passes: the ledger records it as this call's input."""
-    from myrmidon.core.artifacts import sha256_file
-
-    recorded = ctx.workspace.ledger.last_output(ctx.workspace.relpath(restart))
-    if recorded is None:
-        return []
-    now = sha256_file(restart)
-    if now == recorded.sha256:
-        return []
-    return [Precondition(
-        id="RESTART_NOT_AS_RECORDED",
-        message=f"{given} is not the file the ledger recorded at that path: it hashes to "
-                f"{now[:12]}…, the run that produced it recorded {recorded.sha256[:12]}…. "
-                "A continuation from it would not continue the run the ledger shows.",
-        suggestion="restart from the `restart` artifact job_status returned for the run "
-                   "you mean to continue; its directory holds only that run's files",
-    )]
-
-
-RESTART_NAME = "RESTART.1"
-
-
-LATEST_NAME = "LATEST"
+    return coupled_findings(ctx, params.cpmd_input, params.tpr, params.restart_from,
+                            params.geometry_from)
 
 
 def geometry_for(ctx: ToolContext, params: MimicRunParams):
-    """The GEOMETRY file a ``RESTART ... GEOFILE`` run reads its coordinates from: the one
-    named, else the one the previous segment wrote beside the restart it continues from;
-    None when there is none. CPMD stops in GEOFILE without it (real CPMD 4.3, coupled)."""
-    if params.geometry_from:
-        return resolve_in_ws(ctx, params.geometry_from)
-    if params.restart_from:
-        beside = resolve_in_ws(ctx, params.restart_from).parent / GEOMETRY_NAME
-        if beside.is_file():
-            return beside
-    return None
+    """The GEOMETRY file a ``RESTART ... GEOFILE`` run reads its coordinates from."""
+    return coupled_geometry(ctx, params.geometry_from, params.restart_from)
 
 
 @tool(
@@ -436,103 +268,3 @@ def mimic_run(ctx: ToolContext, params: MimicRunParams) -> Observation:
         # study state records the spend per segment rather than None
         core_h_estimate=est,
     )
-
-
-@progress("mimic")
-def _mimic_progress(record) -> tuple[None, str]:
-    """CPMD's own counter for a coupled run in flight: the GROMACS log of a coupled run
-    counts nothing and names the nominal step budget."""
-    from pathlib import Path
-
-    from myrmidon.engines.mimic.diagnostics import parse_cpmd_output
-
-    out = Path(record.spec.cwd) / "cpmd.out"
-    if not out.exists():
-        return None, ""
-    facts = parse_cpmd_output(out.read_text(errors="replace"))
-    steps, temp = facts.get("md_steps_completed"), facts.get("t_qm_last")
-    parts = [f"step {steps}" if steps is not None else "",
-             f"T(QM) {temp} K" if temp is not None else ""]
-    return None, " · ".join(p for p in parts if p)
-
-
-@collector("mimic")
-def _collect_mimic_job(ctx: ToolContext, record, state, exit_code) -> Observation:
-    """A MiMiC run that has ended: the MM engine's outputs by role, plus the CPMD log,
-    the force-matching reference it wrote, and — for a run that failed — CPMD's own error
-    message and the tail of its log, for the reader."""
-    from pathlib import Path
-
-    from myrmidon.engines.mimic.diagnostics import (
-        incomplete_run_note,
-        parse_cpmd_output,
-        read_local_errors,
-        run_completed,
-    )
-    from myrmidon.text import LOG_TAIL_LINES, tail
-
-    obs = collect_run(ctx, record, state, exit_code)
-    # the count the GROMACS half put in its own summary, before the QM half adds to it
-    before = len(obs.artifacts)
-    if before == 0 and state.value == "COMPLETED":
-        # a coupled run that produced no MM outputs is either misconfigured or was
-        # collected under the wrong prefix; neither is a success
-        obs.findings.append(Finding(
-            id="MM_OUTPUTS_NOT_FOUND",
-            message=(f"the run completed but no MM outputs were found under "
-                     f"'{spec_deffnm(record)}.*' in {record.spec.cwd} — the QM side is "
-                     "collected below, the GROMACS trajectory and energies are not. "
-                     "Anything fitted from them would have no recorded provenance."),
-        ))
-    cwd = Path(record.spec.cwd)
-    root = ctx.workspace.root
-    cpmd_out = cwd / "cpmd.out"
-    if cpmd_out.exists():
-        obs.artifacts.append(ArtifactRef.from_path(cpmd_out, "qm_log", root=root))
-        # CPMD's own error file witnesses an abort whatever the exit code says, and a run
-        # that ended normally without doing what it was asked — a wavefunction
-        # optimisation stopped at its iteration cap, dynamics short of its step count —
-        # exits 0 with a RESTART written and is not a success either. The log's tail is
-        # what the cause is read from, so a failed run carries it along with the GROMACS
-        # half's
-        text = cpmd_out.read_text(errors="replace")
-        cpmd_error = read_local_errors(cwd)
-        if cpmd_error and not obs.diagnosis:
-            obs.ok = False
-            obs.diagnosis = f"CPMD aborted: {cpmd_error}"
-            obs.summary = f"{record.job_id} {state.value.lower()}: {obs.diagnosis}"
-        facts = parse_cpmd_output(text)
-        if state.value == "COMPLETED":
-            from myrmidon.execution.pace import cpmd_pace, cpmd_run_input, record_pace
-
-            pace = cpmd_pace(cpmd_out, cpmd_run_input(record), record.spec.resources,
-                             f"{root.name} {record.label or record.job_id}")
-            if pace is not None:
-                record_pace(ctx.config.studies_root, pace)
-        if obs.ok and not run_completed(facts):
-            obs.ok = False
-            obs.diagnosis = ("CPMD ended before it did what it was asked: "
-                             + incomplete_run_note(facts))
-            obs.summary = f"{record.job_id} {state.value.lower()}: {obs.diagnosis}"
-        if not obs.ok:
-            obs.log_tail = "\n".join(part for part in (
-                obs.log_tail, "--- cpmd.out ---", tail(text, LOG_TAIL_LINES)) if part)
-    for fm_json in sorted(cwd.glob("FMTRAJECTORY*.json")):
-        obs.artifacts.append(ArtifactRef.from_path(fm_json, "fm_reference", root=root))
-    # what the next segment restarts from, and what a decision about it reads. Without
-    # these a continuation has nothing to reference, and CPMD stops in ZHRWF when no
-    # restart reaches its directory.
-    for name, role in (
-        (RESTART_NAME, "restart"), (LATEST_NAME, "restart_index"),
-        ("ENERGIES", "energies"), ("GEOMETRY", "geometry"),
-        ("TRAJECTORY", "qm_trajectory"),
-    ):
-        path = cwd / name
-        if path.exists():
-            obs.artifacts.append(ArtifactRef.from_path(path, role, root=root))
-    if obs.ok and len(obs.artifacts) != before:
-        # the GROMACS half counted its own before the QM half was collected
-        obs.summary = obs.summary.replace(
-            f"{before} output artifact(s)", f"{len(obs.artifacts)} output artifact(s)"
-        )
-    return obs

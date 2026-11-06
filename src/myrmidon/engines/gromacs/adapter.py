@@ -6,7 +6,15 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from myrmidon.engines.gromacs import layout, mdp, parse, run, system
+from myrmidon.engines.gromacs.batch import collect_minimized
+from myrmidon.engines.gromacs.collect import collect_run
+from myrmidon.engines.gromacs.collect import run_progress as mdrun_progress
 from myrmidon.engines.registry import EngineAdapter
+from myrmidon.execution.collect import collector, progress
+
+collector("gromacs")(collect_run)
+progress("gromacs")(mdrun_progress)
+collector("minimize_frames")(collect_minimized)
 
 
 def _system_facts(files: Mapping[str, Path], data_dir: Path | None,
@@ -45,4 +53,9 @@ ADAPTER = EngineAdapter(
     fact_labels=parse.GROMACS_FACTS,
     run_log=_run_log,
     resolve_layout=layout.resolve_layout,
+    layout_facts=layout.layout_facts,
+    stage_inputs=run.stage_inputs,
+    job_findings=run.job_findings,
+    size_walltime=run.size_walltime,
+    build_job=run.build_job,
 )

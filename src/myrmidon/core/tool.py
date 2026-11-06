@@ -523,7 +523,7 @@ def _included(tool: str, inputs: list[ArtifactRef], ctx: ToolContext) -> list[Ar
     seen = {ref.path for ref in inputs}
     out = []
     for ref in inputs:
-        kind = kind_read(tool, ref.role.split(".", 1)[0].split("[", 1)[0]) or ""
+        kind = kind_read(tool, ref.role) or ""
         for path in includes_of(kind, ctx.workspace.resolve(ref.path)):
             real = path.resolve()
             inside = real.is_relative_to(root)

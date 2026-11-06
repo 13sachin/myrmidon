@@ -31,6 +31,19 @@ def smooth_at_most(n: int, primes: list[int]) -> int:
     return 1
 
 
+def layout_facts(inputs: Mapping) -> dict:
+    """What a classical run's layout reads from its inputs: its atoms, and its integrator."""
+    from myrmidon.core.contracts import lookup
+    from myrmidon.engines.gromacs.system import atom_count
+
+    facts: dict = {}
+    if inputs.get("structure") is not None and (found := atom_count(inputs["structure"])):
+        facts["atoms"] = found
+    if inputs.get("mdp") is not None:
+        facts["integrator"] = lookup("mdp", inputs["mdp"], "integrator")
+    return facts
+
+
 def resolve_layout(cores: int, facts: Mapping) -> Layout:
     """``cores`` as ranks and threads: every core a rank up to the atoms-per-rank floor, the
     rest folded into threads (``-ntomp``); one rank for a minimiser that runs on one."""

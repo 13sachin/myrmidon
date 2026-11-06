@@ -83,7 +83,7 @@ class Lineage:
         return ev
 
     def kind(self, ev, role: str) -> str:
-        return self.kind_of(ev.tool, _param(role)) or ""
+        return self.kind_of(ev.tool, role) or ""
 
     def node(self, path: str, sha: str, system: set[str]) -> Node:
         """The verdict on one file's bytes, memoized: fine when some call that wrote them
@@ -131,7 +131,7 @@ class Lineage:
         the calls that wrote its run inputs read. Earlier stages' are theirs, not its."""
         out: dict[tuple[str, str], str] = {}
         for ref in inputs:
-            kind = self.kind_of(tool, _param(ref.role)) or ""
+            kind = self.kind_of(tool, ref.role) or ""
             if kind in self.parameters:
                 out[(ref.path, ref.sha256)] = kind
                 continue
@@ -194,15 +194,19 @@ class Lineage:
         return ""
 
 
-def kind_read(tool: str, param: str) -> str | None:
-    """The kind a registered tool's contract reads under ``param``; None for a tool or a
-    parameter the contracts do not name."""
+def kind_read(tool: str, role: str) -> str | None:
+    """The kind a registered tool's contract reads under this recorded role; None for a tool
+    or a parameter the contracts do not name. An entry of a mapping of kinds to files is the
+    kind it sits under (``inputs.tpr``)."""
     from myrmidon.core.contracts import canonical
     from myrmidon.core.tool import contract_of
 
     contract = contract_of(tool)
     if contract is None:
         return None
+    param = _param(role)
+    if contract.by_kind == param and "." in role:
+        return canonical(role.split(".", 1)[1].split(".", 1)[0])
     if param in contract.consumes:
         return canonical(contract.accepts(param)[0])
     return canonical(contract.reads[param]) if param in contract.reads else None
@@ -291,13 +295,53 @@ def stage_run(ws, stage: str):
         submission = Lineage._submission(ev, by_id)
         if submission is ev or not ev.outputs:
             continue
-        if any(lin.kind(submission, inp.role) == "trajectory" for inp in submission.inputs):
-            continue
-        stages = {lin.stage_of(path, sha) for path, sha, _ in
-                  lin.parameter_files(submission.tool, submission.inputs)}
-        if stage in stages:
-            found.append((ev.outputs, submission.inputs))
+        if f"{STAGE}{stage}" not in submission.knowledge_refs:
+            if any(lin.kind(submission, inp.role) == "trajectory"
+                   for inp in submission.inputs):
+                continue
+            if stage not in {lin.stage_of(path, sha) for path, sha, _ in
+                             lin.parameter_files(submission.tool, submission.inputs)}:
+                continue
+        found.append((ev.outputs, submission.inputs))
     return (*found[-1], len(found)) if found else None
+
+
+def stage_left(ws, stage: str) -> list:
+    """What the latest run of ``stage`` left, whether or not it succeeded: a run stopped at its
+    walltime is continued from the checkpoint it wrote. None collected: empty."""
+    events = list(ws.ledger.events())
+    by_id = {ev.event_id: ev for ev in events if ev.kind == "call"}
+    for ev in reversed(events):
+        if ev.kind != "call" or not ev.outputs:
+            continue
+        submission = Lineage._submission(ev, by_id)
+        if submission is not ev and f"{STAGE}{stage}" in submission.knowledge_refs:
+            return ev.outputs
+    return []
+
+
+def stage_files(ws, stage: str) -> dict[str, str]:
+    """What the calls that prepared ``stage`` wrote, by kind, the latest of each."""
+    from myrmidon.core.contracts import canonical
+
+    out: dict[str, str] = {}
+    for ev in ws.ledger.events():
+        if (ev.ok and ev.kind == "call" and f"{STAGE}{stage}" in ev.knowledge_refs
+                and not any(ref.startswith(COLLECTS) for ref in ev.knowledge_refs)
+                and not _runs(ev)):
+            out |= {canonical(a.role): a.path for a in ev.outputs}
+    return out
+
+
+def _runs(ev) -> bool:
+    """Whether a call submitted a job: what it wrote is what the job read, not its output."""
+    from myrmidon.core.tool import REGISTRY, books
+    from myrmidon.errors import UnknownToolError
+
+    try:
+        return books(REGISTRY.get(ev.tool))
+    except UnknownToolError:
+        return False
 
 
 def latest_outputs(ws, tool: str) -> dict[str, str]:
@@ -353,7 +397,7 @@ def submission_findings(ws, mandate, tool: str, params: dict, resources: dict,
     findings: list[Finding] = []
     followed, reached = [], False
     for ref in inputs:
-        kind = kind_read(tool, _param(ref.role)) or ""
+        kind = kind_read(tool, ref.role) or ""
         if not kind or kind in lin.parameters:
             continue  # a script or a file the contract does not name is never followed
         followed.append(ref.path)

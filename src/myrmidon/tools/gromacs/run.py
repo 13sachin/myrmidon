@@ -7,7 +7,6 @@ job_status, which collects the results once the job has ended."""
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import ClassVar, Self
 
@@ -18,20 +17,13 @@ from myrmidon.core.contracts import Contract, Produces
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import PREVIEW_HELP, ToolContext, precheck, tool
 from myrmidon.core.validation import Finding, Precondition
-from myrmidon.engines.gromacs.collect import collect_run, run_progress
 from myrmidon.engines.gromacs.common import run_gmx, stage_output, tail
 from myrmidon.engines.gromacs.mdp import parse_mdp_file, validate_mdp
 from myrmidon.engines.gromacs.run import grompp, minimisation_warning, throughput_warning
 from myrmidon.engines.inputs import require_input, resolve_in_ws
 from myrmidon.execution.backend import JobSpec, Resources
-from myrmidon.execution.collect import collector, progress
 from myrmidon.execution.jobs import submit_job
 from myrmidon.knowledge.catalog import for_engine
-
-collector("gromacs")(collect_run)
-
-
-progress("gromacs")(run_progress)
 
 
 class GromppParams(BaseModel):
@@ -231,79 +223,15 @@ class MdrunParams(SubmitParams):
         return out
 
 
-_TPR_FIELD_RE = re.compile(
-    r"^\s*(nsteps|dt|init-step|integrator|natoms)\s*=\s*(\S+)", re.MULTILINE
+from myrmidon.engines.gromacs.run import (  # noqa: E402
+    EM_INTEGRATORS,
+    FALLBACK_WALLTIME_MIN,
+    beside,
+    checkpoint_output_names,
+    mdrun_walltime,
+    tpr_facts,
+    tpr_run_length_ns,
 )
-
-
-#: integrators that minimise: they take steps, not time, so "the run is 0.05 ns" is not
-#: a statement about them and a ns/day ceiling cannot judge their walltime
-EM_INTEGRATORS = frozenset({"steep", "cg", "l-bfgs"})
-
-
-def tpr_facts(ctx: ToolContext, tpr) -> dict[str, str]:
-    """What the .tpr says about the run it carries, read with ``gmx dump -s``."""
-    proc = run_gmx(ctx, ["dump", "-s", str(tpr)], cwd=tpr.parent)
-    return dict(_TPR_FIELD_RE.findall(proc.stdout))
-
-
-def tpr_run_length_ns(ctx: ToolContext, tpr) -> float | None:
-    """Simulated time the .tpr carries (nsteps × dt, minus init-step), read
-    with ``gmx dump -s`` — the number a walltime booking has to be able to cover."""
-    fields = tpr_facts(ctx, tpr)
-    try:
-        nsteps, dt = int(fields["nsteps"]), float(fields["dt"])
-    except (KeyError, ValueError):
-        return None
-    if nsteps < 0:
-        return None  # -1: run until stopped
-    return round(max(0, nsteps - int(fields.get("init-step", 0))) * dt / 1000.0, 6)
-
-
-#: the walltime a run is booked for when nothing sizes it
-FALLBACK_WALLTIME_MIN = 30
-
-
-def beside(ctx: ToolContext, run_input: Path) -> Path:
-    """Where a run writes: beside the file it runs on (its .tpr, the checkpoint it continues)
-    when the study holds it, so the outputs and what they came from stay together for anyone
-    reading the files; else the study's own run stage (a file the researcher brought)."""
-    root = ctx.workspace.root.resolve()
-    return (run_input.parent if run_input.resolve().is_relative_to(root)
-            else ctx.workspace.stage("run"))
-
-
-def mdrun_walltime(ctx: ToolContext, tpr, cores: int) -> tuple[int | None, str]:
-    """(minutes, why) the run a .tpr carries needs here: a minimisation's fixed walltime
-    from the stage templates, a dynamics run's length at the pace this study's runs, then
-    this machine's, measured (knowledge/stage.py); (None, "") when the .tpr says neither."""
-    from myrmidon.execution.pace import read_paces, study_paces
-    from myrmidon.knowledge.stage import TemplateStore, booked_minutes, walltime
-
-    fields = tpr_facts(ctx, tpr)
-    if fields.get("integrator") in EM_INTEGRATORS:
-        fixed = next((t.pricing["walltime_min"] for t in TemplateStore.default().all()
-                      if t.engine == "gromacs" and "minimize" in t.kinds
-                      and "walltime_min" in t.pricing), None)
-        return (booked_minutes(fixed, 0), f"{fixed:g} min, the walltime for a minimisation"
-                ) if fixed else (None, "")
-    ns = tpr_run_length_ns(ctx, tpr)
-    try:
-        atoms = int(fields["natoms"])
-    except (KeyError, ValueError):
-        atoms = None
-    if not ns:
-        return None, ""
-    minutes, why, measured = walltime(
-        ns=ns, atoms=atoms, cores=cores,
-        paces=[*study_paces(ctx.workspace), *read_paces(ctx.config.studies_root)],
-        compute=ctx.config.compute, booking=True)
-    if not measured:  # a floor is no booking: an unmeasured run gets the machine's least
-        least = ctx.config.compute.unmeasured_walltime_min
-        return (max(booked_minutes(minutes), least),
-                why + f"; booked at least {least} min (compute.unmeasured_walltime_min) "
-                "until a run here is measured")
-    return booked_minutes(minutes), why
 
 
 def mdrun_gate(ctx: ToolContext, params: MdrunParams):
@@ -384,16 +312,6 @@ class CheckpointContinueParams(SubmitParams):
     deffnm: str = Field(default="md", description="output prefix (match the parent run); "
                         "the continuation writes beside the checkpoint, as the parent did")
     nthreads: int | None = None
-
-
-_CPT_OUTPUT_RE = re.compile(r"output filename\s*=\s*(\S+)")
-
-
-def checkpoint_output_names(ctx: ToolContext, cpt) -> list[str]:
-    """The output file names recorded in a checkpoint (``gmx dump -cp``) —
-    what mdrun -append will compare VERBATIM against its own -deffnm expansion."""
-    proc = run_gmx(ctx, ["dump", "-cp", str(cpt)], cwd=cpt.parent)
-    return _CPT_OUTPUT_RE.findall(proc.stdout)
 
 
 def continue_gate(ctx: ToolContext, params: CheckpointContinueParams):
