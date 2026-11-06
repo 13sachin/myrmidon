@@ -47,7 +47,7 @@ _KEY_PARAMS = {
     "series_convergence": ("data", "series", "max_drift_per_ns", "max_halves_sigma"),
     "traj_analyze": ("metric", "selection", "pairs", "reference"),
     "script_run": ("script", "args", "walltime_min", "ntasks"),
-    "mimic_select_qm": ("coords", "selections", "padding_nm", "template"),
+    "qm_region": ("coords", "selections", "padding_nm", "template"),
     "mimic_prepare": ("total_charge", "multiplicity", "maxsteps", "fm_pace"),
     "mimic_run": ("cpmd_input", "cpmd_ranks", "gromacs_ranks", "walltime_min"),
     "traj_frames": ("trajectory", "frames", "n_frames", "output"),

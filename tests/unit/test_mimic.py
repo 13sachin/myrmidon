@@ -56,7 +56,7 @@ def _select_qm(ws_ctx):
     # a real acetone: the mock prepqm selects from the coordinates it is given
     (stage / "conf.gro").write_text(ACETONE_GRO.read_text())
     return REGISTRY.call(
-        "mimic_select_qm",
+        "qm_region",
         ws_ctx,
         {
             "topology": ws.relpath(stage / "topol.top"),
@@ -230,7 +230,7 @@ def _select(ws_ctx, selections):
         (stage / name.replace("acetone_stageA_entry", "topol")).write_text(
             (ACETONE_GRO.parent / name).read_text())
     (stage / "conf.gro").write_text(ACETONE_GRO.read_text())
-    return REGISTRY.call("mimic_select_qm", ws_ctx, {
+    return REGISTRY.call("qm_region", ws_ctx, {
         "topology": ws.relpath(stage / "topol.top"), "coords": ws.relpath(stage / "conf.gro"),
         "selections": selections, "padding_nm": 0.4})
 
@@ -320,7 +320,8 @@ def test_the_mock_prepqm_selects_and_charges_as_real_prepqm_does(tmp_path, top, 
     if (PREPQM / f"{capture}.out").exists():
         real = (PREPQM / f"{capture}.out").read_text()
         assert rejected_commands(proc.stdout, commands) == rejected_commands(real, commands)
-    assert proc.stderr.splitlines() == (PREPQM / f"{capture}.err").read_text().splitlines()
+    said = [ln for ln in proc.stderr.splitlines() if ln.startswith("Total charge")]
+    assert said == (PREPQM / f"{capture}.err").read_text().splitlines()
     system = parse_cpmd((PREPQM / f"{capture}.system").read_text())["SYSTEM"]
     written = parse_cpmd((tmp_path / "cpmd.inp").read_text())["SYSTEM"]
     assert get_keyword(written, "CHARGE") == get_keyword(system, "CHARGE")
@@ -450,3 +451,49 @@ def test_a_systems_files_are_read_by_the_engine_each_belongs_to(tmp_path):
     assert "1.0 2.0 3.0" in facts["&ATOMS"].value
     assert set(system_facts({"cpmd_input": inp}, rules={"qm_size"})) == {
         "qm_atoms", "cell_bohr", "cutoff_ry"}
+
+
+def test_a_selection_says_what_it_leaves_of_the_regions_chemistry(ws_ctx):
+    """One call writes the input, the index, the selection and a sidecar with the charge,
+    multiplicity, electrons and guessed elements; a heavy atom left at LMAX=S is flagged."""
+    import json
+
+    from myrmidon.engines.mimic.qm_region import guessed_elements
+
+    obs = _select(ws_ctx, ["add resname is ACT"])
+    assert obs.ok
+    assert (obs.declared_charge, obs.derived_multiplicity, obs.electrons) == (0, 1, 24)
+    assert {a.role for a in obs.artifacts} >= {"cpmd_input", "index", "qm_selection"}
+    root = ws_ctx.workspace.root
+    selection = next(a.path for a in obs.artifacts if a.role == "qm_selection")
+    assert (root / selection).read_text() == "add resname is ACT\n"
+    sidecar = next(a.path for a in obs.artifacts if a.role == "provenance")
+    written = json.loads((root / sidecar).read_text())
+    assert (written["charge"], written["multiplicity"], written["electrons"]) == (0, 1, 24)
+    assert written["guessed_elements"] == obs.guessed_elements
+    assert "PP_LMAX_ALL_S_ON_HEAVY_ATOMS" in {f.id for f in obs.findings}
+    # the mock's table reads as the real one does, type by type
+    real = guessed_elements((PREPQM / "prepqm_acetone.err").read_text())
+    assert real == {"c": "C", "c3": "C", "o": "O", "hc": "H", "OW_spc": "O", "HW_spc": "H"}
+    assert {t: e for t, e in obs.guessed_elements.items() if t in real} == {
+        t: real[t] for t in ("c", "c3", "o", "hc")}
+
+
+# (selections, charge) -> (multiplicity, valence electrons): a charge the topology sums to,
+# an odd count left open, boundary atoms whose pseudopotentials decide it
+CHEMISTRY = [
+    (["add resname is ACT"], 0, 1, 24),
+    (["add resname is ACT"], 1, None, 23),
+    (["add-bound resname is ACT"], 0, None, None),
+]
+
+
+@pytest.mark.parametrize("selections,charge,multiplicity,electrons", CHEMISTRY)
+def test_a_selection_derives_spin_only_when_its_electrons_decide_it(selections, charge,
+                                                                    multiplicity, electrons):
+    from myrmidon.engines.mimic.qm_region import region_chemistry
+
+    sections = parse_cpmd((PREPQM / "prepqm_acetone.inp").read_text())
+    chemistry, findings = region_chemistry(sections, charge, selections, {})
+    assert (chemistry["multiplicity"], chemistry["electrons"]) == (multiplicity, electrons)
+    assert "PP_LMAX_ALL_S_ON_HEAVY_ATOMS" in {f.id for f in findings}

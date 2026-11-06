@@ -88,7 +88,7 @@ def test_acetone_qmmm_chain(ctx, approve_mandate):
 
     # --- QM region via real prepqm (charge reported, not trusted) ---
     sel = call(
-        ctx, "mimic_select_qm",
+        ctx, "qm_region",
         topology=rel("acetone_equilibrated.top"), coords=rel("acetone_equilibrated.gro"),
         selections=["add resname is ACT"], template=rel("template.inp"),
         pp_info=rel("pp_info.dat"), padding_nm=0.4,
@@ -135,4 +135,4 @@ def test_acetone_qmmm_chain(ctx, approve_mandate):
 
     events = list(ws.ledger.events())
     tools = {e.tool for e in events}
-    assert tools >= {"mimic_select_qm", "gmx_grompp", "mimic_prepare", "mimic_run"}
+    assert tools >= {"qm_region", "gmx_grompp", "mimic_prepare", "mimic_run"}

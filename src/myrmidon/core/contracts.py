@@ -63,7 +63,7 @@ class Kind:
 KINDS: dict[str, Kind] = {}
 #: kinds that carry a system's identity: a job's inputs of these kinds descend from the
 #: approved mandate's system files (core/lineage.py). An engine module declares its own.
-IDENTITY: set[str] = set()
+IDENTITY: set[str] = {"qm_selection"}
 
 
 def define_kind(kind: str, parser: Callable[[Path], dict], *properties: Property,

@@ -41,9 +41,10 @@ class SelectionError(Exception):
     """What MiMiCPy raises for a selection it cannot apply; prepqm prints it and goes on."""
 
 
-def _molecule_atoms(path, search, seen, types):
+def _molecule_atoms(path, search, seen, types, atomtypes=None, used=None):
     """moleculetype name -> its [ atoms ] charges in order, following #include from the
-    includer's directory, then the -ff directory."""
+    includer's directory, then the -ff directory; ``atomtypes`` gathers whether each
+    [ atomtypes ] row states an atomic number, ``used`` the atom types [ atoms ] names."""
     path = os.path.abspath(path)
     if path in seen:
         return
@@ -55,7 +56,8 @@ def _molecule_atoms(path, search, seen, types):
             name = line.split(None, 1)[1].strip().strip('"\'')
             for base in [os.path.dirname(path)] + search:
                 if os.path.exists(os.path.join(base, name)):
-                    _molecule_atoms(os.path.join(base, name), search, seen, types)
+                    _molecule_atoms(os.path.join(base, name), search, seen, types, atomtypes,
+                                    used)
                     break
             continue
         if line.startswith("["):
@@ -69,6 +71,10 @@ def _molecule_atoms(path, search, seen, types):
             types[current] = []
         elif section == "atoms" and current and len(cols) >= 7:
             types[current].append(float(cols[6]))
+            if used is not None and cols[1] not in used:
+                used.append(cols[1])
+        elif section == "atomtypes" and atomtypes is not None:
+            atomtypes[cols[0]] = len(cols) > 1 and cols[1].isdigit()
 
 
 def atom_charges(topology, ff_dir):
@@ -88,6 +94,34 @@ def atom_charges(topology, ff_dir):
                 return charges, cols[0]
             charges += types[cols[0]] * int(cols[1])
     return charges, None
+
+
+def guessed_types(topology, ff_dir, given):
+    """Atom type -> element for the types [ atoms ] names that [ atomtypes ] gives no atomic
+    number and the -nsa file does not name, guessed from the type's first letter."""
+    types, atomtypes, used = {}, {}, []
+    _molecule_atoms(topology, [ff_dir] if ff_dir else [], set(), types, atomtypes, used)
+    return {t: t[0].upper() for t in used if not atomtypes.get(t) and t not in given}
+
+
+def print_guessed(guessed):
+    """The table real prepqm prints on stderr (tests/fixtures/mimicpy/prepqm_acetone.err)."""
+    if not guessed:
+        return
+    rows = "".join(f"| {t:^9} | {e:^7} |\n+---------------------+\n" for t, e in guessed.items())
+    sys.stderr.write("\nSome atom types had no atom number information.\n"
+                     "They were guessed as follows:\n\n"
+                     "+---------------------+\n| Atom Type | Element |\n"
+                     "+---------------------+\n" + rows)
+
+
+def pp_channels(path):
+    """Element -> its LMAX from the -pp table (element, file, boundary file, labels, lmax,
+    loc); real prepqm writes LMAX=S for an element no table names."""
+    if not path:
+        return {}
+    rows = [ln.split() for ln in open(path) if ln.strip() and not ln.startswith("#")]
+    return {cols[0]: cols[4] for cols in rows if len(cols) >= 5}
 
 
 def matches(atom, sel):
@@ -265,6 +299,10 @@ def main():
     if not qm:  # prepqm writes nothing for an empty region, and exits 0
         print("\n=====> Done <=====")
         return 0
+    nsa = {ln.split()[0]: ln.split()[1] for ln in open(arg("-nsa"))
+           if len(ln.split()) >= 2} if arg("-nsa") else {}
+    print_guessed(guessed_types(arg("-top"), arg("-ff"), nsa))
+    channels = pp_channels(arg("-pp"))
     charges, unknown = atom_charges(arg("-top"), arg("-ff"))
     if max(a[3] for a in qm) > len(charges):
         sys.stderr.write(f"mock mimicpy: no [ atoms ] charges read for molecule {unknown}\n")
@@ -281,7 +319,7 @@ def main():
         elements.setdefault(a[2][0].upper(), []).append(a)
     blocks = ""
     for el, members in elements.items():
-        blocks += f"*{el}_MT_BLYP.psp\n LMAX={'S' if el == 'H' else 'P'}\n {len(members)}\n"
+        blocks += f"*{el}_MT_BLYP.psp\n LMAX={channels.get(el, 'S')}\n {len(members)}\n"
         blocks += "".join(f"  {a[4] * BOHR_PER_NM:.4f} {a[5] * BOHR_PER_NM:.4f} "
                           f"{a[6] * BOHR_PER_NM:.4f}\n" for a in members)
     with open(arg("-out", "cpmd.inp"), "w") as fh:

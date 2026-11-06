@@ -5,21 +5,21 @@ aliases:
 title: The QM region of a MiMiC run
 scope: engine
 applicability: Selecting the QM region of a solvated system for MiMiC. It states values for
-  mimic_select_qm and renders no file. The selection is the researcher's — which atoms are
+  qm_region and renders no file. The selection is the researcher's — which atoms are
   quantum is chemistry — and the padding is derived for the region in hand.
 renders: none
 parameters:
   padding_nm:
     derivable: vacuum between the QM region's bounding box and the CPMD cell (prepqm -pad), in
       nm, for this region. Too little and CPMD segfaults in the short-range potential
-      (QM_CELL_NO_VACUUM and QM_CELL_TIGHT judge the min_vacuum_bohr mimic_select_qm reports);
+      (QM_CELL_NO_VACUUM and QM_CELL_TIGHT judge the min_vacuum_bohr qm_region reports);
       more costs plane waves. The MiMiC tutorial's value is for its own small solute.
     rationale: a property of the QM region and the plane-wave cutoff, never a default to carry
       from one system to another
     source: 0
   selections:
     required_from_user: true
-    derivable: which atoms are quantum, as the MiMiCPy selection commands mimic_select_qm
+    derivable: which atoms are quantum, as the MiMiCPy selection commands qm_region
       takes under the same name — chemistry, and the one decision that cannot be defaulted.
 sources:
 - kind: tutorial

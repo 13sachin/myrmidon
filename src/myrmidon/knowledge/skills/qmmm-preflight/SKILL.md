@@ -13,7 +13,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Is my QM/MM input right before I spend the allocation?"
-  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup mimic_select_qm mimic_prepare gmx_grompp mimic_run mimic_diagnose job_status"
+  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup qm_region mimic_prepare gmx_grompp mimic_run mimic_diagnose job_status"
   myrmidon-protocols: "mimic_qmmm_solvated_solute"
   myrmidon-stages: "cpmd.minimize cpmd.dynamics cpmd.single_point gromacs.mimic"
 ---
@@ -23,14 +23,14 @@ metadata:
 Everything between an equilibrated classical box and the first coupled run: the
 `qm_region` and `mimic_prep` steps of `mimic_qmmm_solvated_solute`. Not here: building the
 box (`setup-and-equilibrate`), reference forces (`fm-reference`), the fit
-(`fm-fit-and-validate`), a failed run (`diagnose-a-failed-run`). When `mimic_select_qm` is
+(`fm-fit-and-validate`), a failed run (`diagnose-a-failed-run`). When `qm_region` is
 not among your tools, `tool_lookup` names the engine it needs: say so and stop.
 
 ## The researcher decides
 
 Into `decisions_yours`, quoted:
 
-- which atoms are quantum: `mimic_select_qm`'s `selections`, naming this system's own
+- which atoms are quantum: `qm_region`'s `selections`, naming this system's own
   residues and atoms;
 - whether a selection that cuts a covalent bond is acceptable, and its boundary treatment
   (`add-bound` marks a boundary atom; the harness places no link atom);
@@ -54,7 +54,7 @@ The preflight runs in the session and spends nothing:
    one to approve: the draft renders, and nothing books until step 6's is approved.
 2. `inputset_apply` with `stage=<the first coupled stage>` and an `.inp` output: the CPMD
    template.
-3. `mimic_select_qm` with the topology, the coordinates, the researcher's `selections`, the
+3. `qm_region` with the topology, the coordinates, the researcher's `selections`, the
    stage's padding as `padding_nm` and that `template`. It returns the index with the QM
    group, the CPMD input, and the review surface: `qm_atoms` (count and order against what
    the researcher described), `declared_charge`, `min_vacuum_bohr` and `qm_cell_bohr`.

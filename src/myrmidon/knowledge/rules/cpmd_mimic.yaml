@@ -51,7 +51,7 @@ sensors:
     when: {min_vacuum_bohr: {lt: 1.0}}
     sees: "QM cell {cell_bohr} bohr leaves {min_vacuum_bohr} bohr around the QM atoms"
     means: "with no vacuum around the QM region CPMD/MiMiC segfaults in the short-range potential, and says nothing that names the cause"
-    usual_move: "mimic_select_qm with padding_nm >= 0.3"
+    usual_move: "qm_region with padding_nm >= 0.3"
     stops_the_call: true
     status: verified
     sources:
@@ -66,7 +66,7 @@ sensors:
     when: {min_vacuum_bohr: {ge: 1.0, lt: 5.0}}
     sees: "only {min_vacuum_bohr} bohr between the QM atoms and the cell wall (cell {cell_bohr} bohr)"
     means: "the electron density touches the wall; the isolated-molecule Poisson solver needs several bohr of vacuum"
-    usual_move: "padding_nm >= 0.3 in mimic_select_qm"
+    usual_move: "padding_nm >= 0.3 in qm_region"
     status: verified
     sources:
       - kind: engine_manual
@@ -125,6 +125,19 @@ sensors:
       - kind: engine_manual
         text: CPMD manual, MAXSTEP under WAVEFUNCTION OPTIMIZATION
         locator: https://gitlab.com/mimic-project/cpmd/-/tree/72922c3/doc/manual/manual.tex#cpmd-maxstep
+
+  - id: PP_LMAX_ALL_S_ON_HEAVY_ATOMS
+    subject: qm_region
+    engine: cpmd
+    when: {heavy_lmax_s: {not: null}}
+    sees: "the QM region's {heavy_lmax_s} carry LMAX=S"
+    means: "prepqm gives every species LMAX=S when no pseudopotential table names its channels; a non-hydrogen atom needs its p channel (a norm-conserving Troullier-Martins C, N or O is LMAX=P), or CPMD computes its nonlocal term with too few projectors and says nothing"
+    usual_move: "pp_info naming each element's file and LMAX, and select the region again"
+    status: verified
+    sources:
+      - kind: engine_output
+        text: real prepqm on a topology, no -pp, every species written LMAX=S
+        locator: tests/fixtures/mimicpy/prepqm_acetone.inp
 
   - id: QM_MULTIPLICITY_PARITY
     subject: qm_region

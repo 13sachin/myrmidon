@@ -43,7 +43,7 @@ class FMDisplacePlanParams(BaseModel):
     "fm_displace_plan",
     description="Build displaced structures for force-matching single points: the pair's mobile "
                 "atom moved along the pair axis to each target distance. Feed each .gro to "
-                "mimic_select_qm, gmx_grompp, mimic_prepare and mimic_run; the restraint-free way "
+                "qm_region, gmx_grompp, mimic_prepare and mimic_run; the restraint-free way "
                 "to sample off-equilibrium geometries.",
     tags={"mimic", "fm"},
     requires={"mimicpy"},

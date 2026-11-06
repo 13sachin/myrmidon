@@ -12,7 +12,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Make me QM/MM reference forces for these frames."
-  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search traj_frames gmx_grompp mimic_select_qm mimic_prepare mimic_run mimic_diagnose fm_merge traj_concat fm_collect fm_frame_report fm_displace_plan job_status file_write"
+  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search traj_frames gmx_grompp qm_region mimic_prepare mimic_run mimic_diagnose fm_merge traj_concat fm_collect fm_frame_report fm_displace_plan job_status file_write"
   myrmidon-protocols: "fm_reference_singlepoint"
   myrmidon-stages: "cpmd.single_point gromacs.mimic"
 ---
@@ -28,7 +28,7 @@ preflight (`qmmm-preflight`); displaced geometries are `fm_displace_plan`.
 
 Into `decisions_yours`, quoted: how many frames, as a count or a stride; the QM selection;
 the QM method when they name one; what happens to a frame that fails; the ceiling. Into
-`decisions_proposed`, with the source: the QM total charge the probe's `mimic_select_qm`
+`decisions_proposed`, with the source: the QM total charge the probe's `qm_region`
 declares (an integer sum of the selection's topology charges), and the multiplicity
 `mimic_prepare` derives.
 Yours, recorded: frames spread over the trajectory, the stage rendered once per engine, the
@@ -38,7 +38,7 @@ first frame as the probe, the rest's resources from what the probe measured.
 
 1. `traj_frames` over the named trajectory, one structure per frame; `frames` is the
    manifest the rest is indexed by.
-2. `mimic_select_qm` on the first frame, the probe: the index holding the QM group, and the
+2. `qm_region` on the first frame, the probe: the index holding the QM group, and the
    QM total charge it declares.
 3. `mandate_write` names the system, the probe's index with it, and the protocol; the
    reference as a `single_point` stage with `regime: qmmm`, its `qm_region` (subsystems, the
@@ -54,7 +54,7 @@ first frame as the probe, the rest's resources from what the probe measured.
    `mimic_run`; when it lands,
    `mimic_diagnose`: `wavefunction_converged`, `gemax_last` against `gemax_criterion`,
    `scf_iterations` against `scf_max_iterations`, `energy_total`.
-6. The remaining frames the same way, `mimic_select_qm` first, `mimic_diagnose` on each as
+6. The remaining frames the same way, `qm_region` first, `mimic_diagnose` on each as
    it lands.
 7. `fm_merge` the records and `traj_concat` the trajectories in the same order, then
    `fm_collect`; read `index_aligned` and `dropped`. `fm_frame_report` with `monitor_pairs`

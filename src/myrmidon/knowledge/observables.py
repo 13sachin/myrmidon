@@ -38,7 +38,7 @@ PROPERTIES: dict[str, tuple[str, str, int, bool]] = {
     "step_timing": ("mimic_diagnose", "step_timing", 0, False),
     "qm_forces": ("fm_force_compare", "qm_forces", 0, False),
     "force_rmse": ("fm_force_compare", "force_rmse", 0, False),
-    "boundary_bonds": ("mimic_select_qm", "boundary_bonds", 0, False),
+    "boundary_bonds": ("qm_region", "boundary_bonds", 0, False),
 }
 #: a coupled stage's thermodynamics and drift are CPMD's to state
 COUPLED = {"thermodynamics": "mimic_diagnose", "energy_drift": "mimic_diagnose"}

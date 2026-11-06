@@ -21,7 +21,7 @@ parameters:
   '&MIMIC/CUTOFF DISTANCE':
     value: 20.0
     rationale: bohr; beyond it the MM charges enter as multipoles. Right for a QM region of a few
-      tens of atoms; a larger region needs it beyond its own extent (mimic_select_qm's qm_extent_bohr)
+      tens of atoms; a larger region needs it beyond its own extent (qm_region's qm_extent_bohr)
       plus the first solvation shells
     source: 1
   '&MIMIC/MULTIPOLE ORDER':

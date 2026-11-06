@@ -217,7 +217,7 @@ def mimic_gate(ctx: ToolContext, params: MimicRunParams):
         )
     multiplicity = get_keyword(system, "MULTIPLICITY")
     sidecar = inp.with_name(inp.name + ".myrmidon.json")
-    if multiplicity is None and not sidecar.exists():
+    if multiplicity is None and not _reviewed(sidecar):
         warnings.append(
             Precondition(
                 id="QM_MULTIPLICITY_UNCONFIRMED",
@@ -274,6 +274,17 @@ def mimic_gate(ctx: ToolContext, params: MimicRunParams):
         )
 
     return warnings, checked
+
+
+def _reviewed(sidecar) -> bool:
+    """Whether this input's spin was settled for a stage: a sidecar beside it that the QM
+    selection did not write (it states what the selection leaves, for a render to settle)."""
+    import json
+
+    try:
+        return json.loads(sidecar.read_text()).get("written_by") != "qm_region"
+    except (OSError, ValueError):
+        return False
 
 
 def restart_as_recorded(ctx: ToolContext, restart, given: str) -> list[Finding]:

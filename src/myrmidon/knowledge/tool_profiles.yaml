@@ -11,9 +11,9 @@ prep: [fetch_pdb, lookup, structure_select, ligand_parametrize, complex_assemble
 md: [fetch_pdb, structure_select, ligand_parametrize, complex_assemble, gmx_pdb2gmx,
      gmx_editconf, gmx_solvate, gmx_genion, gmx_make_ndx, gmx_genrestr, gmx_grompp,
      gmx_mdrun, checkpoint_continue, gmx_energy, traj_analyze, series_convergence]
-qmmm: [gmx_grompp, gmx_make_ndx, mimic_select_qm, mimic_prepare, mimic_run, mimic_diagnose,
+qmmm: [gmx_grompp, gmx_make_ndx, qm_region, mimic_prepare, mimic_run, mimic_diagnose,
        gmx_energy, traj_analyze, series_convergence]
-fm: [traj_frames, traj_concat, fm_displace_plan, mimic_select_qm, mimic_prepare, mimic_run,
+fm: [traj_frames, traj_concat, fm_displace_plan, qm_region, mimic_prepare, mimic_run,
      mimic_diagnose, fm_collect, fm_merge, fm_frame_report, fm_plan, fm_fit, gmx_grompp,
      gmx_rerun, gmx_minimize_frames, fm_force_compare, fm_report]
 analysis: [gmx_energy, traj_analyze, traj_frames, series_convergence, viz_open, viz_command,

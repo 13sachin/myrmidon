@@ -143,6 +143,51 @@ def spin_state(sections: dict[str, list[str]], charge: int) -> tuple[int | None,
                "closed-shell singlet")
 
 
+#: (the last atomic number, the electrons in its core): past a d shell a period's main-group
+#: atoms keep it in the core, as past the f shell they keep that too
+_MAIN_GROUP_CORES = ((2, 0), (10, 2), (18, 10), (20, 18), (36, 28), (38, 36), (54, 46),
+                     (56, 54), (86, 78))
+
+
+def valence_electrons(sections: dict[str, list[str]], charge: int) -> int | None:
+    """The electrons the plane-wave calculation holds at this charge: each atom's above its
+    noble-gas core, as a main-group pseudopotential leaves them. None when &ATOMS cannot be
+    read atom by atom, or holds a metal whose pseudopotential's valence the element does not
+    decide (semi-core states, a d shell kept or not)."""
+    counts = qm_elements(sections)
+    if counts is None or set(counts) & {*OPEN_SHELL, "Zn", "Cd", "Hg"}:
+        return None
+    total = 0
+    for element, n in counts.items():
+        z = ELEMENTS.index(element) + 1
+        total += (z - next(core for last, core in _MAIN_GROUP_CORES if z <= last)) * n
+    return total - charge
+
+
+def species_lmax(sections: dict[str, list[str]]) -> dict[str, str]:
+    """Element -> the LMAX= its species line gives, read from &ATOMS; several species of one
+    element, the highest channel."""
+    order = "SPDF"
+    out: dict[str, str] = {}
+    element = None
+    for line in sections.get("ATOMS", []):
+        s = line.strip()
+        if s.startswith("*") and len(s) > 1:
+            element = s[1:].split()[0].split("_")[0].split(".")[0].capitalize()
+        elif element is not None and s.upper().startswith("LMAX"):
+            word = s.split("=", 1)[-1].strip().upper()[:1]
+            if element not in out or order.find(word) > order.find(out[element]):
+                out[element] = word
+            element = None
+    return out
+
+
+def heavy_species_all_s(sections: dict[str, list[str]]) -> list[str]:
+    """The non-hydrogen species whose nonlocal pseudopotential stops at LMAX=S."""
+    return sorted(e for e, lmax in species_lmax(sections).items()
+                  if lmax == "S" and e not in ("H", "He"))
+
+
 def pp_library(environ: Mapping[str, str] = os.environ) -> Path | None:
     """Where CPMD looks for pseudopotentials: CPMD_PP_LIBRARY_PATH, else PP_LIBRARY_PATH
     (the engine environment sets them); None when neither is set."""

@@ -49,7 +49,7 @@ def _select_qm(ws_ctx, template=None):
     }
     if template is not None:
         call["template"] = template
-    return REGISTRY.call("mimic_select_qm", ws_ctx, call)
+    return REGISTRY.call("qm_region", ws_ctx, call)
 
 
 def _planted(ws_ctx):

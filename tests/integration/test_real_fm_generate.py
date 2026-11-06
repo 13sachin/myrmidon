@@ -91,7 +91,7 @@ def test_generate_reference_pair(ctx, approve_mandate):
     rel = lambda name: ws.relpath(inputs / name)  # noqa: E731
 
     sel = call(
-        ctx, "mimic_select_qm",
+        ctx, "qm_region",
         topology=rel("acetone_equilibrated.top"), coords=rel("acetone_equilibrated.gro"),
         selections=["add resname is ACT"], template=rel("fm_template.inp"),
         pp_info=rel("pp_info.dat"), padding_nm=0.4,

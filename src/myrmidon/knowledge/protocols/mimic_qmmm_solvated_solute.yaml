@@ -101,7 +101,7 @@ steps:
   estimate_core_h: 0.0
   estimate_basis: runs in the session, not on the scheduler
 - name: qm_region
-  tool: mimic_select_qm
+  tool: qm_region
   needs:
   - structure_equilibrated
   - topology
@@ -321,7 +321,7 @@ notes: 'Distilled from the eight stages of the MiMiC project''s acetone-in-water
   sequence is knowledge, one study''s instance of it is not. The estimates are what one CPU
   cluster booked for the tutorial''s own runs — a default for a machine like it, not a promise
   about yours. The box''s cell type and its solute-to-box clearance are gmx_editconf''s
-  parameters, and which atoms are quantum is mimic_select_qm''s and the researcher''s. Each step
+  parameters, and which atoms are quantum is qm_region''s and the researcher''s. Each step
   that renders a file cites the stage it renders: its values are compiled from that stage''s
   physical terms, its template and the methods this protocol''s hamiltonian names. Each coupled
   stage is three steps: its CPMD input rendered from its stage, put on the system the selection
