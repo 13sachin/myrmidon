@@ -75,3 +75,93 @@ def displaced_structure(lines: list[str], anchor: int, mobile: int, target_nm: f
         moved = [c + s for c, s in zip(xyz(line), shift, strict=True)]
         out[1 + serial] = line[:20] + "".join(f"{v:8.3f}" for v in moved) + line[44:]
     return out
+
+
+def picked_frames(ctx, request):
+    """Frames of a trajectory by index or evenly spaced, as a .gro each or one trajectory in the
+    order asked: an observation holding them, its ``frames`` the record of what was picked."""
+    import MDAnalysis as mda
+
+    from myrmidon.core.artifacts import ArtifactRef
+    from myrmidon.core.observation import Observation
+    from myrmidon.engines.inputs import resolve_in_ws
+
+    u = mda.Universe(str(resolve_in_ws(ctx, request.structure)),
+                     str(resolve_in_ws(ctx, request.trajectory)))
+    n_total = len(u.trajectory)
+    indices = list(request.frames) or evenly_spaced(n_total, request.n_frames)
+    past = [i for i in indices if i < 0 or i >= n_total]
+    if past:
+        return Observation(ok=False, n_total=n_total, summary=f"frame index out of range {past}: "
+                           f"the trajectory has {n_total} frames")
+    stage = ctx.workspace.stage(request.output_stage)
+    root = ctx.workspace.root
+    frames, artifacts = [], []
+    whole = stage / f"{request.prefix}.trr"
+    if request.output == "trajectory":
+        with mda.Writer(str(whole), n_atoms=len(u.atoms)) as writer:
+            for i in indices:
+                ts = u.trajectory[i]
+                writer.write(u.atoms)
+                frames.append({"index": i, "time_ps": float(ts.time),
+                               "path": ctx.workspace.relpath(whole)})
+        artifacts.append(ArtifactRef.from_path(whole, "trajectory", root=root))
+    else:
+        for i in indices:
+            ts = u.trajectory[i]
+            out = stage / f"{request.prefix}_{i}.gro"
+            u.atoms.write(str(out))
+            frames.append({"index": i, "time_ps": float(ts.time),
+                           "path": ctx.workspace.relpath(out)})
+            artifacts.append(ArtifactRef.from_path(out, "structure", root=root))
+    return Observation(
+        ok=True, frames=frames, artifacts=artifacts, n_total=n_total,
+        summary=f"{len(frames)} of {n_total} frames: "
+        + ", ".join(f"#{f['index']} at {f['time_ps']:g} ps" for f in frames),
+        trajectory_path=ctx.workspace.relpath(whole) if request.output == "trajectory" else None)
+
+
+def displaced_structures(ctx, request):
+    """Structures with a pair at each target distance: the restraint-free way to sample
+    off-equilibrium geometries."""
+    from myrmidon.core.artifacts import ArtifactRef
+    from myrmidon.core.observation import Observation
+    from myrmidon.engines.inputs import resolve_in_ws
+
+    lines = resolve_in_ws(ctx, request.coords).read_text().splitlines()
+    n_atoms = int(lines[1].strip())
+    if len(request.pair) != 2 or not all(1 <= s <= n_atoms for s in request.pair):
+        return Observation(ok=False, summary=f"pair {request.pair} outside 1..{n_atoms}")
+    anchor, mobile = request.pair
+    group = sorted(set(request.rigid_group))
+    if group and mobile not in group:
+        return Observation(ok=False, summary=f"rigid_group must include the mobile atom {mobile}")
+    if anchor in group:
+        return Observation(ok=False, summary=f"rigid_group must not include the anchor {anchor}")
+    outside = [s for s in group if not 1 <= s <= n_atoms]
+    if outside:
+        return Observation(ok=False, summary=f"rigid_group serials outside 1..{n_atoms}: "
+                           f"{outside[:5]}")
+
+    def at(serial: int) -> list[float]:
+        line = lines[1 + serial]
+        return [float(line[20:28]), float(line[28:36]), float(line[36:44])]
+
+    original = sum((x - y) ** 2 for x, y in zip(at(anchor), at(mobile), strict=True)) ** 0.5
+    if original < 1e-6:
+        return Observation(ok=False, summary="pair atoms coincide")
+    stage = ctx.workspace.stage(request.output_stage)
+    windows, artifacts = [], []
+    for target in request.targets_a:
+        out = stage / f"disp_{target:g}A.gro"
+        out.write_text("\n".join(displaced_structure(lines, anchor, mobile, target / 10.0, group))
+                       + "\n")
+        windows.append({"label": f"{request.pair_label}@{target:g}A", "target_a": target,
+                        "coords": ctx.workspace.relpath(out)})
+        artifacts.append(ArtifactRef.from_path(out, "structure", root=ctx.workspace.root))
+    return Observation(
+        ok=True, summary=f"{len(windows)} displaced structure(s) for {request.pair_label} (atoms "
+        f"{anchor}->{mobile}, original {original * 10:.3f} Å) at "
+        + ", ".join(f"{t:g}" for t in request.targets_a) + " Å",
+        artifacts=artifacts, windows=windows, pair=request.pair,
+        original_distance_a=round(original * 10, 4))

@@ -546,7 +546,7 @@ def _starting_facts(ctx: ToolContext, mandate, stage, template) -> dict:
     if engine.input_facts is not None:
         from myrmidon.core.lineage import latest_dataset
 
-        dataset = latest_dataset(ctx.workspace)
+        dataset = latest_dataset(ctx.workspace, begins.name if begins is not None else None)
         if dataset is not None:
             facts |= engine.input_facts(ctx, ctx.workspace.resolve(dataset))
     return facts

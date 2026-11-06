@@ -839,7 +839,7 @@ def test_every_shape_of_stage_runs_through_one_tool(ws_ctx):
     holds them to the mandate, and the collection is found again as that stage's run."""
     from myrmidon.core.lineage import stage_run as collected_run
 
-    coupled_study(ws_ctx, [
+    held = coupled_study(ws_ctx, [
         {"name": "md", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300,
          "steps": 100, "sampling_ps": 0.05},
         {"name": "cool", "kind": "minimize", "regime": "qmmm", "steps": 10, "temperature_k": 300,
@@ -867,11 +867,16 @@ def test_every_shape_of_stage_runs_through_one_tool(ws_ctx):
     assert event.params["layout"]["ntasks"] >= 1 and event.params["layout"]["why"]
 
     # a coupled run takes the restart of the stage it starts from without being told
-    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "cool"}).ok
+    # a coupled stage after a classical one starts from what it left, and the QM region must
+    # have been selected on those coordinates
+    system = {"structure": next(f.path for f in held.system.files if f.kind == "structure")}
+    apart = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "cool"})
+    assert apart.error.code == "QM_REGION_ON_OTHER_COORDINATES", apart.summary
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "cool", **system}).ok
     cool, done = _run_stage(ws_ctx, "cool")
     assert done.ok, done.summary
     assert cool.command[0].endswith("cpmd.x")
-    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "hot"}).ok
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "hot", **system}).ok
     hot, done = _run_stage(ws_ctx, "hot")
     assert done.ok, done.summary
     held = next(e for e in reversed(list(ws.ledger.events())) if e.tool == "stage_run" and e.ok)
@@ -948,8 +953,9 @@ def test_every_deliverable_is_measured_through_one_tool_on_either_regime(ws_ctx)
     # nothing has run: measured as approved or not at all
     early = REGISTRY.call("observable_measure", ws_ctx, {"deliverable": "T md"})
     assert not early.ok and "no run" in early.summary
+    system = next(f.path for f in held.system.files if f.kind == "structure")
     for stage in ("md", "hot", "prod"):
-        assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": stage}).ok
+        assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": stage, "structure": system}).ok
         assert _run_stage(ws_ctx, stage)[1].ok
     measured = {d["name"]: REGISTRY.call("observable_measure", ws_ctx, {"deliverable": d["name"]})
                 for d in deliverable}
@@ -1045,7 +1051,50 @@ def test_a_snapshot_of_a_coupled_run_is_one_step_cut_from_both_engines(ws_ctx):
     apart = REGISTRY.call("snapshot_select", ws_ctx, {
         "stage": "hot", "structure": ws.relpath(gro), "target_temperature_k": 0.0})
     assert not apart.ok
-    # a stage starts from the geometry, and CPMD is told to read it
+    # a stage with no RESTART line would never read it; and what is cut from a structure outside
+    # the system descends from nothing the mandate approved
     run = REGISTRY.call("stage_run", ws_ctx, {"stage": "hot", "snapshot": frame["geometry"],
                                               "preview": True})
-    assert run.ok, run.summary
+    assert {f.id for f in blocking(run)} >= {"STAGE_SNAPSHOT_UNREAD", "MANDATE_SYSTEM"}, run.summary
+    # one that restarts is told to read it, in its own copy of the input
+    from myrmidon.engines.mimic.collect import _reads_geometry
+    from myrmidon.engines.mimic.cpmd_input import parse_cpmd
+
+    source = ws.stage("hot") / "restarting.inp"
+    source.write_text("&CPMD\n RESTART COORDINATES VELOCITIES WAVEFUNCTION\n&END\n")
+    run_dir = ws.stage("hot") / "01_hot"
+    run_dir.mkdir(exist_ok=True)
+    told = _reads_geometry(source, run_dir)
+    assert parse_cpmd(told.read_text())["CPMD"][0].strip().endswith("GEOFILE")
+    assert "GEOFILE" not in source.read_text()
+
+
+def test_a_selection_that_leaves_the_spin_open_asks_the_researcher(ws_ctx):
+    """What a QM selection leaves open is not the default's: a multiplicity its electrons do not
+    decide waits on the researcher until a stage states it."""
+    from tests.conftest import ACETONE as FILES
+    from tests.conftest import QM_HAMILTONIAN
+
+    ws = ws_ctx.workspace
+    stage = ws.stage("input")
+    for name in ("acetone_equilibrated.top", "acetone.itp", "acetone_equilibrated.gro"):
+        (stage / name).write_text((FILES / name).read_text())
+    shutil.copytree(FILES / "amber03.ff", stage / "amber03.ff")
+    top, gro = ws.relpath(stage / "acetone_equilibrated.top"), ws.relpath(
+        stage / "acetone_equilibrated.gro")
+    assert REGISTRY.call("qm_region", ws_ctx, {
+        "topology": top, "coords": gro, "selections": ["add-bound resname is ACT"],
+        "padding_nm": 0.4}).ok
+    call = {"question": "q", "ceiling_core_h": 5000.0, "hamiltonian": QM_HAMILTONIAN,
+            "system_files": [{"path": gro, "kind": "structure"},
+                             {"path": top, "kind": "topology"}],
+            "subsystems": {"solute": {"kind": "ligand", "resnames": ["ACT"]}}}
+    def stages(region):
+        return [{"name": "run", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE",
+                 "steps": 5, "qm_region": region}]
+
+    unstated = REGISTRY.call("mandate_write", ws_ctx, {**call, "stages": stages(REGION)})
+    assert unstated.status == "needs_input", unstated.summary
+    stated = REGISTRY.call("mandate_write", ws_ctx, {
+        **call, "stages": stages({**REGION, "multiplicity": 1})})
+    assert stated.status == "ready", stated.summary

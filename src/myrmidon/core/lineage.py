@@ -359,16 +359,15 @@ def latest_outputs(ws, tool: str) -> dict[str, str]:
     return {a.role: a.path for a in found[-1].outputs} if found else {}
 
 
-def latest_dataset(ws) -> str | None:
-    """The path of the reference dataset a parameter fit reads: the latest one collected."""
+def latest_dataset(ws, stage: str | None = None) -> str | None:
+    """The path of the reference dataset a parameter fit reads: the latest collected from the
+    stage it starts from, else the latest in the study."""
     from myrmidon.core.contracts import canonical
 
-    for ev in reversed(list(ws.ledger.events())):
-        if ev.ok and ev.kind == "call":
-            for out in ev.outputs:
-                if canonical(out.role) == "reference_dataset":
-                    return out.path
-    return None
+    found = [(ev, out) for ev in ws.ledger.events() if ev.ok and ev.kind == "call"
+             for out in ev.outputs if canonical(out.role) == "reference_dataset"]
+    own = [out for ev, out in found if stage and ev.params.get("stage") == stage]
+    return own[-1].path if own else (found[-1][1].path if found else None)
 
 
 def stages_run(ws) -> set[str]:

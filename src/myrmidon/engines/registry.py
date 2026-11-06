@@ -49,8 +49,28 @@ class StageJob:
     label: str
     summary: str = ""
     meta: dict = field(default_factory=dict)
-    inputs: list = field(default_factory=list)
     artifacts: list = field(default_factory=list)
+
+
+@dataclass
+class DatasetRequest:
+    """What a dataset is collected from, as the call and the ledger state it."""
+
+    fmdata: list[str]
+    trajectory: list[str]
+    topology: str
+    coords: str
+    selection: str
+    stage: str = "fm"
+    check_frames: int = 20
+    align_if_desynced: bool = True
+    output_prefix: str = "merged"
+    monitor_pairs: dict[str, list[int]] = field(default_factory=dict)
+    cpmd_logs: list[str] = field(default_factory=list)
+    duplicate_rmsd_a: float = 0.05
+    overlaps_input: str | None = None
+    fmdata_one: str = ""
+    output: str = "frame_report.csv"
 
 
 @dataclass
@@ -112,6 +132,10 @@ class EngineAdapter:
     run_log: Callable[[object], Path | None] | None = None
     #: (cores, system facts) -> the ranks and threads a run takes on them
     resolve_layout: Callable[..., object] | None = None
+    #: (ctx, request) -> matched snapshots cut from a run this engine's stage left
+    cut_snapshots: Callable[..., object] | None = None
+    #: (ctx, topology, structure, forces, dataset, selection, frames, label) -> a force comparison
+    force_comparison: Callable[..., object] | None = None
     #: (a stage's inputs by kind, the stage) -> the facts its layout is resolved from
     layout_facts: Callable[..., dict] | None = None
     #: (ctx, mandate, stage, the inputs prepared for it, a run asked to continue?) -> what else
@@ -123,8 +147,6 @@ class EngineAdapter:
     size_walltime: Callable[..., tuple] | None = None
     #: (ctx, stage, inputs by kind, layout, run request) -> the job, single, coupled or batch
     build_job: Callable[..., StageJob] | None = None
-    #: (ctx, job record, state, exit code) -> the typed artifacts a finished run wrote
-    collect: Mapping[str, Callable] | None = None
     #: (ctx, request) -> a validated reference dataset, merged from the runs named
     collect_dataset: Callable[..., object] | None = None
     #: (ctx, a log it wrote) -> its log read into typed facts, with whether the run is clean

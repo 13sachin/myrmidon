@@ -49,8 +49,8 @@ def stage_restart(restart, stage):
 
     The chain is otherwise invisible: nothing in a CPMD input names its predecessor,
     which is why a hand-run campaign's segment order survives only as directory
-    numbering. Here the link is the ``restart_from`` parameter, so the registry records
-    it as a hashed input and the ledger carries the edge.
+    numbering. Here the link is the run's named input, so the registry records it as a
+    hashed input and the ledger carries the edge.
 
     No ``LATEST`` is written. CPMD writes one at the end of a run naming what it wrote;
     planting one that names a file this segment has not written yet points CPMD at a

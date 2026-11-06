@@ -202,6 +202,33 @@ def _unread_targets(ctx: ToolContext, decisions: list[mandates.Decision]
             for m in out]
 
 
+def _open_chemistry(ws, params: MandateWriteParams) -> list[str]:
+    """What the latest QM selection left open of the region's chemistry and no stage or decision
+    of this call settles: a charge whose atoms sum to no integer is the researcher's unless they
+    decided it, a multiplicity the electrons do not decide unless a stage states it."""
+    import json
+
+    from myrmidon.core.lineage import latest_outputs
+
+    regions = [s.qm_region for s in params.stages if s.qm_region is not None]
+    side = latest_outputs(ws, "qm_region").get("provenance")
+    if not regions or side is None:
+        return []
+    try:
+        left = json.loads(ws.resolve(side).read_text())
+    except (OSError, ValueError):
+        return []
+    questions = []
+    decided = any("qm_region" in path for d in params.decisions_yours for path in d.locks)
+    if left.get("charge") is None and not decided:
+        questions.append("What is the QM region's net charge? (the selected atoms' topology "
+                         "charges sum to no integer: say what the selection cuts)")
+    if left.get("multiplicity") is None and not all(
+            "multiplicity" in r.model_fields_set for r in regions):
+        questions.append(f"What is the QM region's spin multiplicity? ({left.get('spin_why')})")
+    return questions
+
+
 def _selection_files(ws, stated: set[str]) -> list[mandates.SystemFile]:
     """What the QM selection wrote is the system too, for a stage with a QM region: the kinds
     the call does not state, as the selection left them."""
@@ -533,6 +560,7 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
         questions.append("How many core-hours may this study book at most?")
     if not params.system_files:
         questions.append("Which files are the system to simulate?")
+    questions += _open_chemistry(ws, params)
     questions += params.questions
     from myrmidon.core.contracts import includes_of
 

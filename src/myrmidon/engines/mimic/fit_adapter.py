@@ -34,4 +34,5 @@ ADAPTER = EngineAdapter(
     is_log=lambda path: path.name == "fm.log" and path.is_file(),
     run_facts=fm.parse_fm_log,
     diagnose=fit_collect.diagnose_log,
+    force_comparison=fit_collect.force_comparison,
 )

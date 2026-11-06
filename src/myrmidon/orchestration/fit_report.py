@@ -197,14 +197,6 @@ def _link_round(events: list[ProvenanceEvent], stage: str,
             "fmdata") or []) > 1 else None
     if any(a.role == "topology" for a in rnd.results.outputs):
         rnd.candidate = rnd.results  # the collection assembled it
-    else:
-        fit_dir = next((str(Path(a.path).parent) for a in rnd.results.outputs
-                        if a.role == "fitted_topology"), None)
-        if fit_dir is not None:
-            rnd.candidate = _last(
-                events, "stage_run",
-                lambda e: any(str(Path(v).parent) == fit_dir
-                              for v in e.params.get("replace", {}).values()))
     return rnd
 
 

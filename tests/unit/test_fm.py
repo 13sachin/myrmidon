@@ -227,27 +227,10 @@ CUTOFF
 """
 
 
-def test_restraint_injection_and_prepare():
-    from myrmidon.engines.mimic.cpmd_input import (
-        DistanceRestraint,
-        add_distance_restraints,
-        parse_cpmd,
-        render_cpmd,
-        set_paths,
-    )
+def test_a_coupled_input_is_pointed_at_its_run_directory():
+    from myrmidon.engines.mimic.cpmd_input import parse_cpmd, render_cpmd, set_paths
 
-    sections = parse_cpmd(CPMD_FM_BASE)
-    out = add_distance_restraints(
-        sections, [DistanceRestraint(atom_i=3, atom_j=7, target_a=2.0, k_au=0.25)]
-    )
-    text = render_cpmd(out)
-    assert "CONSTRAINTS" in text and "END CONSTRAINTS" in text
-    assert "RESTRAINTS\n  1\n" in text  # count on its own line (CPMD coninp)
-    # 2.0 Å = 3.77945 bohr
-    assert "DIST 3 7 3.77945 0.2500" in text
-    with pytest.raises(ValueError):
-        add_distance_restraints(out, [DistanceRestraint(atom_i=1, atom_j=2, target_a=1.0)])
-    moved = set_paths(out, "/scratch/window1")
+    moved = set_paths(parse_cpmd(CPMD_FM_BASE), "/scratch/window1")
     assert "/scratch/window1" in render_cpmd(moved)
     assert "/tmp/original" not in render_cpmd(moved)
 
@@ -474,7 +457,7 @@ def _write_trr(path, structure, n_frames=5):
             w.write(u.atoms)
 
 
-def test_traj_frames_picks_evenly_spaced_snapshots(ws_ctx):
+def test_snapshots_are_picked_evenly_spaced_or_by_index(ws_ctx):
     ws = ws_ctx.workspace
     inputs = ws.stage("inputs")
     (inputs / "ref.gro").write_text(MINI_GRO)

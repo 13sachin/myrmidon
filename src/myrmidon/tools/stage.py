@@ -4,11 +4,11 @@ in one call, whichever engine and job shape the stage comes to."""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
-from myrmidon.core.artifacts import ArtifactRef
+from myrmidon.core.artifacts import ArtifactRef, sha256_file
 from myrmidon.core.contracts import Contract, includes_of
 from myrmidon.core.lineage import stage_files
 from myrmidon.core.lineage import stage_run as collected_run
@@ -35,6 +35,9 @@ class StagePrepareParams(BaseModel):
     topology: str | None = Field(default=None, description="default: the system's; a topology "
                                  "a fit produced, to run a stage on it")
     index: str | None = Field(default=None, description="default: the system's")
+    restraint_reference: str | None = Field(
+        default=None, description="coordinates position restraints hold atoms at; default: the "
+        "structure the stage starts from")
     overrides: dict = Field(default_factory=dict, description="engine keys to set yourself, "
                             "each recorded as origin 'user' and said; every other value is "
                             "the mandate's, the method's or the system's")
@@ -43,17 +46,42 @@ class StagePrepareParams(BaseModel):
 
 
 def _starting_structure(ctx: ToolContext, mandate, stage) -> tuple[str | None, str]:
-    """(the structure a stage's run input is compiled against, why when there is none yet): a
-    coupled stage's MM half always against the system's, as its engine takes the coordinates
-    from the QM half; else the one the run it starts from left; the first stage, the system's."""
-    system = system_file(ctx, mandate, "structure")
+    """(the structure a stage's run input is compiled against, why when there is none yet): the
+    one the classical run it descends from left, the first stage's the system's. A coupled stage
+    continuing a coupled one takes its coordinates from the restart, so it compiles against what
+    the first of them did: the last classical structure before the chain."""
+    seen: set[str] = set()
     begins = mandate.method.starts_from(stage)
-    if stage.regime != "mm" or begins is None:
-        return system, ""
+    while begins is not None and begins.name not in seen and begins.regime != "mm":
+        seen.add(begins.name)
+        begins = mandate.method.starts_from(begins)
+    if begins is None or begins.name in seen:
+        return system_file(ctx, mandate, "structure"), ""
     run = collected_run(ctx.workspace, begins.name)
     left = next((a.path for a in (run[0] if run else []) if a.role == "structure"), None)
     return left, "" if left else (f"{begins.name}'s run has not been collected, and this stage "
                                   "starts from the structure it leaves")
+
+
+def _region_on_other_coordinates(ctx: ToolContext, stage, structure: str | None,
+                                 stated: bool) -> list[Finding]:
+    """A QM region selected on coordinates other than those this stage starts from: on a fresh
+    start CPMD takes the QM atoms from the input the selection wrote and GROMACS the rest from
+    the structure, so the two halves would hold different configurations."""
+    if stage.qm_region is None or structure is None or stated:
+        return []
+    selected = next((ev for ev in reversed(list(ctx.workspace.ledger.events()))
+                     if ev.tool == "qm_region" and ev.ok and ev.kind == "call"), None)
+    coords = next((i for i in selected.inputs if i.role == "coords"), None) if selected else None
+    path = ctx.workspace.resolve(structure)
+    if coords is None or not path.is_file() or sha256_file(path) == coords.sha256:
+        return []
+    return [Precondition(
+        id="QM_REGION_ON_OTHER_COORDINATES",
+        message=f"the QM region was selected on {coords.path}, and stage {stage.name} starts from "
+        f"{structure}: the QM and MM halves would hold different configurations",
+        suggestion="qm_region again on the structure the stage starts from, or name the "
+        "structure to prepare it on")]
 
 
 def _refused(summary: str, code: str, findings: list, hint: str = "", **fields) -> Observation:
@@ -69,7 +97,7 @@ def _refused(summary: str, code: str, findings: list, hint: str = "", **fields) 
     tags={"mandate", "run"},
     expensive=True,
     contract=Contract(consumes={"structure": "structure", "topology": "topology",
-                                "index": "index"},
+                                "index": "index", "restraint_reference": "structure"},
                       reads={"mdp": "mdp"}),
 )
 def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
@@ -85,6 +113,9 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
         return _refused(f"no template tells an engine stage {stage.name} ({stage.kind}, "
                         f"{stage.regime}, {stage.ensemble})", "MANDATE_STAGE_TEMPLATE", [])
     structure, later = _starting_structure(ctx, mandate, stage)
+    apart = _region_on_other_coordinates(ctx, stage, structure, bool(params.structure))
+    if apart:
+        return _refused(apart[0].message, apart[0].id, apart, apart[0].suggestion or "")
     structure = params.structure or structure
     topology = params.topology or system_file(ctx, mandate, "topology")
     index = params.index or system_file(ctx, mandate, "index")
@@ -109,7 +140,8 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
         prepared[kind] = ctx.workspace.relpath(output)
         values[kind] = rendered.values
     obs = _with_run_input(ctx, params, stage, stage_dir, templates, prepared, findings,
-                          {"structure": structure, "topology": topology, "index": index}, later)
+                          {"structure": structure, "topology": topology, "index": index,
+                           "restraint_reference": params.restraint_reference}, later)
     obs.values = values
     obs.quiet = {"values"}  # each value and its origin is in the sidecar beside its file
     return obs
@@ -179,6 +211,9 @@ class StageRunParams(BaseModel):
                                   "(default: the machine config's)")
     account: str | None = Field(default=None, description="scheduler account to bill for this "
                                 "run, instead of the machine config's")
+    fit_mode: Literal["both", "charges", "bonded"] = Field(
+        default="both", description="a parameter_fit: what it fits, charges (DRESP), bonded "
+        "parameters, or both")
     continue_run: bool = Field(
         default=False, description="go on from what this stage's last run left: a run stopped at "
         "its walltime, or one a stage that starts from itself extends")
@@ -215,15 +250,16 @@ class StageRunParams(BaseModel):
         inputs |= {**engine.stage_inputs(ctx, mandate, stage, inputs, continuing), **self.inputs}
         if self.snapshot:
             inputs["geometry"] = self.snapshot
-        inputs = {k: v for k, v in inputs.items() if k in _RUN_KINDS}
+        inputs = {k: v for k, v in inputs.items() if k in _RUN_KINDS or k in self.inputs}
         files = {k: ctx.workspace.resolve(v) for k, v in inputs.items()}
         _, node = ctx.config.compute.billing(self.partition)
         cores = self.cores or node.cores_per_node
         found = engine.resolve_layout(cores, engine.layout_facts(files, stage))
         minutes, why = self.walltime_min, ""
         if minutes is None:
-            minutes, why = engine.size_walltime(ctx, stage, files, found, found.cores)
-            minutes = minutes or 60
+            minutes, why = engine.size_walltime(ctx, stage, files, found, found.cores,
+                                                self.extend_ps)
+            minutes = minutes or ctx.config.compute.unmeasured_walltime_min
             if node.max_walltime_min and minutes > node.max_walltime_min:
                 minutes = node.max_walltime_min
                 why += f"; capped at the {minutes} min the partition grants: continue the stage"
@@ -266,13 +302,24 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
                              message=f"no engine here runs stage {stage.name} ({stage.kind}, "
                              f"{stage.regime})")]
     files = {k: ctx.workspace.resolve(v) for k, v in params.inputs.items()}
+    unknown = sorted(set(files) - _RUN_KINDS)
+    if unknown:
+        return [Precondition(id="STAGE_INPUT_UNKNOWN",
+                             message=f"a stage's run reads no {', '.join(unknown)}; it reads "
+                             + ", ".join(sorted(_RUN_KINDS)), needs=["inputs"])]
     missing = [Precondition(id=f"INPUT_MISSING_{kind.upper()}",
                             message=f"{kind} not found: {params.inputs[kind]}")
                for kind, path in files.items() if not path.is_file()]
     if missing:
         return missing
-    return [*_source_findings(ctx, params, files),
-            *engine.job_findings(ctx, stage, files, params.walltime_min or 60)]
+    if params.continue_run and not {"checkpoint", "restart"} & set(files):
+        return [Precondition(
+            id="STAGE_NOTHING_TO_CONTINUE",
+            message=f"stage {stage.name} has left nothing to continue from: no run of it wrote a "
+            "checkpoint or a restart, or its job has not been collected",
+            suggestion=f"job_status on its job, or stage_run stage={stage.name} from the start")]
+    return [*_source_findings(ctx, params, files), *engine.job_findings(
+        ctx, stage, files, params.walltime_min or 60, params.extend_ps)]
 
 
 def _source_findings(ctx: ToolContext, params: StageRunParams, files: dict) -> list[Finding]:
@@ -297,7 +344,7 @@ def _source_findings(ctx: ToolContext, params: StageRunParams, files: dict) -> l
     "walltime from its length. Returns a job_id; job_status collects it.",
     tags={"mandate", "run"},
     expensive=True,
-    contract=Contract(by_kind="inputs"),
+    contract=Contract(by_kind="inputs", consumes={"snapshot": "geometry"}),
 )
 def stage_run(ctx: ToolContext, params: StageRunParams) -> Observation:
     precheck(ctx, _run_findings(ctx, params))

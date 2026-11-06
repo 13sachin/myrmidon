@@ -58,3 +58,57 @@ def write_geometry(rows: list[list[float]], path: Path) -> None:
     path.write_text("".join(
         "".join(f"{v:20.12f}" for v in row[:3]) + "  " + "".join(f"{v:20.12f}" for v in row[3:])
         + "\n" for row in rows))
+
+
+def cut_snapshots(ctx, request):
+    """A coupled run's frames as matched pairs: GEOMETRY for CPMD and a .gro for GROMACS, cut at
+    a step both engines stored, so neither starts from the other's past."""
+    import MDAnalysis as mda
+    from MDAnalysis.lib.formats.libmdaxdr import TRRFile
+
+    from myrmidon.analysis.trajectory import closest_settled, evenly_spaced
+    from myrmidon.core.artifacts import ArtifactRef
+    from myrmidon.core.observation import Observation
+    from myrmidon.engines.inputs import resolve_in_ws
+
+    qm_path = resolve_in_ws(ctx, request.qm_trajectory)
+    temps = parse_energies(resolve_in_ws(ctx, request.energies).read_text())
+    trr = resolve_in_ws(ctx, request.trajectory)
+    with TRRFile(str(trr)) as fh:
+        mm_steps = [frame.step for frame in fh]
+    common = [s for s in trajectory_steps(qm_path) if gromacs_step(s) in mm_steps and s in temps]
+    if not common:
+        return Observation(ok=False, summary="the two engines stored no step in common: a stage "
+                           "writes both at one stride unless its input was edited")
+    if request.target_temperature_k is not None:
+        picks = [closest_settled([float(s) for s in common], [temps[s] for s in common],
+                                 request.target_temperature_k)]
+    elif request.frames:
+        picks = list(request.frames)
+        past = [i for i in picks if not 0 <= i < len(common)]
+        if past:
+            return Observation(ok=False, n_total=len(common), summary=f"frame index out of range "
+                               f"{past}: the run has {len(common)} common frames")
+    else:
+        picks = evenly_spaced(len(common), request.n_frames)
+    stage = ctx.workspace.stage(request.output_stage)
+    root = ctx.workspace.root
+    u = mda.Universe(str(resolve_in_ws(ctx, request.structure)), str(trr))
+    frames, artifacts = [], []
+    for pick in picks:
+        step = common[pick]
+        geometry = stage / f"{request.prefix}_{step}.GEOMETRY"
+        write_geometry(frame_rows(qm_path, step), geometry)
+        gro = stage / f"{request.prefix}_{step}.gro"
+        u.trajectory[mm_steps.index(gromacs_step(step))]
+        u.atoms.write(str(gro))
+        frames.append({"step": step, "temperature_k": temps[step],
+                       "geometry": ctx.workspace.relpath(geometry),
+                       "structure": ctx.workspace.relpath(gro)})
+        artifacts += [ArtifactRef.from_path(geometry, "geometry", root=root),
+                      ArtifactRef.from_path(gro, "structure", root=root)]
+    return Observation(
+        ok=True, frames=frames, artifacts=artifacts,
+        summary=f"{len(frames)} matched snapshot(s) of {len(common)} common steps: "
+        + ", ".join(f"step {f['step']} at {f['temperature_k']:g} K" for f in frames)
+        + ". stage_run takes the geometry as snapshot=<path>")

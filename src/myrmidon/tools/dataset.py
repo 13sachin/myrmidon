@@ -9,7 +9,7 @@ from myrmidon.core.lineage import stage_runs
 from myrmidon.core.mandate import read_mandate
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext, tool
-from myrmidon.engines.registry import fit_adapter
+from myrmidon.engines.registry import DatasetRequest, fit_adapter
 from myrmidon.tools.inputsets import system_file
 
 
@@ -40,6 +40,26 @@ class DatasetCollectParams(BaseModel):
                                     "consecutive frames count as near-duplicates")
     output_stage: str = Field(default="fm", description="where the dataset is written")
 
+    def sized(self, ctx: ToolContext) -> DatasetCollectParams:
+        """The call with what it left to the ledger named: the stage's runs' files and the
+        system's, so each is recorded as what the dataset was collected from."""
+        mandate = read_mandate(ctx.workspace)
+        runs = stage_runs(ctx.workspace, self.stage) if self.stage else []
+
+        def of_runs(role: str) -> list[str]:
+            return [a.path for outputs, _ in runs for a in outputs if a.role == role]
+
+        def system(kind: str, given: str | None) -> str | None:
+            return given or (system_file(ctx, mandate, kind) if mandate is not None else None)
+
+        return self.model_copy(update={
+            "fmdata": self.fmdata or of_runs("fm_reference"),
+            "trajectory": self.trajectory or of_runs("trajectory"),
+            "cpmd_logs": self.cpmd_logs or of_runs("qm_log"),
+            "topology": system("topology", self.topology),
+            "coords": system("structure", self.coords),
+            "selection": system("qm_selection", self.selection)})
+
 
 @tool(
     "dataset_collect",
@@ -53,34 +73,19 @@ class DatasetCollectParams(BaseModel):
                       produces=(Produces("reference_dataset"),)),
 )
 def dataset_collect(ctx: ToolContext, params: DatasetCollectParams) -> Observation:
-    from myrmidon.engines.mimic.fm_dataset import DatasetRequest
-
-    engine = fit_adapter()
-    mandate = read_mandate(ctx.workspace)
-    runs = stage_runs(ctx.workspace, params.stage) if params.stage else []
-    if params.stage and not runs:
+    if params.stage and not stage_runs(ctx.workspace, params.stage):
         return Observation(ok=False, summary=f"no collected run of stage {params.stage}: run and "
                            "collect it, or name fmdata and trajectory")
-
-    def of_runs(role: str) -> list[str]:
-        return [a.path for outputs, _ in runs for a in outputs if a.role == role]
-
-    def system(kind: str, given: str | None) -> str | None:
-        return given or (system_file(ctx, mandate, kind) if mandate is not None else None)
-
-    fmdata = params.fmdata or of_runs("fm_reference")
-    trajectory = params.trajectory or of_runs("trajectory")
-    topology, coords = system("topology", params.topology), system("structure", params.coords)
-    selection = system("qm_selection", params.selection)
-    missing = [name for name, value in (("reference forces", fmdata), ("trajectory", trajectory),
-                                        ("topology", topology), ("coords", coords),
-                                        ("selection", selection)) if not value]
+    missing = [name for name, value in (("reference forces", params.fmdata),
+                                        ("trajectory", params.trajectory),
+                                        ("topology", params.topology), ("coords", params.coords),
+                                        ("selection", params.selection)) if not value]
     if missing:
         return Observation(ok=False, summary=f"a dataset needs its {', '.join(missing)}: name "
                            "them, or the stage whose runs wrote them")
-    return engine.collect_dataset(ctx, DatasetRequest(
-        fmdata=fmdata, trajectory=trajectory, topology=topology, coords=coords,
-        selection=selection, stage=params.output_stage, check_frames=params.check_frames,
-        align_if_desynced=params.align_if_desynced, monitor_pairs=params.monitor_pairs,
-        cpmd_logs=params.cpmd_logs or of_runs("qm_log"),
+    return fit_adapter().collect_dataset(ctx, DatasetRequest(
+        fmdata=params.fmdata, trajectory=params.trajectory, topology=params.topology,
+        coords=params.coords, selection=params.selection, stage=params.output_stage,
+        check_frames=params.check_frames, align_if_desynced=params.align_if_desynced,
+        monitor_pairs=params.monitor_pairs, cpmd_logs=params.cpmd_logs,
         duplicate_rmsd_a=params.duplicate_rmsd_a))

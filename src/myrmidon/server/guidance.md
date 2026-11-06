@@ -32,13 +32,14 @@
    approval is the researcher's, in one of three forms: `/approve` in Hermes, the dialog
    in Pi, `myrmidon approve` at a terminal. Say the cost and the digest and end the turn.
    That approval is the researcher's answer to "ask me before submitting": once it holds,
-   carry the stages out call by call without asking again: `inputset_apply` with
-   `stage=<name>` writes a stage's parameter file from the mandate, which the build and
-   run tools take as any other.
+   carry the stages out call by call without asking again: `stage_prepare` with
+   `stage=<name>` writes everything a stage's run reads from the mandate, and `stage_run`
+   with `stage=<name>` submits it, finding its inputs and what it starts from in the ledger.
 5. Every submission is checked against the approved mandate: its ceiling, its system by
    descent in the ledger, and the researcher's locks as they compile for the stage the
-   parameter file was written for, read from the file on disk. A run's walltime, left
-   unset, is sized from its length at the pace measured on this machine. `preview=true` on
+   parameter file was written for, read from the file on disk. A run's ranks, threads
+   and walltime, left unset, are sized from the system and its length at the pace measured on
+   this machine. `preview=true` on
    a submitting tool says what it would cost and whether it would pass. A different system,
    another value of a locked field or a bigger ceiling is a revision, `mandate_write` with
    `revise=true` and the reason, which the researcher approves again. After a submission,

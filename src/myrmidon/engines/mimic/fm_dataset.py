@@ -6,7 +6,6 @@ dataset, as both files are hashed."""
 from __future__ import annotations
 
 import subprocess
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from myrmidon.core.artifacts import ArtifactRef
@@ -22,29 +21,9 @@ from myrmidon.engines.mimic.fm import (
     parse_h5info,
 )
 from myrmidon.engines.mimic.qm_region import mimicpy_bin
+from myrmidon.engines.registry import DatasetRequest
 
 _BOHR_TO_A = 0.529177210903
-
-
-@dataclass
-class DatasetRequest:
-    """What a dataset is collected from, as the call and the ledger state it."""
-
-    fmdata: list[str]
-    trajectory: list[str]
-    topology: str
-    coords: str
-    selection: str
-    stage: str = "fm"
-    check_frames: int = 20
-    align_if_desynced: bool = True
-    output_prefix: str = "merged"
-    monitor_pairs: dict[str, list[int]] = field(default_factory=dict)
-    cpmd_logs: list[str] = field(default_factory=list)
-    duplicate_rmsd_a: float = 0.05
-    overlaps_input: str | None = None
-    fmdata_one: str = ""
-    output: str = "frame_report.csv"
 
 
 def _run_mimicpy(ctx: ToolContext, args: list[str], cwd: Path, timeout: int = 1800):

@@ -14,6 +14,7 @@ from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext, tool
 from myrmidon.core.validation import Finding
 from myrmidon.engines.inputs import resolve_in_ws
+from myrmidon.engines.registry import fit_adapter
 from myrmidon.knowledge.observables import (
     COUPLED,
     ENERGY_TERMS,
@@ -212,14 +213,12 @@ def _on_run(ctx: ToolContext, params: MeasureParams, extractor: str, over: str, 
 
 
 def _measure_forces(ctx: ToolContext, params: MeasureParams) -> Observation:
-    from myrmidon.engines.mimic.fit_collect import force_comparison
-
     missing = [k for k in ("topology", "structure", "forces", "fmdata", "qm_selection")
                if not getattr(params, k)]
     if missing:
         return Observation(ok=False, summary=f"a force comparison needs {', '.join(missing)}: "
                            "name them, or the stage whose rerun wrote the forces")
-    return force_comparison(
+    return fit_adapter().force_comparison(
         ctx, resolve_in_ws(ctx, params.topology), resolve_in_ws(ctx, params.structure),
         resolve_in_ws(ctx, params.forces), resolve_in_ws(ctx, params.fmdata),
         resolve_in_ws(ctx, params.qm_selection), list(params.frames), params.label)

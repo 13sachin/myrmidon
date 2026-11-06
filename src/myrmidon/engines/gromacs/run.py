@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from myrmidon.core.artifacts import ArtifactRef
+from myrmidon.core.artifacts import ArtifactRef, fresh_path
 from myrmidon.core.observation import Observation, ToolError
 from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding
@@ -199,6 +199,12 @@ def compile_stage_run_input(ctx: ToolContext, mdp: Path, files: dict[str, Path],
     if structure is None or topology is None:
         return None
     found, _ = validate_mdp(parse_mdp_file(mdp), for_engine(ctx.engines, "gromacs"))
+    if max_warn > 0:
+        found.append(Finding(
+            id="GROMPP_MAXWARN",
+            message=f"max_warn={max_warn} suppresses grompp's own warnings (net charge under PME, "
+            "mismatched constraints, ...). Each suppressed warning is a physics decision: fix "
+            "the cause rather than carry it into the run input that runs dynamics."))
     stopping = [f for f in found if f.severity == "block"]
     if stopping:
         return Observation(
@@ -207,8 +213,10 @@ def compile_stage_run_input(ctx: ToolContext, mdp: Path, files: dict[str, Path],
             findings=found,
             error=ToolError(code=stopping[0].id, message=stopping[0].message,
                             hint=stopping[0].suggestion or ""))
-    out = grompp(ctx, mdp, structure, topology, files.get("index"), None,
-                 stage_dir / f"{name}.tpr", stage_dir, max_warn)
+    # a job queued on the last one reads that one: a compile never overwrites a run input
+    out = grompp(ctx, mdp, structure, topology, files.get("index"),
+                 files.get("restraint_reference"), fresh_path(stage_dir / f"{name}.tpr"),
+                 stage_dir, max_warn)
     out.findings = [*found, *out.findings]
     return out
 
@@ -242,10 +250,6 @@ def tpr_run_length_ns(ctx: ToolContext, tpr) -> float | None:
     return round(max(0, nsteps - int(fields.get("init-step", 0))) * dt / 1000.0, 6)
 
 
-#: the walltime a run is booked for when nothing sizes it
-FALLBACK_WALLTIME_MIN = 30
-
-
 def beside(ctx: ToolContext, run_input: Path) -> Path:
     """Where a run writes: beside the file it runs on (its .tpr, the checkpoint it continues)
     when the study holds it, so the outputs and what they came from stay together for anyone
@@ -255,7 +259,8 @@ def beside(ctx: ToolContext, run_input: Path) -> Path:
             else ctx.workspace.stage("run"))
 
 
-def mdrun_walltime(ctx: ToolContext, tpr, cores: int) -> tuple[int | None, str]:
+def mdrun_walltime(ctx: ToolContext, tpr, cores: int, ns: float | None = None
+                   ) -> tuple[int | None, str]:
     """(minutes, why) the run a .tpr carries needs here: a minimisation's fixed walltime
     from the stage templates, a dynamics run's length at the pace this study's runs, then
     this machine's, measured (knowledge/stage.py); (None, "") when the .tpr says neither."""
@@ -269,7 +274,7 @@ def mdrun_walltime(ctx: ToolContext, tpr, cores: int) -> tuple[int | None, str]:
                       and "walltime_min" in t.pricing), None)
         return (booked_minutes(fixed, 0), f"{fixed:g} min, the walltime for a minimisation"
                 ) if fixed else (None, "")
-    ns = tpr_run_length_ns(ctx, tpr)
+    ns = ns or tpr_run_length_ns(ctx, tpr)
     try:
         atoms = int(fields["natoms"])
     except (KeyError, ValueError):
@@ -309,6 +314,12 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
         left = {a.role: a.path for a in stage_left(ctx.workspace, stage.name)}
         if "checkpoint" in left:
             out["checkpoint"] = left["checkpoint"]
+            # the run input the last continuation extended to, not the stage's first
+            beside_it = ctx.workspace.resolve(left["checkpoint"]).parent
+            extended = sorted(beside_it.glob(f"{stage.name}_ext*.tpr"),
+                              key=lambda p: p.stat().st_mtime)
+            if extended:
+                out["tpr"] = ctx.workspace.relpath(extended[-1])
     if frame_batch(stage) and "trajectory" not in prepared:
         begins = mandate.method.starts_from(stage)
         run = stage_run(ctx.workspace, begins.name) if begins else None
@@ -331,11 +342,22 @@ def frame_batch(stage) -> bool:
         and stage.scan.parameter == "frames")
 
 
-def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min: int
-                 ) -> list[Finding]:
+def _frames_in(structure: Path, trajectory: Path) -> int | None:
+    """How many frames a trajectory holds, read against its structure; None when it cannot be
+    read here, which the batch's own read will say."""
+    import MDAnalysis as mda
+
+    try:
+        return len(mda.Universe(str(structure), str(trajectory)).trajectory)
+    except (OSError, ValueError):
+        return None
+
+
+def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min: int,
+                 extend_ps: float | None = None) -> list[Finding]:
     """What stops a classical run or is worth saying of it: the input it must have, whether the
     booked walltime can cover what its .tpr carries, a checkpoint that does not name this run's
-    files, a coupled .tpr rerun as if it were classical."""
+    files, a coupled .tpr rerun as if it were classical, frames past a trajectory's end."""
     from myrmidon.core.validation import Precondition
 
     findings: list[Finding] = []
@@ -347,6 +369,13 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
             suggestion="run the stage it starts from first, or name the frames: inputs "
             "{trajectory: <path>}")]
     if stage.kind == "minimize" and frame_batch(stage):
+        if "structure" in inputs:
+            total = _frames_in(inputs["structure"], inputs["trajectory"])
+            past = [f for f in stage.scan.values if total and not 0 <= int(f) < total]
+            if past:
+                findings.append(Precondition(
+                    id="STAGE_FRAMES_OUT_OF_RANGE",
+                    message=f"frame index out of range {past}: the trajectory has {total} frames"))
         return findings
     tpr = inputs.get("tpr")
     if tpr is None:
@@ -370,7 +399,14 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
         where = beside(ctx, inputs["checkpoint"])
         wrong = [n for n in names if Path(n).stem != stage.name
                  or (Path(n).is_absolute() and Path(n).parent != where)]
-        if wrong:
+        if extend_ps:
+            findings.append(throughput_warning(extend_ps / 1000.0, walltime_min, ctx))
+        if not names:
+            findings.append(Finding(
+                id="CPT_UNREADABLE",
+                message=f"could not read output names from {inputs['checkpoint'].name} (gmx dump "
+                "-cp); cannot verify that this run's files match the run it continues"))
+        elif wrong:
             findings.append(Precondition(
                 id="CPT_NAME_MISMATCH",
                 message=f"the checkpoint records outputs {names[:4]} but this continuation would "
@@ -393,11 +429,14 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
     return findings
 
 
-def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, cores: int
-                  ) -> tuple[int | None, str]:
-    """(minutes, why) the run the stage's .tpr carries needs here; a frame batch by its
-    template's fixed walltime for each frame."""
+def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, cores: int,
+                  extend_ps: float | None = None) -> tuple[int | None, str]:
+    """(minutes, why) the run the stage's .tpr carries needs here, a continuation only what it
+    adds; a frame batch by its template's fixed walltime for each frame."""
     from myrmidon.knowledge.stage import TemplateStore, templates_for
+
+    if extend_ps and "checkpoint" in inputs:
+        return mdrun_walltime(ctx, inputs["tpr"], cores, ns=extend_ps / 1000.0)
 
     if frame_batch(stage):
         fixed = next((t.pricing["walltime_min"] for t in templates_for(
@@ -429,7 +468,7 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
                 "-deffnm", name, "-o", f"{name}.trr", "-e", f"{name}.edr", "-g", f"{name}.log"]
     artifacts = [ArtifactRef.from_path(tpr, "tpr", root=ctx.workspace.root)]
     if "checkpoint" in inputs:
-        extended = run_dir / f"{name}_ext.tpr"
+        extended = fresh_path(run_dir / f"{name}_ext.tpr")
         args = ["convert-tpr", "-s", str(tpr), "-o", str(extended)]
         if request.extend_ps:
             args += ["-extend", str(request.extend_ps)]

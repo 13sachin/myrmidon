@@ -35,6 +35,7 @@ decomposition:
     qm_atoms: 2.0
     cutoff_ry: 1.5
     cores: -0.8
+  single_point_steps: 10
 keys:
   ATOMS/ATOMIC CHARGES:
     name: ATOMIC CHARGES

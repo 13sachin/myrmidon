@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field
-
 from myrmidon.core.contracts import Property, declare_alias, declare_identity, define_kind
 from myrmidon.core.validation import Finding
 from myrmidon.knowledge.catalog import Catalog
@@ -210,39 +208,6 @@ def qm_geometry(sections: dict[str, list[str]]) -> dict | None:
         "min_vacuum_bohr": round(vacuum, 3),
         "n_atoms": len(coords),
     }
-
-
-class DistanceRestraint(BaseModel):
-    """Harmonic distance restraint between two CPMD atoms (&ATOMS input order,
-    1-based — NOT gro serials, NOT dataset record order)."""
-
-    atom_i: int = Field(ge=1)
-    atom_j: int = Field(ge=1)
-    target_a: float = Field(gt=0, description="target distance (Å)")
-    k_au: float = Field(default=0.5, gt=0, description="force constant (a.u.)")
-
-
-def add_distance_restraints(
-    sections: dict[str, list[str]], restraints: list[DistanceRestraint]
-) -> dict[str, list[str]]:
-    """Append a CONSTRAINTS/RESTRAINTS block to &ATOMS (CPMD coninp syntax:
-    ``RESTRAINTS n`` then ``DIST i j value k`` lines, distances in bohr)."""
-    if not restraints:
-        return sections
-    atoms = sections.get("ATOMS", [])
-    if has_keyword(atoms, "CONSTRAINTS"):
-        raise ValueError("&ATOMS already has a CONSTRAINTS block")
-    # CPMD's coninp reads the restraint count from the line AFTER the keyword
-    block = ["CONSTRAINTS", "RESTRAINTS", f"  {len(restraints)}"]
-    for r in restraints:
-        block.append(
-            f"  DIST {r.atom_i} {r.atom_j} "
-            f"{r.target_a * _BOHR_PER_ANGSTROM:.5f} {r.k_au:.4f}"
-        )
-    block.append("END CONSTRAINTS")
-    out = dict(sections)
-    out["ATOMS"] = [*atoms, *block]
-    return out
 
 
 def set_paths(sections: dict[str, list[str]], run_dir: str) -> dict[str, list[str]]:

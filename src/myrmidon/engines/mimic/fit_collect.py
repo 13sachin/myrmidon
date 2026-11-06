@@ -43,13 +43,15 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
     reference dataset with the trajectory collected beside it."""
     from myrmidon.core.lineage import latest_dataset, latest_outputs
 
+    begins = mandate.method.starts_from(stage)
+
     out: dict[str, str] = {}
     selected = latest_outputs(ctx.workspace, "qm_region")
     for kind in ("topology", "structure", "index", "qm_selection"):
         named = next((f.path for f in mandate.system.files if f.kind == kind), selected.get(kind))
         if named and kind not in prepared:
             out[kind] = named
-    dataset = latest_dataset(ctx.workspace)
+    dataset = latest_dataset(ctx.workspace, begins.name if begins is not None else None)
     if dataset:
         out["reference_dataset"] = dataset
         for ev in reversed(list(ctx.workspace.ledger.events())):
@@ -69,8 +71,8 @@ def fm_dataset_frames(ctx: ToolContext, dataset: Path) -> int | None:
     return int(fact.value.strip("[]").split(",")[1]) if fact else None
 
 
-def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min: int
-                 ) -> list[Finding]:
+def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min: int,
+                 extend_ps: float | None = None) -> list[Finding]:
     """What stops a fit: an input it cannot run without, one its input file does not state, a
     topology mimicpy cannot rewrite."""
     missing = [k for k in FIT_INPUTS if k not in inputs]
@@ -111,8 +113,8 @@ def resolve_layout(cores: int, _facts) -> Layout:
     return Layout(1, cores, why=f"one process of {cores} workers")
 
 
-def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, cores: int
-                  ) -> tuple[int | None, str]:
+def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, cores: int,
+                  extend_ps: float | None = None) -> tuple[int | None, str]:
     """A fit's walltime, the template's."""
     from myrmidon.knowledge.stage import TemplateStore, templates_for
 
@@ -133,6 +135,9 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
             "-n_processes", str(layout.cpus_per_task), *gmx_data_flags(ctx)]
     if "mdp" in inputs:
         argv += ["-mdp", str(inputs["mdp"])]
+    flag = {"charges": "-dresp", "bonded": "-opt_ff"}.get(request.fit_mode)
+    if flag:
+        argv.append(flag)
     root = ctx.workspace.root
     return StageJob(
         spec=JobSpec(argv=argv, cwd=run_dir, stdout="fm.stdout", stderr="fm.stderr",

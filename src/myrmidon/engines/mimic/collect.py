@@ -114,11 +114,11 @@ def coupled_findings(ctx: ToolContext, cpmd_input: str, tpr: str, restart_from: 
         warnings.append(
             Precondition(
                 id="CPMD_RESTART_FILE_MISSING",
-                message="the run input asks to RESTART, and no restart_from was given: "
+                message="the run input asks to RESTART, and there is no restart to read: "
                 "CPMD reads the wavefunction from the file LATEST names in the working "
                 "directory and stops in ZHRWF with FILE NOT FOUND when it is not there.",
-                suggestion="pass restart_from=<the previous segment's `restart` artifact>, "
-                "or render an input without a RESTART line for a run that starts fresh",
+                suggestion="collect the run the stage starts from: its restart is found in the "
+                "ledger; or name it, inputs {restart: <path>}",
             )
         )
     if restart_from:
@@ -146,11 +146,10 @@ def coupled_findings(ctx: ToolContext, cpmd_input: str, tpr: str, restart_from: 
             Precondition(
                 id="CPMD_GEOFILE_WITHOUT_GEOMETRY",
                 message="the run input's RESTART line has GEOFILE, so CPMD reads the ions' "
-                "coordinates from a GEOMETRY file in the working directory, and no "
-                "geometry_from was given nor a GEOMETRY found beside restart_from: CPMD "
+                "coordinates from a GEOMETRY file in the working directory, and none was "
+                "named nor a GEOMETRY found beside the restart: CPMD "
                 "stops in GEOFILE with DO NOT READ OLD COORDINATES.",
-                suggestion="pass geometry_from=<the previous segment's `geometry` artifact> "
-                "(or a snapshot of this box), or drop GEOFILE from the RESTART line",
+                suggestion="name the geometry to read: snapshot=<a snapshot_select geometry>",
             )
         )
 
@@ -212,9 +211,6 @@ def coupled_geometry(ctx: ToolContext, geometry_from: str | None, restart_from: 
     return None
 
 
-#: the walltime a coupled run is booked for when nothing sizes it
-FALLBACK_WALLTIME_MIN = 60
-
 
 def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: bool) -> dict:
     """What a coupled stage's run reads besides what was prepared: the restart and the geometry
@@ -247,8 +243,8 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
     return out
 
 
-def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min: int
-                 ) -> list[Finding]:
+def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min: int,
+                 extend_ps: float | None = None) -> list[Finding]:
     """What stops a coupled stage's run: the gate on its input, its compiled MM half, and the
     state it restarts from."""
     root = ctx.workspace.root
@@ -264,23 +260,36 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
 
     found, _ = coupled_findings(ctx, rel("cpmd_input"), rel("tpr"), rel("restart"),
                                 rel("geometry"))
+    sections = parse_cpmd(inputs["cpmd_input"].read_text())
+    restarts = any(line.strip().upper().startswith("RESTART")
+                   for line in sections.get("CPMD", []))
+    if "geometry" in inputs and not restarts:
+        found.append(Precondition(
+            id="STAGE_SNAPSHOT_UNREAD",
+            message=f"stage {stage.name}'s input has no RESTART line, so CPMD would start from "
+            f"the coordinates it states and never read {inputs['geometry'].name}",
+            suggestion="qm_region on the snapshot's structure, then stage_prepare with it as "
+            "structure: a fresh stage starts from that"))
     return found
 
 
-def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, cores: int
-                  ) -> tuple[int | None, str]:
+def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, cores: int,
+                  extend_ps: float | None = None) -> tuple[int | None, str]:
     """(minutes, why) a coupled stage needs, from its input's MAXSTEP at the seconds per step
     measured here on the same QM region and cutoff, else at the machine's reference step."""
     from myrmidon.engines.mimic.cpmd_input import keyword_value, qm_geometry
     from myrmidon.execution.pace import read_paces, study_paces
+    from myrmidon.knowledge.catalog import load
     from myrmidon.knowledge.stage import booked_minutes, qm_walltime
 
     if "cpmd_input" not in inputs:
         return None, "no run input"
     sections = parse_cpmd(inputs["cpmd_input"].read_text())
     steps = keyword_value(sections, "&CPMD/MAXSTEP")
-    # a wavefunction optimisation's MAXSTEP bounds its iterations: one step's worth of work
-    length = 1 if stage.kind == "single_point" else (int(float(steps)) if steps else None)
+    # a wavefunction optimisation's MAXSTEP bounds its iterations; from a cold start it costs
+    # several steps' worth of work
+    length = (load("cpmd").decomposition.get("single_point_steps", 10)
+              if stage.kind == "single_point" else (int(float(steps)) if steps else None))
     if length is None:
         return None, "the input states no MAXSTEP"
     cutoff = keyword_value(sections, "&SYSTEM/CUTOFF")
@@ -289,7 +298,10 @@ def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, core
         cutoff_ry=float(cutoff.split()[0]) if cutoff else None, cores=cores,
         paces=[*study_paces(ctx.workspace), *read_paces(ctx.config.studies_root)],
         compute=ctx.config.compute)
-    return booked_minutes(minutes) if minutes is not None else None, why
+    if minutes is None:
+        return None, why
+    least = ctx.config.compute.unmeasured_walltime_min
+    return max(booked_minutes(minutes), least), why
 
 
 def _reads_geometry(run_input: Path, run_dir: Path) -> Path:
@@ -320,7 +332,6 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
     if request.snapshot:
         run_input = _reads_geometry(run_input, run_dir)
     staged = []
-    consumed = [ArtifactRef.from_path(inputs["cpmd_input"], "inputs.cpmd_input", root=root)]
     if "restart" in inputs:
         staged.append(stage_restart(inputs["restart"], run_dir))
     sections = parse_cpmd(run_input.read_text(errors="replace"))
@@ -343,7 +354,7 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
             stderr=f"{stage.name}.stderr")])
     return StageJob(
         spec=spec, kind="mimic", label=f"stage:{stage.name}", meta={"deffnm": stage.name},
-        inputs=consumed, artifacts=[ArtifactRef.from_path(run_input, "cpmd_input", root=root)],
+        artifacts=[ArtifactRef.from_path(run_input, "cpmd_input", root=root)],
         summary=f"CPMD x{layout.ntasks} + GROMACS x{layout.partner_ntasks} in "
         f"{ctx.workspace.relpath(run_dir)}" + (f". {aligned}" if aligned else ""))
 

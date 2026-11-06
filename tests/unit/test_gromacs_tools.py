@@ -567,13 +567,6 @@ def test_frames_are_minimised_and_reevaluated_under_one_topology(ws_ctx):
     assert {"trajectory", "energy", "log"} <= {a.role for a in collected.artifacts}
 
 
-# (parameters beyond a valid call, the finding the gate raises, whether it refuses)
-MINIMISE_GATE = [
-    ({"mdp": "01_input/rerun.mdp"}, "MINIMIZE_MDP_NOT_MINIMISER", True),
-    ({"max_warn": 2}, "GROMPP_MAXWARN", False),
-]
-
-
 # (the submission, whether the partition bills whole 48-core nodes, the (ranks, threads)
 # booked when the call leaves them unset): a run fills the node with ranks; the frame
 # minimiser is one driver process, so the node goes to its threads

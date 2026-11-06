@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
-from myrmidon.engines.mimic import collect, cpmd_input, diagnostics, layout, system
+from myrmidon.engines.mimic import collect, cpmd_input, diagnostics, layout, system, trajectory
 from myrmidon.engines.registry import EngineAdapter, StageRender, StageText
 from myrmidon.knowledge.sensors import evaluate
 
@@ -81,4 +81,5 @@ ADAPTER = EngineAdapter(
     size_walltime=collect.size_walltime,
     build_job=collect.build_job,
     diagnose=collect.diagnose_log,
+    cut_snapshots=trajectory.cut_snapshots,
 )

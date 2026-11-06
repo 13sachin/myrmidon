@@ -901,7 +901,9 @@ def price_stage(mandate: Mandate, stage: Stage, *, templates: TemplateStore,
     step_ps = methods.step_ps(stage.regime)
     steps = derived(view, mandate, step_ps)["steps"]
     if steps is None and stage.kind == "single_point":
-        steps = 1
+        # from a cold start, several coupled steps' worth of wavefunction optimisation
+        steps = (load("cpmd").decomposition.get("single_point_steps", 10)
+                 if stage.regime != "mm" else 1)
     start = 2.0
     if "walltime_min" in pricing:
         minutes, start = float(pricing["walltime_min"]), 0.0
