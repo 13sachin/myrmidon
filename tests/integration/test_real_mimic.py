@@ -126,7 +126,7 @@ def test_acetone_qmmm_chain(ctx, approve_mandate):
     assert done.state == "COMPLETED", f"{done.summary}\n{done.log_tail or ''}"
 
     # --- diagnostics are parsed from CPMD output, never asserted by the LLM ---
-    diag = call(ctx, "mimic_diagnose")
+    diag = call(ctx, "run_diagnose")
     assert diag.finished_normally
     assert diag.md_steps_completed == MAXSTEPS
     assert diag.energy_last is not None and diag.energy_last < -30  # acetone/BLYP ≈ -36 a.u.

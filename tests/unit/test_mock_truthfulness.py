@@ -93,7 +93,7 @@ def test_the_mock_energy_values_mean_what_their_term_says(ws_ctx):
     ws = ws_ctx.workspace
     run_stage = ws.stage("run")
     (run_stage / "md.edr").write_text("MOCKEDR\n")
-    obs = REGISTRY.call("gmx_energy", ws_ctx,
+    obs = REGISTRY.call("observable_measure", ws_ctx,
                         {"edr": ws.relpath(run_stage / "md.edr"),
                          "terms": ["Temperature", "Potential", "Pressure"]})
     assert obs.ok, obs.summary

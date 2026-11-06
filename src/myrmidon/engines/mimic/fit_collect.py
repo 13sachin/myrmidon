@@ -347,3 +347,59 @@ def _collect_fit_job(ctx: ToolContext, record, state, exit_code) -> Observation:
         ctx, Path(record.spec.cwd), original_itp=meta.get("original_itp"),
         topology=meta.get("topology"), completed=state == JobState.COMPLETED,
     )
+
+
+def diagnose_log(ctx: ToolContext, path: Path) -> Observation:
+    """A fit's log read as its collection reads it."""
+    return collect_fit(ctx, path.parent)
+
+
+def force_comparison(ctx: ToolContext, top: Path, structure: Path, forces: Path, dataset: Path,
+                     selection: Path, frames: list[int], label: str = "") -> Observation:
+    """How far one topology's forces, from a classical rerun of reference frames, are from the
+    QM/MM reference on the QM atoms: per atom type and per atom, in atomic units, for any
+    topology, stock or fitted, so a comparison of candidates is the same call on each."""
+    import json
+
+    from mimicpy.force_matching.qm_region import QMRegion
+    from mimicpy.scripts.fmdata import FMDataset
+
+    from myrmidon.core.artifacts import fresh_path
+    from myrmidon.engines.mimic.fm import force_residual_rows
+
+    label = label or top.stem
+    info = ctx.engines.get("gromacs")
+    gmxdata = info.data_dir if info is not None and info.data_dir else None
+    qm_region = QMRegion(str(top), str(structure), gmxdata=gmxdata)
+    qm_region.setup_qm_region(Path(selection))
+    fmdata = FMDataset(str(dataset))
+    if not frames:
+        import MDAnalysis as mda
+
+        frames = list(range(len(mda.Universe(str(structure), str(forces)).trajectory)))
+    try:
+        header, rows = force_residual_rows(forces, structure, fmdata, qm_region, frames)
+    except ValueError as exc:
+        return Observation(ok=False, summary=f"{label}: {exc}", topology=str(top), label=label)
+    stage = ctx.workspace.stage("analysis")
+    csv_path = fresh_path(stage / f"force_residuals_{label}.csv")
+    csv_path.write_text(header + "\n" + "\n".join(rows) + "\n")
+    parsed = parse_validation_force_residuals(csv_path.read_text())
+    parsed.pop("worst_atoms", None)
+    summary_path = fresh_path(stage / f"{label}_force_compare.json")
+    summary_path.write_text(json.dumps({"label": label, "frames": frames, **parsed},
+                                       indent=1) + "\n")
+    root = ctx.workspace.root
+    return Observation(
+        ok=True,
+        summary=f"{label}: force RMSE {parsed['rmse']:.4f} {FORCE_UNITS} on {parsed['n_atoms']} "
+        f"QM atoms over {parsed['n_frames']} frames"
+        + (f" ({parsed['rel_rmse']:.1%} of the reference RMS {parsed['ref_rms']:.4f})"
+           if parsed.get("rel_rmse") is not None else "")
+        + f"; {len(parsed['outliers'])} outlier atom(s)",
+        artifacts=[ArtifactRef.from_path(summary_path, "data", root=root),
+                   ArtifactRef.from_path(csv_path, "force_residuals", root=root)],
+        topology=ctx.workspace.relpath(top), label=label, units=FORCE_UNITS,
+        **{k: parsed.get(k) for k in ("n_frames", "n_atoms", "n_samples", "rmse", "ref_rms",
+                                      "rel_rmse", "median_atom_rmse", "by_type", "outliers")},
+    )

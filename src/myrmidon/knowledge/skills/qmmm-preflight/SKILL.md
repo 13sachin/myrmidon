@@ -13,7 +13,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Is my QM/MM input right before I spend the allocation?"
-  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup qm_region mimic_prepare gmx_grompp mimic_run mimic_diagnose job_status"
+  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup qm_region mimic_prepare gmx_grompp mimic_run run_diagnose job_status"
   myrmidon-protocols: "mimic_qmmm_solvated_solute"
   myrmidon-stages: "cpmd.minimize cpmd.dynamics cpmd.single_point gromacs.mimic"
 ---

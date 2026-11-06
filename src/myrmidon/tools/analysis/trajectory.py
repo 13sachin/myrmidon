@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Literal
 
 import numpy as np
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field
 
 from myrmidon.analysis.trajectory import has_bonds
 from myrmidon.core.artifacts import ArtifactRef
@@ -72,18 +72,6 @@ class TrajParams(BaseModel):
         "over the pairs are reported beside this trajectory's")
     start_ps: float | None = Field(default=None, description="analyse frames from this time")
     stop_ps: float | None = Field(default=None, description="analyse frames up to this time")
-    # a deliverable as the mandate measures it: what was set aside, the statistics asked
-    # for, the files found for it, or why it cannot be measured
-    _said: list = PrivateAttr(default_factory=list)
-    _statistics: list = PrivateAttr(default_factory=list)
-    _read: list = PrivateAttr(default_factory=list)
-    _refusal: str = PrivateAttr(default="")
-    _resolved: bool = PrivateAttr(default=False)
-
-    def sized(self, ctx: ToolContext) -> TrajParams:
-        """The call as the mandate measures its deliverable, so the ledger records what is
-        measured; unchanged without one."""
-        return _from_deliverable(ctx, self) if self.deliverable else self
 
 
 def _pair(metric: str, params, atoms, g2) -> dict:
@@ -118,119 +106,9 @@ def _selection_error(selection: str, exc: Exception) -> str:
     return f"invalid MDAnalysis selection {selection!r}: {exc}{hint}"
 
 
-@tool(
-    "traj_analyze",
-    description="A trajectory metric with MDAnalysis: rmsd, rmsf, rg, rdf, mindist, pair_distance "
-                "or contacts (per residue, both numberings). rmsd/rmsf fit on fit_selection first;"
-                " unwrap makes molecules whole. Harness-computed mean, minimum, largest and final;"
-                " the series saved as .npz. Units: Å.",
-    tags={"analysis"},
-    contract=Contract(consumes={"structure": ("structure", "tpr"),
-                                "trajectory": "trajectory", "reference": "trajectory"},
-                      produces=(Produces("data"),)),
-)
-def traj_analyze(ctx: ToolContext, params: TrajParams) -> Observation:
-    if params._refusal:
-        return Observation(ok=False, summary=params._refusal)
-    if params.deliverable and not params._resolved:
-        return Observation(ok=False, summary=f"{params.deliverable} could not be resolved "
-                           "from the mandate (the call's findings say why): it is measured "
-                           "as approved or not at all")
-    if not (params.structure and params.trajectory and params.metric):
-        return Observation(ok=False, summary="name the deliverable, or the structure, the "
-                           "trajectory and the metric")
-    obs = _analyze(ctx, params)
-    obs.findings = [*params._said, *obs.findings]
-    obs.inputs = [*params._read, *obs.inputs]
-    if params.deliverable and obs.ok:
-        values = {"mean": obs.mean, "max": obs.largest, "min": obs.minimum, "sd": obs.sd,
-                  "final": obs.final}
-        obs.deliverable = params.deliverable
-        obs.statistics = {k: values[k] for k in params._statistics or values
-                          if values[k] is not None}
-        obs.summary = f"{params.deliverable}: " + ", ".join(
-            f"{k} {v:.3f}" for k, v in obs.statistics.items()) + f" {obs.unit}. " + obs.summary
-    return obs
-
-
-def _from_deliverable(ctx: ToolContext, params: TrajParams) -> TrajParams:
-    """The call as the mandate measures the deliverable — its compiled parameters, the
-    trajectory its stage's latest collected run wrote and that run's .tpr, read now — with
-    what it set aside and what it found; or the call with the reason it cannot be."""
-    from myrmidon.core.lineage import lineage, stage_run
-    from myrmidon.core.mandate import read_mandate
-    from myrmidon.core.validation import Finding
-    from myrmidon.knowledge.observables import compile_deliverable
-
-    def refused(why: str) -> TrajParams:
-        out = params.model_copy()
-        out._refusal = why
-        return out
-
-    mandate = read_mandate(ctx.workspace)
-    found = next((d for d in (mandate.deliverables if mandate else [])
-                  if d.name == params.deliverable), None)
-    if found is None:
-        names = ", ".join(d.name for d in mandate.deliverables) if mandate else ""
-        return refused(f"the mandate names no deliverable {params.deliverable!r}"
-                       + (f"; it names: {names}" if names else ""))
-    compiled = compile_deliverable(mandate, found)
-    if compiled.tool != "traj_analyze":
-        return refused(f"{found.name} is measured by {compiled.tool}")
-    if compiled.problems:
-        return refused("; ".join(compiled.problems))
-    update = dict(compiled.params)
-    said = [Finding(id="DELIVERABLE_MEASURED_AS_APPROVED",
-                    message=f"{key} {getattr(params, key)!r} set aside: {found.name} is "
-                    f"measured with {key} {value!r}, as the mandate states")
-            for key, value in compiled.params.items()
-            if key in params.model_fields_set and getattr(params, key) != value]
-    said += [Finding(id="DELIVERABLE_NOTE", message=m) for m in compiled.notes]
-    read: list[ArtifactRef] = []
-    if params.trajectory and found.over:
-        given = ArtifactRef.from_path(resolve_in_ws(ctx, params.trajectory), "trajectory",
-                                      root=ctx.workspace.root)
-        stages = lineage(ctx.workspace).stages_behind(given.sha256)
-        if found.over not in stages:
-            said.append(Finding(
-                id="DELIVERABLE_STAGE_MISMATCH",
-                message=f"{found.name} is measured over stage {found.over}, and "
-                f"{params.trajectory} was written by "
-                + (f"the run of stage {', '.join(sorted(stages))}" if stages
-                   else "no run of a stage the mandate names")))
-    elif found.over:
-        run = stage_run(ctx.workspace, found.over)
-        if run is None:
-            return refused(f"{found.name} is measured over stage {found.over}, and no run "
-                           f"of it has been collected: render it with inputset_apply "
-                           f"stage={found.over}, run it, collect it")
-        outputs, inputs, runs = run
-        trajs = [a for a in outputs if a.role == "trajectory"]
-        traj = next((a for a in trajs if a.path.endswith(".xtc")), trajs[0] if trajs else None)
-        if traj is None:
-            return refused(f"the run of stage {found.over} wrote no trajectory")
-        now = ArtifactRef.from_path(ctx.workspace.root / traj.path, "trajectory",
-                                    root=ctx.workspace.root)
-        if now.sha256 != traj.sha256:
-            return refused(f"{traj.path} changed since the run of stage {found.over} wrote "
-                           "it: measure the run that wrote it as it is, or run the stage again")
-        update["trajectory"] = traj.path
-        read.append(now)
-        tpr = next((a for a in inputs if a.role == "tpr"), None)
-        if tpr is not None and not params.structure:
-            update["structure"] = tpr.path
-            read.append(ArtifactRef.from_path(ctx.workspace.root / tpr.path, "structure",
-                                              root=ctx.workspace.root))
-        if runs > 1:
-            said.append(Finding(
-                id="DELIVERABLE_LATEST_RUN",
-                message=f"stage {found.over} has {runs} collected runs; {found.name} is "
-                f"measured on the latest ({traj.path}). Measure another by naming its "
-                "trajectory"))
-    out = params.model_copy(update=update)
-    out._said, out._statistics, out._read = said, list(found.statistics), read
-    out._resolved = True
-    return out
+def measure_trajectory(ctx: ToolContext, params) -> Observation:
+    """A trajectory metric, the series saved and its statistics computed by the harness."""
+    return _analyze(ctx, params)
 
 
 def _analyze(ctx: ToolContext, params: TrajParams) -> Observation:

@@ -14,7 +14,7 @@ parameters:
   nsteps:
     required_from_user: true
     derivable: the equilibration length the researcher asks for, in time, divided by dt. The tutorial
-      runs 100 ps; whether it was long enough is read from gmx_energy, not assumed.
+      runs 100 ps; whether it was long enough is read from observable_measure, not assumed.
   define:
     from_system: restraint_defines
     rationale: the restraints the topology defines for its solute (pdb2gmx's POSRES, complex_assemble's

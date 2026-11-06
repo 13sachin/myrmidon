@@ -64,7 +64,7 @@ def _dataset_files(ws, stage="prep"):
 
 def test_fm_collect(ws_ctx, monkeypatch):
     files = _dataset_files(ws_ctx.workspace)
-    obs = REGISTRY.call("fm_collect", ws_ctx, {
+    obs = REGISTRY.call("dataset_collect", ws_ctx, {
         "fmdata": files["fmdata"], "trajectory": files["trajectory"],
         "topology": files["topology"], "coords": files["coords"],
         "selection": files["selection"]})
@@ -73,7 +73,7 @@ def test_fm_collect(ws_ctx, monkeypatch):
     assert obs.index_aligned is True
     assert obs.fmdata_sha256 and obs.trr_sha256 and obs.fmdata_sha256 != obs.trr_sha256
     monkeypatch.setenv("MOCK_FMCHECK_DESYNC", "1")
-    obs2 = REGISTRY.call("fm_collect", ws_ctx, {
+    obs2 = REGISTRY.call("dataset_collect", ws_ctx, {
         "fmdata": files["fmdata"], "trajectory": files["trajectory"],
         "topology": files["topology"], "coords": files["coords"],
         "selection": files["selection"]})
@@ -81,11 +81,11 @@ def test_fm_collect(ws_ctx, monkeypatch):
     assert {w.id for w in obs2.findings} >= {"FM_TRR_H5_DESYNC", "FM_ALIGNED_PAIR_WRITTEN"}
     # the registered dataset is the aligned pair, not the originals
     paths = {a.role: a.path for a in obs2.artifacts}
-    assert paths["fm_dataset"].endswith("aligned.h5")
+    assert paths["reference_dataset"].endswith("aligned.h5")
     assert paths["trajectory"].endswith("aligned.trr")
     assert obs2.fmdata_sha256 != obs.fmdata_sha256
 
-    no_fix = REGISTRY.call("fm_collect", ws_ctx, {
+    no_fix = REGISTRY.call("dataset_collect", ws_ctx, {
         "fmdata": files["fmdata"], "trajectory": files["trajectory"],
         "topology": files["topology"], "coords": files["coords"],
         "selection": files["selection"], "align_if_desynced": False})
@@ -153,6 +153,8 @@ def test_parse_cpmd_series_real_nose_log():
 
 
 def test_fm_frame_report(ws_ctx):
+    from myrmidon.engines.mimic.fm_dataset import DatasetRequest, frame_report
+
     h5py = pytest.importorskip("h5py")
     import numpy as np
 
@@ -182,12 +184,12 @@ def test_fm_frame_report(ws_ctx):
     (stage / "run.inp").write_text(
         "&MIMIC\nPATHS\n1\n/x\nOVERLAPS\n2\n2 900 1 10\n2 901 1 11\n&END\n"
     )
-    obs = REGISTRY.call("fm_frame_report", ws_ctx, {
-        "fmdata": ws_ctx.workspace.relpath(stage / "ref.h5"),
-        "monitor_pairs": {"pair": [900, 901], "gone": [10, 999]},
-        "cpmd_logs": [ws_ctx.workspace.relpath(log)],
-        "overlaps_input": ws_ctx.workspace.relpath(stage / "run.inp"),
-    })
+    obs = frame_report(ws_ctx, DatasetRequest(
+        fmdata=[], trajectory=[], topology="", coords="", selection="",
+        monitor_pairs={"pair": [900, 901], "gone": [10, 999]},
+        cpmd_logs=[ws_ctx.workspace.relpath(log)],
+        overlaps_input=ws_ctx.workspace.relpath(stage / "run.inp"),
+    ), ws_ctx.workspace.relpath(stage / "ref.h5"))
     assert obs.ok, obs.summary
     assert obs.n_frames == 4
     assert obs.monitor_stats["pair"]["min"] == pytest.approx(2.0, abs=1e-3)
@@ -284,6 +286,8 @@ def test_displace_plan_moves_mobile_atom(ws_ctx):
 
 
 def test_fm_merge_h5_sources(ws_ctx):
+    from myrmidon.engines.mimic.fm_dataset import DatasetRequest, merge_sources
+
     h5py = pytest.importorskip("h5py")
     import numpy as np
 
@@ -297,13 +301,14 @@ def test_fm_merge_h5_sources(ws_ctx):
                 atoms["id"] = [1, 2]
                 fh.create_group(f"config_{i}").create_dataset("atoms", data=atoms)
         (stage / name.replace(".h5", ".trr")).write_text(f"TRR{name}\n")
-    obs = REGISTRY.call("fm_merge", ws_ctx, {
-        "fm_jsons": [ws_ctx.workspace.relpath(stage / "a.h5"),
-                     ws_ctx.workspace.relpath(stage / "b.h5")]})
+    obs = merge_sources(ws_ctx, DatasetRequest(
+        fmdata=[ws_ctx.workspace.relpath(stage / "a.h5"),
+                ws_ctx.workspace.relpath(stage / "b.h5")],
+        trajectory=[], topology="", coords="", selection=""))
     assert obs.ok, obs.summary
     assert obs.frames == 5
     merged = {a.role: a.path for a in obs.artifacts}
-    with h5py.File(ws_ctx.workspace.root / merged["fm_dataset"], "r") as fh:
+    with h5py.File(ws_ctx.workspace.root / merged["reference_dataset"], "r") as fh:
         assert sorted(fh.keys(), key=lambda k: int(k.split("_")[1]))[-1] == "config_4"
     # the runs' trajectories are joined in the same order by the generic tool
     joined = REGISTRY.call("traj_concat", ws_ctx, {
@@ -498,7 +503,7 @@ def test_fm_collect_checks_across_the_dataset_and_its_tail(ws_ctx):
     prep = ws.stage("prep")
     for name in ("d.h5", "t.trr", "t.top", "c.gro", "s.dat"):
         (prep / name).write_text("x\n")
-    obs = REGISTRY.call("fm_collect", ws_ctx, {
+    obs = REGISTRY.call("dataset_collect", ws_ctx, {
         "fmdata": "01_prep/d.h5", "trajectory": "01_prep/t.trr", "topology": "01_prep/t.top",
         "coords": "01_prep/c.gro", "selection": "01_prep/s.dat", "check_frames": 4,
     })
@@ -571,9 +576,9 @@ def test_a_topologys_forces_are_compared_with_the_reference_per_atom_type(ws_ctx
     """The rerun's forces against the dataset's, through the CPMD-order mapping, in atomic
     units: only the atom type carrying the planted residual is off."""
     top, gro, sele, h5, rerun, q = _acetone_case(tmp_path)
-    obs = REGISTRY.call("fm_force_compare", ws_ctx, {
+    obs = REGISTRY.call("observable_measure", ws_ctx, {
         "topology": str(top), "structure": str(gro), "forces": str(rerun), "fmdata": str(h5),
-        "selection": str(sele), "frames": [0, 2, 4], "label": "cand"})
+        "qm_selection": str(sele), "frames": [0, 2, 4], "label": "cand"})
     assert obs.ok, obs.summary
     n_qm = len(q.qm_atoms)
     assert (obs.n_frames, obs.n_atoms, obs.units) == (3, n_qm, "Hartree/Bohr")

@@ -12,7 +12,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Make me QM/MM reference forces for these frames."
-  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search traj_frames gmx_grompp qm_region mimic_prepare mimic_run mimic_diagnose fm_merge traj_concat fm_collect fm_frame_report fm_displace_plan job_status file_write"
+  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search traj_frames gmx_grompp qm_region mimic_prepare mimic_run run_diagnose dataset_collect traj_concat dataset_collect dataset_collect fm_displace_plan job_status file_write"
   myrmidon-protocols: "fm_reference_singlepoint"
   myrmidon-stages: "cpmd.single_point gromacs.mimic"
 ---
@@ -52,12 +52,12 @@ first frame as the probe, the rest's resources from what the probe measured.
 5. The probe alone: `gmx_grompp` → `mimic_prepare` with `method` the rendered `.inp` (its
    wavefunction optimisation and force output) →
    `mimic_run`; when it lands,
-   `mimic_diagnose`: `wavefunction_converged`, `gemax_last` against `gemax_criterion`,
+   `run_diagnose`: `wavefunction_converged`, `gemax_last` against `gemax_criterion`,
    `scf_iterations` against `scf_max_iterations`, `energy_total`.
-6. The remaining frames the same way, `qm_region` first, `mimic_diagnose` on each as
+6. The remaining frames the same way, `qm_region` first, `run_diagnose` on each as
    it lands.
-7. `fm_merge` the records and `traj_concat` the trajectories in the same order, then
-   `fm_collect`; read `index_aligned` and `dropped`. `fm_frame_report` with `monitor_pairs`
+7. `dataset_collect` the records and `traj_concat` the trajectories in the same order, then
+   `dataset_collect`; read `index_aligned` and `dropped`. `dataset_collect` with `monitor_pairs`
    gives `monitor_stats` per pair.
 
 ## Stop
@@ -65,7 +65,7 @@ first frame as the probe, the rest's resources from what the probe measured.
 - `needs_input` from `mimic_prepare` or `mandate_write`: ask.
 - After each submission: the job id and the core-hours, then stop.
 - The probe's wavefunction did not converge: submit nothing more.
-- No log, or nothing `mimic_diagnose` can read: report `cpmd_error` and the scheduler's
+- No log, or nothing `run_diagnose` can read: report `cpmd_error` and the scheduler's
   word from `job_status`; do not guess.
 - A submission the gate did not make: say what it named.
 - Dropped or misaligned frames: report them before anything is fitted.

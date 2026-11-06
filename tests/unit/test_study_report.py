@@ -135,7 +135,7 @@ def test_an_analysis_is_reported_under_the_run_whose_files_it_read(ws_ctx):
                         outputs=[ref("06_run/em.edr")]),
         ProvenanceEvent(tool="job_status", params={"job_id": "job-md"},
                         outputs=[ref("06_run/md.edr")]),
-        ProvenanceEvent(tool="gmx_energy", params={"terms": ["Temperature"]},
+        ProvenanceEvent(tool="observable_measure", params={"terms": ["Temperature"]},
                         inputs=[ref("06_run/md.edr")], outputs=[xvg_ref]),
     ]
     assert collected_files(events, "job-md") == {"06_run/md.edr"}

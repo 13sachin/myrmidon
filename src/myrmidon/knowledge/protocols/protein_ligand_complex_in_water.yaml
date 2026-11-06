@@ -275,7 +275,7 @@ steps:
     pressure_bar: 1, duration_ps: 1000, sampling_ps: 10}
 
 - name: ligand_rmsd
-  tool: traj_analyze
+  tool: observable_measure
   needs:
   - tpr_production
   - trajectory_production
@@ -289,7 +289,7 @@ steps:
   estimate_core_h: 0.0
   estimate_basis: runs in the session, not on the scheduler
 - name: ligand_contact
-  tool: traj_analyze
+  tool: observable_measure
   needs:
   - tpr_production
   - trajectory_production

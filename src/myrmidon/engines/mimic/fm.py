@@ -330,7 +330,7 @@ def gmx_data_flags(ctx: ToolContext) -> list[str]:
     return []
 
 
-# -- fm_collect ---------------------------------------------------------------
+# -- dataset_collect ---------------------------------------------------------------
 
 
 # -- fm_plan ------------------------------------------------------------------
@@ -489,10 +489,10 @@ def fitted_pairs(top: Path, opt_itps: list[Path]) -> dict[str, Path]:
     return pairs
 
 
-# -- fm_frame_report ----------------------------------------------------------
+# -- dataset_collect ----------------------------------------------------------
 
 
-# -- fm_merge (combining several runs' reference data) ------------------------
+# -- dataset_collect (combining several runs' reference data) ------------------------
 
 
 # -- fm_displace_plan (displacement single-point reference windows) -----------

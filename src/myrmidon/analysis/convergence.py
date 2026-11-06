@@ -127,7 +127,7 @@ def describe(name: str, t_ps: np.ndarray, y: np.ndarray, unit: str | None,
 
 
 def read_series(path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """(time in ps, name -> values) from a gmx .xvg or a traj_analyze .npz over time."""
+    """(time in ps, name -> values) from a gmx .xvg or a observable_measure .npz over time."""
     from myrmidon.analysis.energy import parse_xvg
 
     if str(path).endswith(".npz"):

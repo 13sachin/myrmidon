@@ -2,7 +2,7 @@
 
 Point MYRMIDON_FM_DATASET at a directory holding an acetone/water reference dataset
 (ours has 2000 QM/MM configurations); the test skips when it is unset, because where
-that data lives is a fact about your machine. fm_collect validates the dataset (our real
+that data lives is a fact about your machine. dataset_collect validates the dataset (our real
 dataset is known to be trr<->h5 desynced by one frame — mimicpy remaps), fm_plan
 selects 100 snapshots, fm_fit runs DRESP + parameter optimization (through SLURM
 when the machine config says so), fm_results parses the outcome.
@@ -85,13 +85,13 @@ def test_force_matching_on_reference_dataset(ctx, approve_mandate):
     rel = lambda name: ws.relpath(inputs / name)  # noqa: E731
 
     ds = call(
-        ctx, "fm_collect",
+        ctx, "dataset_collect",
         fmdata=str(DATASET / "FMTRAJECTORY.h5"), trajectory=str(DATASET / "mimic_traj.trr"),
         topology=rel("acetone.top"), coords=rel("acetone.gro"), selection=rel("sele.dat"),
     )
     assert ds.qm_atoms == 10
     # This real dataset's trr and h5 sampling drift apart: only a small subset of frames
-    # truly match. fm_collect registers exactly that consistent, aligned subset.
+    # truly match. dataset_collect registers exactly that consistent, aligned subset.
     assert ds.frames is not None and ds.frames >= 20
     assert ds.fmdata_sha256 and ds.trr_sha256
     dataset = {a.role: str(ws.root / a.path) for a in ds.artifacts}
@@ -123,4 +123,4 @@ def test_force_matching_on_reference_dataset(ctx, approve_mandate):
     assert {a.role for a in res.artifacts} >= {"fm_log", "fitted_topology"}
 
     tools = {e.tool for e in ws.ledger.events()}
-    assert tools >= {"fm_collect", "fm_plan", "fm_fit", "fm_results"}
+    assert tools >= {"dataset_collect", "fm_plan", "fm_fit", "fm_results"}

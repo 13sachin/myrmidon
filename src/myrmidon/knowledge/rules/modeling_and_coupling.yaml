@@ -105,10 +105,10 @@ sensors:
   when:
     has_residue_offset: true
   sees: Topology 1-based residue numbering differs from deposited PDB numbering
-  means: 'Forbidden: Passing a deposited PDB residue number directly as ''resid N'' in traj_analyze
+  means: 'Forbidden: Passing a deposited PDB residue number directly as ''resid N'' in observable_measure
     when sequence gaps, N-terminal offsets or insertion codes shifted the topology numbering.'
-  usual_move: Use the topology 1-based resid in MDAnalysis / traj_analyze selections, and consult
-    system_profile.residue_map (or traj_analyze metric='contacts') to translate between deposited
+  usual_move: Use the topology 1-based resid in MDAnalysis / observable_measure selections, and consult
+    system_profile.residue_map (or observable_measure metric='contacts') to translate between deposited
     PDB residue numbers and topology resid.
   status: verified
   sources:

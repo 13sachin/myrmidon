@@ -257,7 +257,7 @@ def mimic_run(ctx: ToolContext, params: MimicRunParams) -> Observation:
         f"(booked {est} core-h" + (f"; {params._sizing}" if params._sizing else "") + "). "
         + (f"{aligned}. " if aligned else "")
         + "QM log: cpmd.out. Poll with job_status: once it has ended it returns the "
-        "run's outputs, the CPMD log and its diagnosis; mimic_diagnose reads a "
+        "run's outputs, the CPMD log and its diagnosis; run_diagnose reads a "
         "running one.",
         command=spec.argv,
         inputs=consumed,

@@ -5,39 +5,20 @@ the .xvg data — the model never invents them."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
-
 from myrmidon.analysis.energy import UNIT_BY_TERM, energy_menu, parse_xvg, term_stats
 from myrmidon.core.artifacts import ArtifactRef
-from myrmidon.core.contracts import Contract, Produces
 from myrmidon.core.observation import EnergyTermStats, Observation
-from myrmidon.core.tool import ToolContext, tool
+from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding
 from myrmidon.engines.gromacs.common import extract_energy_terms, tail
 from myrmidon.engines.inputs import resolve_in_ws
 
 
-class EnergyParams(BaseModel):
-    edr: str = Field(description="energy file (.edr) from a completed run")
-    terms: list[str] = Field(
-        description="energy terms to extract, spelled as GROMACS labels them: "
-        "'Potential', 'Temperature', 'Total-Energy', 'Kinetic-En.' (not 'Total Energy')",
-        min_length=1,
-    )
-
-
-@tool(
-    "gmx_energy",
-    description="Extract named energy terms from an .edr file into typed statistics "
-    "(mean, std, drift per ns) computed by the harness from the data.",
-    tags={"gromacs", "analysis"},
-    requires={"gromacs"},
-    contract=Contract(consumes={"edr": "energy"}, produces=(Produces("data"),)),
-)
-def gmx_energy(ctx: ToolContext, params: EnergyParams) -> Observation:
+def energy_statistics(ctx: ToolContext, edr_path: str, wanted: list[str]) -> Observation:
+    """Named energy terms of a run's energy file, with their statistics."""
     stage = ctx.workspace.stage("analysis")
-    edr = resolve_in_ws(ctx, params.edr)
-    xvg, proc = extract_energy_terms(ctx, edr, params.terms, stage)
+    edr = resolve_in_ws(ctx, edr_path)
+    xvg, proc = extract_energy_terms(ctx, edr, wanted, stage)
     command = list(proc.args)
     if proc.returncode != 0 or not xvg.exists():
         menu = energy_menu(proc.stderr + "\n" + proc.stdout)
@@ -45,7 +26,7 @@ def gmx_energy(ctx: ToolContext, params: EnergyParams) -> Observation:
         if menu and "No energy terms selected" in proc.stderr + proc.stdout:
             advisory.append(Finding(
                 id="ENERGY_TERM_NOT_IN_EDR",
-                message=f"none of {params.terms} is a label in this .edr. GROMACS matches its "
+                message=f"none of {wanted} is a label in this .edr. GROMACS matches its "
                 "own spellings (hyphens and dots), not spaced names: 'Total Energy' "
                 "selects nothing, 'Total-Energy' does.",
                 suggestion="retry with labels from available_terms",
@@ -67,7 +48,7 @@ def gmx_energy(ctx: ToolContext, params: EnergyParams) -> Observation:
         )
     time_ps = data[:, 0]
     terms: dict[str, EnergyTermStats] = {}
-    names = legends or params.terms
+    names = legends or wanted
     for i, name in enumerate(names, start=1):
         if i >= data.shape[1]:
             break

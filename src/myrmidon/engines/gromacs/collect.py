@@ -41,6 +41,21 @@ def spec_deffnm(record: JobRecord) -> str:
     return "md"
 
 
+def diagnose_log(ctx: ToolContext, path: Path) -> Observation:
+    """An mdrun log's own account: how far it got and whether it finished."""
+    from myrmidon.engines.gromacs.parse import run_facts
+
+    text = path.read_text(errors="replace")
+    facts = run_facts(text)
+    ok = bool(facts.get("finished_normally"))
+    return Observation(
+        ok=ok,
+        summary=("Run finished normally: " if ok else "Run NOT clean: ")
+        + ", ".join(f"{k} {v}" for k, v in facts.items() if k != "finished_normally"),
+        log_tail=None if ok else tail(text, LOG_TAIL_LINES),
+        **facts)
+
+
 def run_progress(record: JobRecord) -> tuple[RunProgress | None, str]:
     """mdrun's own counter for a run in flight, and the line that says it."""
     log = Path(record.spec.cwd) / f"{spec_deffnm(record)}.log"
@@ -91,8 +106,8 @@ def collect_run(ctx: ToolContext, record: JobRecord, state: JobState,
         return Observation(
             ok=True,
             summary=f"{job_id} completed: {len(artifacts)} output artifact(s). "
-            "Analyze with gmx_energy / traj_analyze — do not report values not present "
-            "in their observations.",
+            "Analyze with observable_measure; do not report values not present in its "
+            "observations.",
             job_id=job_id,
             state=state.value,
             exit_code=exit_code,

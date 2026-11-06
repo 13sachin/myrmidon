@@ -16,7 +16,7 @@ parameters:
     required_from_user: true
     derivable: the equilibration length the researcher asks for, in time, divided by dt. The tutorial
       ran 200 ps for its solute; a larger or slower system needs longer, and whether it was long enough
-      is read from gmx_energy, not assumed.
+      is read from observable_measure, not assumed.
   define:
     from_system: restraint_defines
     rationale: the topology's solute restraints, all on, so the solute holds while the box relaxes

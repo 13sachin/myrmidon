@@ -13,7 +13,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Build a better force field for this molecule — and of these candidates, which one agrees best?"
-  myrmidon-tools: "study_open mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup fm_plan fm_fit traj_frames gmx_grompp gmx_rerun fm_force_compare gmx_minimize_frames traj_analyze fm_report job_status file_write file_check"
+  myrmidon-tools: "study_open mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup fm_plan fm_fit traj_frames gmx_grompp gmx_rerun observable_measure gmx_minimize_frames observable_measure study_report job_status file_write file_check"
   myrmidon-protocols: "fm_reference_singlepoint"
   myrmidon-stages: "gromacs.single_point gromacs.minimize"
 ---
@@ -39,7 +39,7 @@ needs (with `file_write`).
 
 ## Drive
 
-1. `fm_plan` in the session, with `dataset_frames` (the `frames` `fm_collect` registered),
+1. `fm_plan` in the session, with `dataset_frames` (the `frames` `dataset_collect` registered),
    the QM total charge and the stride; say which of its assumed weights you accept.
 2. `fm_fit` with `preview=true` prices it. `mandate_write`: the files the fit and the arms
    start from as the system; the fit as a `parameter_fit` stage, the validation as a
@@ -53,10 +53,10 @@ needs (with `file_write`).
    through `file_write`, then `file_check`.
 4. Per arm, the starting topology included: `traj_frames` with `output: trajectory` writes
    the held-out frames once; `gmx_grompp` with that rerun mdp and the arm's topology →
-   `gmx_rerun` over those frames → `fm_force_compare` with the same `frames`. For the
+   `gmx_rerun` over those frames → `observable_measure` with the same `frames`. For the
    minimised geometry, `gmx_minimize_frames` with that `minimize` stage's mdp, then
-   `traj_analyze` with `metric: pair_distance` against the reference trajectory.
-5. `fm_report` for the parameter table.
+   `observable_measure` with `metric: pair_distance` against the reference trajectory.
+5. `study_report` for the parameter table.
 
 ## Stop
 

@@ -577,12 +577,13 @@ def test_a_deliverable_measured_otherwise_than_the_mandate_states_is_said(ws_ctx
     from myrmidon.core.mandate import deliverable_findings
 
     refused, _ = _mandate(ws_ctx, deliverables=[{
-        "name": "ligand RMSD", "tool": "traj_analyze", "params": {"metric": "rmsd", "fit": "x"}}])
+        "name": "ligand RMSD", "tool": "observable_measure",
+        "params": {"metric": "rmsd", "fit": "x"}}])
     assert not refused.ok and "takes no 'fit'" in refused.summary
     _mandate(ws_ctx, deliverables=[
-        {"name": "ligand RMSD", "tool": "traj_analyze",
+        {"name": "ligand RMSD", "tool": "observable_measure",
          "params": {"metric": "rmsd", "fit_selection": "backbone"}},
-        {"name": "backbone RMSD", "tool": "traj_analyze",
+        {"name": "backbone RMSD", "tool": "observable_measure",
          "params": {"metric": "rmsd", "fit_selection": "name CA"}},
         {"name": "the count"}])
     _sign(ws_ctx)
@@ -590,12 +591,12 @@ def test_a_deliverable_measured_otherwise_than_the_mandate_states_is_said(ws_ctx
 
     assert "params" not in read_mandate(ws_ctx.workspace).body()["deliverables"][2]
     ws = ws_ctx.workspace
-    assert deliverable_findings(ws, "traj_analyze", {"metric": "rmsd",
+    assert deliverable_findings(ws, "observable_measure", {"metric": "rmsd",
                                                      "fit_selection": "backbone"}) == []
-    assert deliverable_findings(ws, "traj_analyze", {"metric": "rmsd",
+    assert deliverable_findings(ws, "observable_measure", {"metric": "rmsd",
                                                      "fit_selection": "name CA"}) == []
-    assert deliverable_findings(ws, "traj_analyze", {"metric": "mindist"}) == []
-    said = deliverable_findings(ws, "traj_analyze", {"metric": "rmsd",
+    assert deliverable_findings(ws, "observable_measure", {"metric": "mindist"}) == []
+    said = deliverable_findings(ws, "observable_measure", {"metric": "rmsd",
                                                      "fit_selection": "protein"})
     assert {f.id for f in said} == {"DELIVERABLE_MEASURED_OTHERWISE"} and len(said) == 2
     assert "'protein'" in said[0].message

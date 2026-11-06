@@ -61,7 +61,7 @@ def tool_lookup(ctx: ToolContext, params: ToolLookupParams) -> Observation:
     """Keyword overlap against every registered tool's name, description and tags.
 
     The model is shown the tools whose engines this machine has, and a tool whose engine
-    is absent is not in its list. An agent that cannot see `fm_force_compare` and is asked
+    is absent is not in its list. An agent that cannot see `observable_measure` and is asked
     which force field agrees best with a QM/MM reference reimplements molecular mechanics
     in a script and reports numbers that are not the engine's. What this tool adds is the
     sentence the agent could not otherwise say: *the tool for this exists, and it needs

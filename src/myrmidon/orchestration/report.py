@@ -10,7 +10,7 @@ from myrmidon.core.tool import REGISTRY
 from myrmidon.core.workspace import Workspace
 from myrmidon.engines.facts import dipole_values, engine_log, is_run_log, run_values
 from myrmidon.errors import UnknownToolError
-from myrmidon.knowledge.observables import compile_deliverable
+from myrmidon.knowledge.observables import PROPERTIES, compile_deliverable, measured_property
 from myrmidon.orchestration.summary import summarize
 
 #: calls the report does not count as work besides the navigation tools (which declare
@@ -39,26 +39,15 @@ _KEY_PARAMS = {
     "gmx_genion": ("neutralize", "concentration_mol_l", "positive_ion", "negative_ion"),
     "gmx_make_ndx": ("structure", "commands"),
     "gmx_genrestr": ("structure", "group", "force_constants"),
-    "gmx_grompp": ("mdp", "structure", "topology", "index", "restraint_reference",
-                   "max_warn"),
-    "gmx_mdrun": ("tpr", "deffnm", "ntasks", "walltime_min"),
-    "checkpoint_continue": ("checkpoint", "extend_ps", "walltime_min"),
-    "gmx_energy": ("terms",),
-    "series_convergence": ("data", "series", "max_drift_per_ns", "max_halves_sigma"),
-    "traj_analyze": ("metric", "selection", "pairs", "reference"),
+    "stage_prepare": ("stage", "structure", "topology", "max_warn"),
+    "stage_run": ("stage", "cores", "walltime_min", "continue_run", "extend_ps"),
+    "observable_measure": ("deliverable", "property", "stage", "selection", "pairs", "terms",
+                           "topology", "max_drift_per_ns", "max_halves_sigma"),
+    "run_diagnose": ("stage", "log"),
+    "dataset_collect": ("stage", "fmdata", "trajectory"),
+    "snapshot_select": ("stage", "target_temperature_k", "n_frames", "frames"),
     "script_run": ("script", "args", "walltime_min", "ntasks"),
     "qm_region": ("coords", "selections", "padding_nm", "template"),
-    "mimic_prepare": ("total_charge", "multiplicity", "maxsteps", "fm_pace"),
-    "mimic_run": ("cpmd_input", "cpmd_ranks", "gromacs_ranks", "walltime_min"),
-    "traj_frames": ("trajectory", "frames", "n_frames", "output"),
-    "traj_concat": ("trajectories",),
-    "gmx_rerun": ("tpr", "trajectory", "walltime_min"),
-    "gmx_minimize_frames": ("topology", "mdp", "trajectory", "frames", "n_frames"),
-    "fm_merge": ("fm_jsons",),
-    "fm_collect": ("fmdata", "trajectory", "selection"),
-    "fm_plan": ("stride", "qm_total_charge"),
-    "fm_fit": ("fmdata", "fm_input", "mode", "n_processes"),
-    "fm_force_compare": ("topology", "forces", "fmdata", "frames"),
     "file_write": ("path",),
     "fetch_pdb": ("pdb_id",),
     "structure_select": ("structure", "chains", "ligand", "keep", "altloc"),
@@ -271,7 +260,9 @@ def analysis_values(ws, events, run_dir: str, run_files: set[str] = frozenset()
             values.append(ReportValue(step=run_dir, label=name, value=value, unit=unit,
                                       event=event_id, file=path))
 
-        if ev.tool == "gmx_energy":
+        measured = measured_property(ev.params)
+        extractor = PROPERTIES[measured][0] if measured in PROPERTIES else ""
+        if extractor == "energy":
             from myrmidon.analysis.energy import UNIT_BY_TERM, parse_xvg, term_stats
 
             data, legends = parse_xvg(file.read_text())
@@ -288,7 +279,7 @@ def analysis_values(ws, events, run_dir: str, run_files: set[str] = frozenset()
                 add(f"{name}, sd", st.std, unit)
                 if st.drift_per_ns is not None:
                     add(f"{name}, drift", st.drift_per_ns, f"{unit}/ns")
-        elif ev.tool == "traj_analyze" and ev.params.get("metric") == "pair_distance":
+        elif measured == "pair_distance":
             with np.load(file) as z:
                 labels = [str(x) for x in z["pairs"]]
                 d = z["pair_distance"]
@@ -302,14 +293,14 @@ def analysis_values(ws, events, run_dir: str, run_files: set[str] = frozenset()
             if ref is not None:
                 add("mean absolute difference from the reference",
                     float(np.mean(np.abs(d.mean(axis=0) - ref))), "Å")
-        elif ev.tool == "fm_force_compare":
+        elif extractor == "forces":
             data = json.loads(file.read_text())
             units = data.get("units") or ""
             lines.append(f"  - {label}: {data.get('label')} against the reference over "
                          f"{data.get('n_frames')} frames, from {out.path}:")
             add(f"{data.get('label')}, force RMSE", data["rmse"], units)
             add(f"{data.get('label')}, reference RMS", data["ref_rms"], units)
-        elif ev.tool == "traj_analyze":
+        elif extractor == "trajectory":
             metric = str(ev.params.get("metric", ""))
             with np.load(file) as z:
                 if metric not in z.files:
@@ -327,7 +318,7 @@ def analysis_values(ws, events, run_dir: str, run_files: set[str] = frozenset()
             add(f"{metric}, largest", float(np.max(y)), unit)
             if axis == "time_ps":
                 add(f"{metric}, final", float(y[-1]), unit)
-        elif ev.tool == "series_convergence":
+        elif extractor == "settling":
             for s in json.loads(file.read_text()):
                 unit = s.get("unit") or ""
                 lines.append(f"  - {label}: {s['name']} over {_fmt(s['span_ps'])} ps, "

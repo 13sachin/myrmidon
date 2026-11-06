@@ -12,7 +12,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Set up this system in water and equilibrate it — and what will it cost?"
-  myrmidon-tools: "study_open study_create protocol_lookup protocol_preview lookup mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup journal_write fetch_pdb structure_select ligand_parametrize complex_assemble gmx_pdb2gmx gmx_editconf gmx_solvate gmx_genion gmx_make_ndx gmx_genrestr gmx_grompp gmx_mdrun checkpoint_continue gmx_energy series_convergence traj_analyze job_status study_report"
+  myrmidon-tools: "study_open study_create protocol_lookup protocol_preview lookup mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup journal_write fetch_pdb structure_select ligand_parametrize complex_assemble gmx_pdb2gmx gmx_editconf gmx_solvate gmx_genion gmx_make_ndx gmx_genrestr gmx_grompp gmx_mdrun checkpoint_continue observable_measure observable_measure observable_measure job_status study_report"
   myrmidon-protocols: "mimic_qmmm_solvated_solute protein_ligand_complex_in_water"
   myrmidon-stages: "gromacs.minimize gromacs.dynamics"
 ---
@@ -87,8 +87,8 @@ turn.
 Under the approved mandate, per stage: `inputset_apply` with `stage=<name>`, the output
 `.mdp` and the structure the stage starts from → `gmx_grompp` → `gmx_mdrun`, whose walltime
 the harness sizes. Extending a finished run is `checkpoint_continue`, never a fresh
-`gmx_mdrun`. Then `traj_analyze` with `deliverable=<name>` for each deliverable, `gmx_energy`
-for the thermodynamics, and `series_convergence` on the series the question is about, in the
+`gmx_mdrun`. Then `observable_measure` with `deliverable=<name>` for each deliverable, `observable_measure`
+for the thermodynamics, and `observable_measure` on the series the question is about, in the
 session and without being asked.
 
 ## Stop
@@ -105,7 +105,7 @@ session and without being asked.
 ## Report
 
 `study_report` after `mandate_show`: each deliverable the mandate names with the statistics
-it asked for and the call that measured it, the `series_convergence` measurement, and a
+it asked for and the call that measured it, the `observable_measure` measurement, and a
 verdict only against the researcher's criterion. Then the artifacts by role, every decision
 and whose it was, and what stays open. A reading to add or change is `study_report` again
 with that section's `narrative`, never an edit of the file.

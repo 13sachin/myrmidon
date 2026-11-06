@@ -11,7 +11,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "My run stopped — what went wrong, and what do I change before I resubmit?"
-  myrmidon-tools: "study_open study_create file_read job_status mimic_diagnose file_check knowledge_search checkpoint_continue mimic_run journal_write mandate_write mandate_show"
+  myrmidon-tools: "study_open study_create file_read job_status run_diagnose file_check knowledge_search checkpoint_continue mimic_run journal_write mandate_write mandate_show"
 ---
 
 ## Scope
@@ -36,7 +36,7 @@ or a cause ruled out, in `journal_write`.
    what it left.
 2. A tracked job: `job_status` with its id; read `state`, `exit_code`, `diagnosis`,
    `log_tail`.
-3. A CPMD or MiMiC run: `mimic_diagnose` on its `cpmd.out`; read `log_tail`, `cpmd_error`,
+3. A CPMD or MiMiC run: `run_diagnose` on its `cpmd.out`; read `log_tail`, `cpmd_error`,
    `finished_normally`, `md_steps_completed` against `md_steps_requested`, and for a
    wavefunction optimisation `wavefunction_converged` and `scf_iterations` against
    `scf_max_iterations`. For an NVE stage without ion temperature control,

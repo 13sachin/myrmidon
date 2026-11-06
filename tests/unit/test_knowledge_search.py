@@ -73,7 +73,7 @@ def test_bm25_and_alias_expansion_retrieve_tools_cpmd_and_selection_grammars():
     assert any(p.section == "gmx make_ndx" for p in make_ndx)
 
     # Selection grammars (MDAnalysis vs make_ndx vs MiMiCPy)
-    grammar = store.search("MDAnalysis heavy atoms selection syntax traj_analyze",
+    grammar = store.search("MDAnalysis heavy atoms selection syntax observable_measure",
                            installed=installed)
     assert any("selection grammars" in p.section for p in grammar)
     assert any("not name H*" in p.text for p in grammar)

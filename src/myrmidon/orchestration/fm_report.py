@@ -23,6 +23,7 @@ from myrmidon.engines.fit_files import (
     parse_validation_force_residuals,
     unphysical_force_constants,
 )
+from myrmidon.knowledge.observables import measured_property
 from myrmidon.orchestration.summary import summarize
 
 # -- .itp parsers (grounded: the fitted files are the engine's output) ----------
@@ -135,7 +136,7 @@ class FMRound:
     collect: ProvenanceEvent | None = None
     merge: ProvenanceEvent | None = None
     candidate: ProvenanceEvent | None = None
-    attempts: int = 1  # fm_results calls on this stage (failed ones included)
+    attempts: int = 1  # collections of a fit on this stage (failed ones included)
     notes: list[str] = field(default_factory=list)
 
 
@@ -163,18 +164,18 @@ def _stage_of_output(ev: ProvenanceEvent, role: str) -> str | None:
 
 
 def is_fit_collection(ev: ProvenanceEvent) -> bool:
-    """A fit read back into facts: an ``fm_results`` call, or the ``job_status`` call that
-    collected an ``fm_fit`` job (it carries the fm_log)."""
-    return ev.kind == "call" and (
-        ev.tool == "fm_results"
-        or (ev.tool == "job_status" and any(a.role == "fm_log" for a in ev.outputs))
-    )
+    """A fit read back into facts: the collection of a fit's job (it carries the fit's log)."""
+    return ev.kind == "call" and any(a.role == "fm_log" for a in ev.outputs)
 
 
 def _fit_stage(ev: ProvenanceEvent) -> str:
-    if ev.tool == "fm_results":
-        return ev.params.get("stage", "fm")
     return _stage_of_output(ev, "fm_log") or "fm"
+
+
+def _fit_inputs(fit: ProvenanceEvent) -> tuple[str | None, str | None]:
+    """(the fit's input file, its reference dataset), by what the call that submitted it read."""
+    named = fit.params.get("inputs") or fit.params
+    return (named.get("fm_input"), named.get("reference_dataset") or named.get("fmdata"))
 
 
 def _link_round(events: list[ProvenanceEvent], stage: str,
@@ -182,15 +183,18 @@ def _link_round(events: list[ProvenanceEvent], stage: str,
     ok = [e for e in evs if e.ok]
     rnd = FMRound(stage=stage, results=(ok or evs)[-1], attempts=len(evs))
     if not ok:
-        rnd.notes.append("no clean fm_results on this stage: the fit did not complete")
-    rnd.fit = _last(events, "fm_fit", lambda e: e.params.get("stage", "fm") == stage)
+        rnd.notes.append("no clean collection of a fit on this stage: it did not complete")
+    by_id = {e.event_id: e for e in events}
+    rnd.fit = next((by_id[ref[len("collects:"):]] for ref in rnd.results.knowledge_refs
+                    if ref.startswith("collects:") and ref[len("collects:"):] in by_id), None)
     if rnd.fit:
-        fm_input = rnd.fit.params.get("fm_input")
-        fmdata = rnd.fit.params.get("fmdata")
-        rnd.plan = _last(events, "fm_plan", lambda e: fm_input in _out_paths(e)) or _last(
-            events, "fm_plan", lambda e: e.params.get("stage") == stage)
-        rnd.collect = _last(events, "fm_collect", lambda e: fmdata in _out_paths(e))
-        rnd.merge = _last(events, "fm_merge", lambda e: fmdata in _out_paths(e))
+        wrote = {a.path: e for e in events if e.ok and e.kind == "call" and e is not rnd.fit
+                 for a in e.outputs}
+        fm_input, fmdata = _fit_inputs(rnd.fit)
+        rnd.plan = wrote.get(fm_input)
+        rnd.collect = wrote.get(fmdata)
+        rnd.merge = rnd.collect if rnd.collect and len(rnd.collect.params.get(
+            "fmdata") or []) > 1 else None
     if any(a.role == "topology" for a in rnd.results.outputs):
         rnd.candidate = rnd.results  # the collection assembled it
     else:
@@ -198,7 +202,7 @@ def _link_round(events: list[ProvenanceEvent], stage: str,
                         if a.role == "fitted_topology"), None)
         if fit_dir is not None:
             rnd.candidate = _last(
-                events, "fm_candidate_topology",
+                events, "stage_run",
                 lambda e: any(str(Path(v).parent) == fit_dir
                               for v in e.params.get("replace", {}).values()))
     return rnd
@@ -237,9 +241,9 @@ def _ref(a: ArtifactRef | None) -> dict | None:
 def _dataset_block(root: Path, rnd: FMRound) -> dict:
     d: dict = {}
     if rnd.merge:
-        d["sources"] = rnd.merge.params.get("fm_jsons", [])
+        d["sources"] = rnd.merge.params.get("fmdata", [])
     if rnd.collect:
-        h5 = _art(rnd.collect, "fm_dataset")
+        h5 = _art(rnd.collect, "reference_dataset") or _art(rnd.collect, "fm_dataset")
         trr = _art(rnd.collect, "trajectory")
         d["fm_dataset"] = _ref(h5)
         d["trajectory"] = _ref(trr)
@@ -251,17 +255,29 @@ def _dataset_block(root: Path, rnd: FMRound) -> dict:
             d["trr_frames"] = facts.get("trr_frames")
             d["index_aligned"] = facts.get("index_aligned")
     elif rnd.fit:
-        d["fm_dataset"] = {"path": rnd.fit.params.get("fmdata"), "sha256": None}
+        d["fm_dataset"] = {"path": _fit_inputs(rnd.fit)[1], "sha256": None}
     return d
 
 
-def _plan_block(rnd: FMRound) -> dict:
+def _read_rendered(root: Path, rnd: FMRound) -> dict:
+    """The values the fit's input was rendered with, from the sidecar the render wrote."""
+    for a in rnd.plan.outputs:
+        if a.role == "provenance":
+            text = _read(root, a.path)
+            if text:
+                return json.loads(text).get("values", {})
+    return {}
+
+
+def _plan_block(root: Path, rnd: FMRound) -> dict:
     if rnd.plan is None:
         return {}
     p = rnd.plan.params
-    d = {k: p.get(k) for k in ("optimization_method", "stride", "qm_total_charge",
-                               "reference_charges", "eq_atoms", "dataset_frames")}
-    d["weights"] = {k: p.get(k) for k in ("wv", "we", "wh", "wq") if p.get(k) is not None}
+    written = _read_rendered(root, rnd)
+    d = {k: written.get(k, p.get(k)) for k in ("optimization_method", "stride", "qm_total_charge",
+                                               "reference_charges", "eq_atoms", "dataset_frames")}
+    d["weights"] = {k: written.get(k, p.get(k)) for k in ("wv", "we", "wh", "wq")
+                    if written.get(k, p.get(k)) is not None}
     d["extra"] = p.get("extra", {})
     d["fm_input"] = _ref(_art(rnd.plan, "fm_input"))
     d["acknowledged"] = list(rnd.plan.warnings_acknowledged)
@@ -283,8 +299,9 @@ def _fit_block(root: Path, rnd: FMRound) -> dict:
         "optimizer_success", "optimizer_message", "qm_total_charge", "wall_time_s",
         "completed")}
     d["fm_log"] = _ref(log_ref)
-    d["mode"] = rnd.fit.params.get("mode") if rnd.fit else None
-    d["n_processes"] = rnd.fit.params.get("n_processes") if rnd.fit else None
+    d["mode"] = rnd.fit.params.get("mode", "fm") if rnd.fit else None
+    d["n_processes"] = (rnd.fit.params.get("layout", {}).get("cpus_per_task",
+                        rnd.fit.params.get("n_processes")) if rnd.fit else None)
     d["acknowledged"] = list(rnd.fit.warnings_acknowledged) if rnd.fit else []
     d["attempts"] = rnd.attempts
     d["forces"] = {}
@@ -303,7 +320,7 @@ def _fit_block(root: Path, rnd: FMRound) -> dict:
 
 def _originals(root: Path, rnd: FMRound) -> dict[str, str]:
     """fitted itp path -> original itp path, from the candidate's replace map, else from
-    fm_results.original_itp (its fitted twin is opt_<name>)."""
+    the original .itp (its fitted twin is opt_<name>)."""
     pairs: dict[str, str] = {}
     if rnd.candidate and rnd.candidate.params.get("replace"):  # a separate candidate call
         top = Path(rnd.candidate.params.get("topology", ""))
@@ -370,15 +387,24 @@ def _current(root: Path, a: ArtifactRef | None) -> Path | None:
     return path if path.is_file() and sha256_file(path) == a.sha256 else None
 
 
-def _comparison_block(root: Path, events: list[ProvenanceEvent]) -> dict:
-    """Every topology compared with the reference: its forces (fm_force_compare, the latest
-    per topology) and the pair geometries measured against the reference ensemble
-    (traj_analyze pair_distance), each re-read from the file the call wrote."""
+def _scan_of(stage: str | None, mandate) -> list | None:
+    """The frames a minimising stage of the mandate works over; None for any other stage."""
+    found = mandate.method.stage(stage) if mandate is not None and stage else None
+    if found is None or found.kind != "minimize" or found.scan is None:
+        return None
+    return found.scan.values if found.scan.parameter == "frames" else None
+
+
+def _comparison_block(root: Path, events: list[ProvenanceEvent], mandate=None) -> dict:
+    """Every topology compared with the reference: its forces (the latest per topology) and the
+    pair geometries measured against the reference ensemble, each re-read from the file the call
+    wrote."""
     import numpy as np
 
     forces: dict[str, dict] = {}
     for ev in events:
-        if ev.tool != "fm_force_compare" or ev.kind != "call" or not ev.ok:
+        if (measured_property(ev.params) not in ("force_rmse", "qm_forces")
+                or ev.kind != "call" or not ev.ok):
             continue
         a = next((x for x in ev.outputs if x.role == "data"), None)
         path = _current(root, a)
@@ -390,8 +416,8 @@ def _comparison_block(root: Path, events: list[ProvenanceEvent]) -> dict:
             "file": a.path}
     geometry = []
     for ev in events:
-        if (ev.tool != "traj_analyze" or ev.kind != "call" or not ev.ok
-                or ev.params.get("metric") != "pair_distance" or not ev.params.get("reference")):
+        if (ev.kind != "call" or not ev.ok or measured_property(ev.params) != "pair_distance"
+                or not ev.params.get("reference")):
             continue
         a = next((x for x in ev.outputs if x.path.endswith(".npz")), None)
         path = _current(root, a)
@@ -409,9 +435,11 @@ def _comparison_block(root: Path, events: list[ProvenanceEvent]) -> dict:
             "mae": float(np.mean([abs(p["mean"] - p["reference_mean"]) for p in pairs.values()])),
         })
     minimisations = [
-        {"topology": ev.params.get("topology"), "trajectory": ev.params.get("trajectory"),
-         "frames": ev.params.get("frames") or ev.params.get("n_frames"), "event": ev.event_id}
-        for ev in events if ev.tool == "gmx_minimize_frames" and ev.kind == "call" and ev.ok]
+        {"topology": (ev.params.get("inputs") or {}).get("topology"),
+         "trajectory": (ev.params.get("inputs") or {}).get("trajectory"),
+         "frames": _scan_of(ev.params.get("stage"), mandate), "event": ev.event_id}
+        for ev in events if ev.kind == "call" and ev.ok and ev.tool == "stage_run"
+        and _scan_of(ev.params.get("stage"), mandate)]
     return {"forces": forces, "geometry": geometry, "minimisations": minimisations}
 
 
@@ -424,8 +452,18 @@ def build_fm_report(ws: Workspace, compute=None, backend=None) -> dict:
     for e in events:
         versions.update(e.engine_versions)
         myr = e.myrmidon_version or myr
-    single_points = [e for e in events if e.tool == "mimic_run" and e.kind == "call" and e.ok]
-    frames = [e for e in events if e.tool == "traj_frames" and e.kind == "call" and e.ok]
+    from myrmidon.core.mandate import read_mandate
+
+    mandate = read_mandate(ws)
+
+    def of_kind(ev, kind: str) -> bool:
+        found = (mandate.method.stage(ev.params.get("stage")) if mandate is not None
+                 and ev.tool == "stage_run" else None)
+        return found is not None and found.kind == kind and found.regime != "mm"
+
+    single_points = [e for e in events if e.kind == "call" and e.ok and of_kind(e, "single_point")]
+    frames = [e for e in events if e.kind == "call" and e.ok and any(
+        a.role == "snapshot" for a in e.outputs)]
     refusals = [e for e in events if e.kind == "gate_refused"]
     rounds = []
     for rnd in find_rounds(events):
@@ -433,7 +471,7 @@ def build_fm_report(ws: Workspace, compute=None, backend=None) -> dict:
             "stage": rnd.stage, "timestamp": rnd.results.timestamp.isoformat(timespec="seconds"),
             "clean": rnd.results.ok, "notes": rnd.notes,
             "dataset": _dataset_block(root, rnd),
-            "plan": _plan_block(rnd),
+            "plan": _plan_block(root, rnd),
             "fit": _fit_block(root, rnd),
             "parameters": _parameters_block(root, rnd),
             "candidate": _ref(_art(rnd.candidate, "topology")),
@@ -453,7 +491,7 @@ def build_fm_report(ws: Workspace, compute=None, backend=None) -> dict:
                  "n_frames": e.params.get("n_frames")} for e in frames],
         },
         "rounds": rounds,
-        "comparison": _comparison_block(root, events),
+        "comparison": _comparison_block(root, events, mandate),
         "gate_refusals": [
             {"tool": e.tool, "timestamp": e.timestamp.isoformat(timespec="seconds"),
              "findings": e.knowledge_refs} for e in refusals],
@@ -505,7 +543,7 @@ def render_fm_report(data: dict, max_rows: int = 40) -> str:
                  + (f"frames {sel['frames']}" if sel.get("frames") else
                     f"{sel.get('n_frames')} evenly spaced"))
     if not data["rounds"]:
-        L += ["", "## Rounds", "", "no fm_results event in the ledger — nothing was fitted here."]
+        L += ["", "## Rounds", "", "no fit was collected in the ledger — nothing was fitted here."]
     for i, r in enumerate(data["rounds"], 1):
         L += ["", f"## Round {i}: stage `{r['stage']}` ({r['timestamp']})"
               + ("" if r["clean"] else " — NOT CLEAN"), ""]
@@ -552,7 +590,7 @@ def render_fm_report(data: dict, max_rows: int = 40) -> str:
                          ("optimizer_success", "optimizer success"),
                          ("optimizer_message", "optimizer message"),
                          ("wall_time_s", "wall time (s)"), ("n_processes", "processes"),
-                         ("attempts", "fm_results calls on this stage")):
+                         ("attempts", "collections of a fit on this stage")):
             if f.get(k) is not None:
                 L.append(f"| {label} | {fmt_num(f[k])} |")
         if f.get("fm_log"):

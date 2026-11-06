@@ -31,7 +31,7 @@ def run_values(text: str) -> list[tuple[str, object, str]]:
     if engine is None:
         return []
     facts = engine.run_facts(text)
-    return [(label, facts[key], unit) for key, (label, unit) in engine.fact_labels.items()
+    return [(label, facts[key], unit) for key, (label, unit) in (engine.fact_labels or {}).items()
             if key in facts]
 
 

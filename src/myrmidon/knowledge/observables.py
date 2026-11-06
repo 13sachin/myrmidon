@@ -7,7 +7,7 @@ terms. :func:`compile_deliverable` turns it into the measuring tool and the para
 define the number: the selections, the superposition, the reference frame. The atom filter
 applies to every side alike, so two sides never differ in whether they count hydrogens.
 
-The selection language is MDAnalysis's (the language ``traj_analyze`` reads); a subsystem
+The selection language is MDAnalysis's (the language ``observable_measure`` reads); a subsystem
 is selected by what the mandate names it with: ``protein`` and ``nucleic`` by kind, any
 other by its residue names, else by its molecule types (a ligand's molecule is named after
 its residue). The table of properties is the one place a new observable is added.
@@ -24,25 +24,31 @@ from myrmidon.core.mandate import Deliverable, Mandate, Subsystem
 #: what a selection by backbone or by alpha carbon means for a subsystem of each kind
 POLYMERS = {"protein", "nucleic"}
 
-#: property -> (tool, the tool's name for it, the sides it relates, whether it superposes)
+#: the one tool every property is measured with
+MEASURE_TOOL = "observable_measure"
+#: property -> (the extractor that measures it, its name for it, the sides it relates, whether
+#: it superposes). A new property is one row here and its extractor (tools/measure.py)
 PROPERTIES: dict[str, tuple[str, str, int, bool]] = {
-    "rmsd": ("traj_analyze", "rmsd", 1, True),
-    "rmsf": ("traj_analyze", "rmsf", 1, True),
-    "radius_of_gyration": ("traj_analyze", "rg", 1, False),
-    "min_distance": ("traj_analyze", "mindist", 2, False),
-    "contacts": ("traj_analyze", "contacts", 2, False),
-    "pair_distance": ("traj_analyze", "pair_distance", 1, False),
-    "thermodynamics": ("gmx_energy", "thermodynamics", 0, False),
-    "energy_drift": ("gmx_energy", "energy_drift", 0, False),
-    "dipole": ("mimic_diagnose", "dipole", 0, False),
-    "step_timing": ("mimic_diagnose", "step_timing", 0, False),
-    "qm_forces": ("fm_force_compare", "qm_forces", 0, False),
-    "force_rmse": ("fm_force_compare", "force_rmse", 0, False),
-    "boundary_bonds": ("qm_region", "boundary_bonds", 0, False),
+    "rmsd": ("trajectory", "rmsd", 1, True),
+    "rmsf": ("trajectory", "rmsf", 1, True),
+    "radius_of_gyration": ("trajectory", "rg", 1, False),
+    "min_distance": ("trajectory", "mindist", 2, False),
+    "contacts": ("trajectory", "contacts", 2, False),
+    "pair_distance": ("trajectory", "pair_distance", 1, False),
+    "rdf": ("trajectory", "rdf", 2, False),
+    "thermodynamics": ("energy", "thermodynamics", 0, False),
+    "energy_drift": ("energy", "energy_drift", 0, False),
+    "energy_terms": ("energy", "energy_terms", 0, False),
+    "settling": ("settling", "settling", 0, False),
+    "dipole": ("run_log", "dipole", 0, False),
+    "step_timing": ("run_log", "step_timing", 0, False),
+    "qm_forces": ("forces", "qm_forces", 0, False),
+    "force_rmse": ("forces", "force_rmse", 0, False),
+    "boundary_bonds": ("region", "boundary_bonds", 0, False),
 }
-#: a coupled stage's thermodynamics and drift are CPMD's to state
-COUPLED = {"thermodynamics": "mimic_diagnose", "energy_drift": "mimic_diagnose"}
-#: what gmx_energy reads for an energy property
+#: a coupled stage's thermodynamics and drift are what its QM log states
+COUPLED = {"thermodynamics": "run_log", "energy_drift": "run_log"}
+#: what an energy property reads of a classical run's energy file
 ENERGY_TERMS = {"thermodynamics": ["Temperature", "Pressure", "Density", "Potential"],
                 "energy_drift": ["Conserved-En."]}
 #: the atom filter, the same on every side
@@ -52,6 +58,7 @@ ATOMS = {"heavy": "not name H*", "backbone": "backbone", "ca": "name CA", "all":
 class CompiledDeliverable(BaseModel):
     name: str
     tool: str
+    extractor: str = ""
     params: dict[str, Any] = Field(default_factory=dict)
     over: str = ""
     statistics: list[str] = Field(default_factory=list)
@@ -94,8 +101,17 @@ def _filtered(selection: str, atoms: str, kind: str) -> str:
     return f"{selection} and {word}" if word and selection else selection
 
 
+def measured_property(params: dict) -> str:
+    """The property a measuring call is of, by what it names: its property, a metric, or the
+    file only one extractor reads."""
+    return property_named(params.get("property") or params.get("metric") or (
+        "energy_terms" if params.get("edr") or params.get("terms")
+        else "settling" if params.get("data")
+        else "force_rmse" if params.get("forces") else ""))
+
+
 def property_named(name: str) -> str:
-    """The property a name means: itself, or the property its tool calls by that name
+    """The property a name means: itself, or the property its extractor calls by that name
     ("mindist" is min_distance); the name as given when neither."""
     if name in PROPERTIES:
         return name
@@ -103,7 +119,7 @@ def property_named(name: str) -> str:
 
 
 def compile_deliverable(mandate: Mandate, deliverable: Deliverable) -> CompiledDeliverable:
-    """The tool and the parameters that measure a deliverable as the mandate states it;
+    """The extractor and the parameters that measure a deliverable as the mandate states it;
     ``problems`` says what keeps it from being measured so."""
     d = deliverable
     out = CompiledDeliverable(name=d.name, tool=d.tool, params=dict(d.params), over=d.over,
@@ -114,11 +130,11 @@ def compile_deliverable(mandate: Mandate, deliverable: Deliverable) -> CompiledD
         out.problems.append(f"{d.name}: no property {d.property!r}; known: "
                             + ", ".join(PROPERTIES))
         return out
-    tool, metric, sides, superposes = PROPERTIES[d.property]
+    extractor, metric, sides, superposes = PROPERTIES[d.property]
     stage = mandate.method.stage(d.over)
     if stage is not None and stage.regime != "mm" and d.property in COUPLED:
-        tool = COUPLED[d.property]
-    out.tool = tool
+        extractor = COUPLED[d.property]
+    out.tool, out.extractor = MEASURE_TOOL, extractor
     subs = mandate.system.subsystems
 
     def side(name: str, role: str, atoms: str) -> tuple[str, str] | None:
@@ -137,11 +153,11 @@ def compile_deliverable(mandate: Mandate, deliverable: Deliverable) -> CompiledD
             return None
         return _filtered(selection, atoms, sub.kind), sub.kind
 
-    if tool == "traj_analyze":
-        out.params = {"metric": metric}
+    if extractor == "trajectory":
+        out.params = {"property": d.property, "metric": metric}
         if d.property == "pair_distance":
             out.problems.append(f"{d.name}: a pair distance names its atom pairs, which a "
-                                "deliverable cannot: state it as traj_analyze with its pairs")
+                                "deliverable cannot: measure it with its pairs")
             return out
         if not d.target:
             out.problems.append(f"{d.name}: {d.property} is measured on a target subsystem")
@@ -176,8 +192,8 @@ def compile_deliverable(mandate: Mandate, deliverable: Deliverable) -> CompiledD
                                     "measures a superposition from the stage's first frame")
         elif start != "stage_start":
             out.problems.append(f"{d.name}: {d.property} has no reference frame")
-    elif tool == "gmx_energy":
-        out.params = {"terms": ENERGY_TERMS[d.property]}
+    elif extractor == "energy":
+        out.params = {"property": d.property, "terms": ENERGY_TERMS[d.property]}
     else:
-        out.params = {}  # the tool measures it of the stage's run as a whole
+        out.params = {"property": d.property}  # of the stage's run as a whole
     return out

@@ -10,7 +10,7 @@ SLURM cluster.
 
 - **Tools for the whole path.** GROMACS preparation, runs and analysis (`fetch_pdb`,
   `gmx_pdb2gmx`, `gmx_editconf`, `gmx_solvate`, `gmx_genion`, `gmx_make_ndx`, `gmx_grompp`,
-  `gmx_mdrun`, `gmx_energy`, `traj_analyze`, `series_convergence`); protein–ligand complexes
+  `gmx_mdrun`, `observable_measure`, `observable_measure`, `observable_measure`); protein–ligand complexes
   (`structure_select`, `ligand_parametrize` with acpype GAFF/GAFF2 and AM1-BCC or Gasteiger
   charges and a PDB chemical-component lookup, `complex_assemble`); MiMiC QM/MM (QM region,
   CPMD input, coupled launch, diagnosis); MiMiCPy force matching. Building a system runs in

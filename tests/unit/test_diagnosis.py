@@ -33,7 +33,7 @@ def _diagnose(ws_ctx, cpmd_out, err=None, local_error=None, dipole=None):
         (stage / "cpmd.err").write_text(err())
     if local_error:
         (stage / "LocalError-0-0-0.log").write_text(local_error())
-    return REGISTRY.call("mimic_diagnose", ws_ctx, {"stage": "qmmm"})
+    return REGISTRY.call("run_diagnose", ws_ctx, {"stage": "qmmm"})
 
 
 # (cpmd.out, stderr, LocalError log, the engine's words the reader finds in log_tail,
@@ -125,7 +125,7 @@ def test_the_mock_fails_the_way_the_real_engine_does(ws_ctx, monkeypatch, mode, 
     monkeypatch.setenv("MOCK_CPMD_FAIL", mode)
     job = REGISTRY.call("mimic_run", ws_ctx, {"cpmd_input": run_inp, "tpr": tpr})
     assert _wait(ws_ctx, job.job_id).state == "FAILED"
-    diag = REGISTRY.call("mimic_diagnose", ws_ctx, {})
+    diag = REGISTRY.call("run_diagnose", ws_ctx, {})
     assert not diag.ok and words in diag.log_tail
     assert (error or "") in (diag.cpmd_error or "")
 

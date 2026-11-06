@@ -3,7 +3,7 @@ sees it."""
 
 from __future__ import annotations
 
-from myrmidon.engines.mimic import fit_collect, fm
+from myrmidon.engines.mimic import fit_collect, fm, fm_dataset
 from myrmidon.engines.registry import EngineAdapter, StageRender, StageText
 from myrmidon.knowledge.sensors import evaluate
 
@@ -28,4 +28,10 @@ ADAPTER = EngineAdapter(
     job_findings=fit_collect.job_findings,
     size_walltime=fit_collect.size_walltime,
     build_job=fit_collect.build_job,
+    collect_dataset=fm_dataset.collect_dataset,
+    log_names=("fm.log",),
+    is_log_text=lambda text: "Running Force matching in MiMiCPy" in text[:16384],
+    is_log=lambda path: path.name == "fm.log" and path.is_file(),
+    run_facts=fm.parse_fm_log,
+    diagnose=fit_collect.diagnose_log,
 )

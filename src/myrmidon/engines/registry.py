@@ -98,6 +98,8 @@ class EngineAdapter:
     compile_run_input: Callable[..., object] | None = None
     #: (ctx, a file a stage reads) -> facts a render takes from it, by the key each decides
     input_facts: Callable[..., dict] | None = None
+    #: the fixed names its logs go by: a run that died before its banner says so nowhere else
+    log_names: tuple[str, ...] = ()
     #: a log's text -> whether this engine wrote it
     is_log_text: Callable[[str], bool] | None = None
     #: a file -> whether it is this engine's log, read from its head
@@ -123,8 +125,10 @@ class EngineAdapter:
     build_job: Callable[..., StageJob] | None = None
     #: (ctx, job record, state, exit code) -> the typed artifacts a finished run wrote
     collect: Mapping[str, Callable] | None = None
-    #: (ctx, stage files, stage dir) -> force the fit reads back
-    force_rmse: Callable[..., object] | None = None
+    #: (ctx, request) -> a validated reference dataset, merged from the runs named
+    collect_dataset: Callable[..., object] | None = None
+    #: (ctx, a log it wrote) -> its log read into typed facts, with whether the run is clean
+    diagnose: Callable[..., object] | None = None
 
 
 @cache
@@ -158,3 +162,15 @@ def adapters_reading(kinds: set[str] | Mapping[str, object]) -> Iterator[EngineA
 def adapter_of_log(text: str) -> EngineAdapter | None:
     """The adapter whose engine wrote this log text; None for a log no engine claims."""
     return next((a for a in adapters() if a.is_log_text and a.is_log_text(text)), None)
+
+
+def adapter_of_file(path: Path) -> EngineAdapter | None:
+    """The adapter whose engine wrote this file, by its name or what it says; None for a file
+    no engine claims."""
+    named = next((a for a in adapters() if path.name in a.log_names), None)
+    return named or adapter_of_log(path.read_text(errors="replace"))
+
+
+def fit_adapter() -> EngineAdapter | None:
+    """The adapter that collects reference datasets for a fit; None where no engine does."""
+    return next((a for a in adapters() if a.collect_dataset), None)

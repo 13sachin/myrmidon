@@ -1,7 +1,7 @@
 """Generate a clean trr/h5 force-matching reference pair via the harness.
 
 One MiMiC BO-MD run with CPMD FORCE_MATCHING pace 1 and GROMACS nstxout=1 writes
-FMTRAJECTORY.json and mimic.trr in lockstep; fm_collect converts, aligns and
+FMTRAJECTORY.json and mimic.trr in lockstep; dataset_collect converts, aligns and
 registers the pair; a quick fm_fit proves it is fit-ready. Opt-in (a real
 multi-minute QM/MM run): set MYRMIDON_FM_GENERATE=1. Steps via
 MYRMIDON_FM_STEPS (default 300), CPMD ranks via MYRMIDON_TEST_CPMD_RANKS.
@@ -117,14 +117,14 @@ def test_generate_reference_pair(ctx, approve_mandate):
     )
     done = wait_job(ctx, job.job_id)
     assert done.state == "COMPLETED", f"{done.summary}\n{done.log_tail or ''}"
-    diag = call(ctx, "mimic_diagnose")
+    diag = call(ctx, "run_diagnose")
     assert diag.md_steps_completed == STEPS
 
     qmmm = ws.stage("qmmm")
     assert (qmmm / "FMTRAJECTORY.json").exists() and (qmmm / "mimic.trr").exists()
 
     ds = call(
-        ctx, "fm_collect",
+        ctx, "dataset_collect",
         fmdata=ws.relpath(qmmm / "FMTRAJECTORY.json"), trajectory=ws.relpath(qmmm / "mimic.trr"),
         topology=rel("acetone_equilibrated.top"), coords=rel("acetone_equilibrated.gro"),
         selection=ws.relpath(_write_sele(inputs)),

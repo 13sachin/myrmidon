@@ -138,7 +138,7 @@ def test_no_value_leaks_into_skill_prose(skills):
 
 
 def test_a_skill_never_ships_a_workaround_for_a_missing_tool(skills):
-    """"`mimic_diagnose` cannot read a single-point log — verify convergence yourself" is
+    """"`run_diagnose` cannot read a single-point log — verify convergence yourself" is
     not guidance. A missing sensor is a stop condition, never an instruction to parse an
     engine log by hand: what the model reads by eye is not in the ledger and is not
     grounded."""

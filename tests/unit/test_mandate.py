@@ -230,7 +230,7 @@ def test_a_run_of_no_named_stage_is_held_to_every_stages_locks_and_stands_in_for
 
     ws = ws_ctx.workspace
     _approved(ws_ctx, complex_system, deliverables=[
-        {"name": "potential energy", "tool": "gmx_energy", "over": "production",
+        {"name": "potential energy", "tool": "observable_measure", "over": "production",
          "params": {"terms": ["Potential"]}}])
     adhoc = {"inputset": "gromacs.nvt", "topology": complex_system["topology"],
              "overrides": {"nsteps": 500}}
@@ -246,7 +246,7 @@ def test_a_run_of_no_named_stage_is_held_to_every_stages_locks_and_stands_in_for
     assert done.ok, done.summary
     edr = next(a.path for a in done.artifacts if a.path.endswith(".edr"))
 
-    said = deliverable_findings(ws, "gmx_energy", {"edr": edr, "terms": ["Potential"]})
+    said = deliverable_findings(ws, "observable_measure", {"edr": edr, "terms": ["Potential"]})
     assert [f.id for f in said] == ["DELIVERABLE_STAGE_MISMATCH"]
     report = REGISTRY.call("study_report", ws_ctx, {})
     # every locked stage that never ran is said; one nothing locks (em) is not
@@ -261,7 +261,7 @@ def test_a_schema_1_file_reads_and_hashes_as_it_was_written():
                "method": {"protocol": "", "stages": ["minimise", "NPT 200 ps"]},
                "decisions": {"yours": [{"said": "300 K", "target": "gromacs.npt",
                                         "keys": {"ref_t": 300}}], "proposed": []},
-               "deliverables": [{"name": "density", "tool": "gmx_energy", "over": "npt"}],
+               "deliverables": [{"name": "density", "tool": "observable_measure", "over": "npt"}],
                "cost": {"estimate_core_h": 1.0, "ceiling_core_h": 10.0},
                "recovery": {"reruns": 1, "model_fixes": 2, "deadline_h": None},
                "status": "ready", "questions": [], "revision": 1, "reason": ""}
@@ -465,7 +465,7 @@ def test_a_deliverable_is_measured_as_approved_over_its_stages_run(ws_ctx, compl
 
     ws = ws_ctx.workspace
     _approved(ws_ctx, complex_system, deliverables=DELIVERABLES[1:])
-    before = REGISTRY.call("traj_analyze", ws_ctx, {
+    before = REGISTRY.call("observable_measure", ws_ctx, {
         "deliverable": DELIVERABLES[1]["name"], "structure": complex_system["structure"]})
     assert not before.ok  # no run of its stage is collected yet
 
@@ -485,7 +485,7 @@ def test_a_deliverable_is_measured_as_approved_over_its_stages_run(ws_ctx, compl
     done = REGISTRY.call("job_status", ws_ctx, {"job_id": job.job_id, "wait_seconds": 30})
     xtc = next(a.path for a in done.artifacts if a.path.endswith(".xtc"))
 
-    obs = REGISTRY.call("traj_analyze", ws_ctx, {
+    obs = REGISTRY.call("observable_measure", ws_ctx, {
         "deliverable": DELIVERABLES[1]["name"], "structure": complex_system["structure"],
         "selection": "all"})
     assert obs.ok, obs.summary
@@ -501,7 +501,7 @@ def test_a_deliverable_is_measured_as_approved_over_its_stages_run(ws_ctx, compl
 
     # bytes changed since the run wrote them are not that run's
     (ws.root / xtc).write_bytes((ws.root / xtc).read_bytes() + b"\0")
-    stale = REGISTRY.call("traj_analyze", ws_ctx, {
+    stale = REGISTRY.call("observable_measure", ws_ctx, {
         "deliverable": DELIVERABLES[1]["name"], "structure": complex_system["structure"]})
     assert not stale.ok
     (ws.root / xtc).write_bytes(frames.read_bytes())
@@ -724,7 +724,7 @@ def test_a_ramp_starts_where_the_stage_before_ended(temperature, ramp):
             else None) == ramp
 
 
-def _coupled_study(ws_ctx, stages):
+def _coupled_study(ws_ctx, stages, **extra):
     """Acetone in water, its QM region selected, under an approved mandate of these stages."""
     from myrmidon.core import mandate as mandates
 
@@ -744,7 +744,7 @@ def _coupled_study(ws_ctx, stages):
         "subsystems": {"solute": {"kind": "ligand", "resnames": ["ACT"]},
                        "solvent": {"kind": "solvent", "molecules": ["SOL"]}},
         **{k: v for k, v in QMMM.items() if k != "subsystems"},
-        "stages": stages})
+        "stages": stages, **extra})
     assert written.ok and written.status == "ready", written.summary
     held = mandates.read_mandate(ws)
     mandates.record_approval(ws, held, approver="researcher", via="terminal")
@@ -959,3 +959,51 @@ def test_a_stage_run_is_held_to_the_mandate_like_any_booking(ws_ctx):
         "structure": ws.relpath(other)}})
     assert not foreign.ok and foreign.error.code == "MANDATE_SYSTEM", foreign.summary
     assert held.digest
+
+
+def test_every_deliverable_is_measured_through_one_tool_on_either_regime(ws_ctx):
+    """A property of a classical stage and of a coupled one is one call, named by deliverable:
+    which extractor reads what is the harness's, and a property a stage's run cannot state is
+    said, never routed elsewhere."""
+    from myrmidon.core import mandate as mandates
+
+    deliverable = [
+        {"name": "T md", "property": "thermodynamics", "over": "md"},
+        {"name": "drift md", "property": "energy_drift", "over": "md"},
+        {"name": "dipole md", "property": "dipole", "over": "md"},
+        {"name": "T hot", "property": "thermodynamics", "over": "hot"},
+        {"name": "drift hot", "property": "energy_drift", "over": "hot"},
+        {"name": "dipole prod", "property": "dipole", "over": "prod"},
+    ]
+    held = _coupled_study(ws_ctx, [
+        {"name": "md", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300,
+         "steps": 100, "sampling_ps": 0.05},
+        {"name": "hot", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE", "steps": 10,
+         "qm_region": REGION},
+        {"name": "prod", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVT", "steps": 10,
+         "temperature_k": 300, "qm_region": REGION}], deliverables=deliverable)
+    assert [d.tool for d in mandates.read_mandate(ws_ctx.workspace).deliverables] == [""] * 6
+    assert held.deliverables
+    # nothing has run: measured as approved or not at all
+    early = REGISTRY.call("observable_measure", ws_ctx, {"deliverable": "T md"})
+    assert not early.ok and "no run" in early.summary
+    for stage in ("md", "hot", "prod"):
+        assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": stage}).ok
+        assert _run_stage(ws_ctx, stage)[1].ok
+    measured = {d["name"]: REGISTRY.call("observable_measure", ws_ctx, {"deliverable": d["name"]})
+                for d in deliverable}
+    # the mock's classical run writes no QM log: its dipole is refused for what it is
+    assert {name for name, obs in measured.items() if not obs.ok} == {"dipole md"}, {
+        name: obs.summary[:150] for name, obs in measured.items() if not obs.ok}
+    assert "QM log" in measured["dipole md"].summary
+    events = [e for e in ws_ctx.workspace.ledger.events()
+              if e.tool == "observable_measure" and e.ok]
+    assert {e.params["deliverable"] for e in events} == set(measured) - {"dipole md"}
+    assert all(e.params["property"] for e in events)
+    # a stage and a property, without a mandate's deliverable
+    by_stage = REGISTRY.call("observable_measure", ws_ctx, {"stage": "prod", "property": "dipole"})
+    assert by_stage.ok, by_stage.summary
+    diagnosed = {stage: REGISTRY.call("run_diagnose", ws_ctx, {"stage": stage})
+                 for stage in ("md", "hot")}
+    assert diagnosed["md"].finished_normally is True, diagnosed["md"].summary
+    assert diagnosed["hot"].finished_normally is True, diagnosed["hot"].summary

@@ -205,7 +205,7 @@ def rerun_trr(tpr, sub_trr, out):
     Coulomb-only and diagonal — atom i feels q_i along a fixed per-atom direction — so
     two candidate topologies differ in their forces exactly as they differ in their
     charges, and a comparison of topologies has a real and predictable winner. Enough
-    for a force comparison (`fm_force_compare`) to mean something without an engine.
+    for a force comparison (`observable_measure`) to mean something without an engine.
     """
     import MDAnalysis as mda
     import numpy as np

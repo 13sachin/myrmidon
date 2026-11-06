@@ -1,4 +1,4 @@
-"""`traj_analyze`: a trajectory metric is internal motion, under a stated preprocessing.
+"""`observable_measure`: a trajectory metric is internal motion, under a stated preprocessing.
 
 A fluctuation that counts the box drifting through space, or a molecule the box split in
 two, is a number nobody asked for. The parser's promises: rigid-body motion is removed
@@ -80,7 +80,7 @@ RIGID = [
 @pytest.mark.parametrize("metric,extra,axis,n_points,n_frames,has_final", RIGID)
 def test_rigid_body_motion_is_not_internal_motion(rigid, metric, extra, axis, n_points,
                                                   n_frames, has_final):
-    obs = REGISTRY.call("traj_analyze", rigid, {
+    obs = REGISTRY.call("observable_measure", rigid, {
         "structure": "01_input/rigid.gro", "trajectory": "01_input/rigid.trr",
         "metric": metric, "selection": "all", **extra})
     assert obs.ok, obs.summary
@@ -114,7 +114,7 @@ def test_a_molecule_split_by_the_box_is_made_whole_only_when_asked(ws_ctx, struc
     whole = np.array([[1.0, 1.0, 1.0], [3.0, 1.0, 1.0]])
     split = np.array([[1.0, 1.0, 1.0], [-17.0, 1.0, 1.0]])
     _write_frames(stage / "pair.trr", stage / "pair.pdb", [whole, split])
-    obs = REGISTRY.call("traj_analyze", ws_ctx, {
+    obs = REGISTRY.call("observable_measure", ws_ctx, {
         "structure": f"01_input/{structure}", "trajectory": "01_input/pair.trr",
         "metric": "rg", "selection": "all", "unwrap": unwrap})
     assert obs.ok is ok, obs.summary
@@ -148,7 +148,7 @@ def test_named_pairs_are_measured_under_the_box_and_against_a_reference(
     if reference is not None:
         _write_frames(stage / "ref.trr", stage / "pair.pdb", reference)
         params["reference"] = "01_input/ref.trr"
-    obs = REGISTRY.call("traj_analyze", ws_ctx, params)
+    obs = REGISTRY.call("observable_measure", ws_ctx, params)
     assert obs.ok, obs.summary
     assert obs.pairs["C1-C2"]["mean"] == pytest.approx(mean, abs=1e-4)
     assert obs.pairs["C1-C2"].get("reference_mean") == (
@@ -182,7 +182,7 @@ def test_mindist_reports_minimum_and_contacts_maps_deposited_residues(ws_ctx):
     f2 = np.array([[1.0, 1.0, 1.0], [2.8, 1.0, 1.0]])  # 1.8 A
     _write_frames(stage / "pair.trr", stage / "pair.pdb", [f1, f2])
 
-    md = REGISTRY.call("traj_analyze", ws_ctx, {
+    md = REGISTRY.call("observable_measure", ws_ctx, {
         "structure": "01_input/pair.pdb", "trajectory": "01_input/pair.trr",
         "metric": "mindist", "selection": "name C1", "selection2": "name C2"})
     assert md.ok, md.summary
@@ -191,7 +191,7 @@ def test_mindist_reports_minimum_and_contacts_maps_deposited_residues(ws_ctx):
     assert md.largest == pytest.approx(2.5, abs=1e-3)
     assert "min 1.800" in md.summary
 
-    ct = REGISTRY.call("traj_analyze", ws_ctx, {
+    ct = REGISTRY.call("observable_measure", ws_ctx, {
         "structure": "01_input/pair.pdb", "trajectory": "01_input/pair.trr",
         "metric": "contacts", "selection": "name C1", "selection2": "name C2",
         "cutoff_angstrom": 3.0})
@@ -208,7 +208,7 @@ def test_an_invalid_selection_is_refused_with_the_mdanalysis_spelling(ws_ctx):
     (stage / "pair.pdb").write_text(PAIR_PDB)
     f1 = np.array([[1.0, 1.0, 1.0], [3.5, 1.0, 1.0]])
     _write_frames(stage / "pair.trr", stage / "pair.pdb", [f1])
-    refused = REGISTRY.call("traj_analyze", ws_ctx, {
+    refused = REGISTRY.call("observable_measure", ws_ctx, {
         "structure": "01_input/pair.pdb", "trajectory": "01_input/pair.trr",
         "metric": "rmsd", "selection": "resname JZ4 and heavy"})
     assert not refused.ok and "not name H*" in refused.summary
@@ -239,7 +239,7 @@ def test_a_distance_between_unlike_selections_is_said(ws_ctx, first, second, mix
     (stage / "trio.pdb").write_text(TRIO_PDB)
     frame = mda.Universe(str(stage / "trio.pdb")).atoms.positions.copy()
     _write_frames(stage / "trio.trr", stage / "trio.pdb", [frame, frame])
-    obs = REGISTRY.call("traj_analyze", ws_ctx, {
+    obs = REGISTRY.call("observable_measure", ws_ctx, {
         "structure": "01_input/trio.pdb", "trajectory": "01_input/trio.trr",
         "metric": "mindist", "selection": first, "selection2": second})
     assert obs.ok, obs.summary
@@ -267,7 +267,7 @@ def test_an_rmsd_fitted_on_part_of_a_molecule_unwraps_the_molecule(ws_ctx):
     (stage / "chain.pdb").write_text(CHAIN_PDB)
     frame = mda.Universe(str(stage / "chain.pdb")).atoms.positions.copy()
     _write_frames(stage / "chain.trr", stage / "chain.pdb", [frame, frame + 0.5])
-    obs = REGISTRY.call("traj_analyze", ws_ctx, {
+    obs = REGISTRY.call("observable_measure", ws_ctx, {
         "structure": "01_input/chain.pdb", "trajectory": "01_input/chain.trr",
         "metric": "rmsd", "selection": "name C4", "fit_selection": "name C1 C3",
         "unwrap": True})
@@ -299,7 +299,7 @@ def test_a_ligand_rmsd_fitted_on_its_pocket_survives_the_box_edge(ws_ctx):
     (stage / "pocket.pdb").write_text(POCKET_PDB)
     p0 = mda.Universe(str(stage / "pocket.pdb")).atoms.positions.copy()
     _write_frames(stage / "pocket.trr", stage / "pocket.pdb", [p0, (p0 + [7.5, 0, 0]) % 10.0])
-    obs = REGISTRY.call("traj_analyze", ws_ctx, {
+    obs = REGISTRY.call("observable_measure", ws_ctx, {
         "structure": "01_input/pocket.pdb", "trajectory": "01_input/pocket.trr",
         "metric": "rmsd", "selection": "resname LIG", "fit_selection": "name C1 C3",
         "unwrap": True})

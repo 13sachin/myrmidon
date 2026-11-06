@@ -1,4 +1,4 @@
-"""gmx_energy reads each term by the label the edr gives it."""
+"""observable_measure reads each term by the label the edr gives it."""
 
 import pytest
 
@@ -19,7 +19,8 @@ def _edr(ws):
 # in the edr, and the refusal hands back the labels the file does offer.
 @pytest.mark.parametrize("term,read", [("Total-Energy", True), ("Total Energy", False)])
 def test_an_energy_term_is_read_by_the_label_the_edr_gives_it(ws_ctx, term, read):
-    obs = REGISTRY.call("gmx_energy", ws_ctx, {"edr": _edr(ws_ctx.workspace), "terms": [term]})
+    obs = REGISTRY.call("observable_measure", ws_ctx, {"edr": _edr(ws_ctx.workspace),
+                                                       "terms": [term]})
     assert obs.ok is read
     if read:
         assert term in obs.terms and not obs.available_terms

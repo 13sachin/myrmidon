@@ -7,7 +7,7 @@ from pathlib import Path
 
 from myrmidon.engines.gromacs import layout, mdp, parse, run, system
 from myrmidon.engines.gromacs.batch import collect_minimized
-from myrmidon.engines.gromacs.collect import collect_run
+from myrmidon.engines.gromacs.collect import collect_run, diagnose_log
 from myrmidon.engines.gromacs.collect import run_progress as mdrun_progress
 from myrmidon.engines.registry import EngineAdapter
 from myrmidon.execution.collect import collector, progress
@@ -58,4 +58,5 @@ ADAPTER = EngineAdapter(
     job_findings=run.job_findings,
     size_walltime=run.size_walltime,
     build_job=run.build_job,
+    diagnose=diagnose_log,
 )

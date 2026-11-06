@@ -285,8 +285,15 @@ def _said(constraint) -> str:
 def stage_run(ws, stage: str):
     """(what the latest collected run of ``stage`` wrote, what it was submitted on, how
     many collected runs of it there are): the files a measurement over that stage reads,
-    from the ledger; None when none was collected. A rerun of a stage's run input over a
-    trajectory recomputes it, and is no run of the stage."""
+    from the ledger; None when none was collected."""
+    found = stage_runs(ws, stage)
+    return (*found[-1], len(found)) if found else None
+
+
+def stage_runs(ws, stage: str) -> list[tuple]:
+    """(what each collected run of ``stage`` wrote, what it was submitted on), oldest first. A
+    rerun of a stage's run input over a trajectory recomputes it, and is no run of the stage
+    unless submitted as one."""
     lin = lineage(ws)
     events = [ev for ev in ws.ledger.events() if ev.ok and ev.kind == "call"]
     by_id = {ev.event_id: ev for ev in events}
@@ -303,7 +310,7 @@ def stage_run(ws, stage: str):
                              lin.parameter_files(submission.tool, submission.inputs)}:
                 continue
         found.append((ev.outputs, submission.inputs))
-    return (*found[-1], len(found)) if found else None
+    return found
 
 
 def stage_left(ws, stage: str) -> list:

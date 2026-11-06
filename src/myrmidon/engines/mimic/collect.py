@@ -4,6 +4,7 @@ coupled partner."""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from myrmidon.core.artifacts import ArtifactRef
@@ -13,6 +14,12 @@ from myrmidon.core.validation import Finding, Precondition
 from myrmidon.engines.gromacs.collect import collect_run, spec_deffnm
 from myrmidon.engines.inputs import require_input, resolve_in_ws
 from myrmidon.engines.mimic.cpmd_input import cpmd_findings, get_keyword, parse_cpmd
+from myrmidon.engines.mimic.diagnostics import (
+    cpmd_facts,
+    dipole_facts,
+    parse_cpmd_output,
+    read_local_errors,
+)
 from myrmidon.engines.mimic.launch import (
     GEOMETRY_NAME,
     align_mimic_paths,
@@ -414,3 +421,121 @@ def _collect_mimic_job(ctx: ToolContext, record, state, exit_code) -> Observatio
             f"{before} output artifact(s)", f"{len(obs.artifacts)} output artifact(s)"
         )
     return obs
+
+
+def diagnose_log(ctx: ToolContext, path: Path) -> Observation:
+    """The designated reader of a CPMD log, for both run types it can be.
+
+    `ok` is False when the run did not finish normally, when CPMD's error file or a signal
+    on stderr witnesses an abort, when the wavefunction did not converge, and when nothing
+    at all could be read from the log. The last two matter because a single point that
+    stops at its iteration cap exits 0 and writes a RESTART and a reference file that look
+    exactly like a good one's. Why a run failed is not classified here: the log's tail goes
+    back with the observation for the reader.
+    """
+    text = path.read_text(errors="replace")
+    facts = parse_cpmd_output(text)
+    cpmd_error = read_local_errors(path.parent)
+    # crashes (signals, MPI aborts) land on stderr, not in the CPMD log
+    err_path = path.with_suffix(".err")
+    err_text = err_path.read_text(errors="replace") if err_path.exists() else ""
+    sig = re.search(r"Caught signal \d+ \([^)]*\)", err_text) if err_text else None
+    if sig and not cpmd_error:
+        frame = re.search(r"^\s*1\s+0x[0-9a-f]+\s+(\S+?)\(\)", err_text, re.MULTILINE)
+        cpmd_error = sig.group(0) + (f" in {frame.group(1)}" if frame else "")
+    diagnosis = f"CPMD aborted: {cpmd_error}" if cpmd_error else None
+    converged = facts.get("wavefunction_converged")
+    read_something = any(
+        facts.get(key) is not None
+        for key in ("md_steps_completed", "scf_last_iterations", "scf_iterations")
+    )
+    ok = (
+        facts.get("finished_normally", False)
+        and diagnosis is None
+        and cpmd_error is None
+        and converged is not False
+        and read_something
+    )
+    bits = []
+    if facts.get("md_steps_completed") is not None:
+        bits.append(f"{facts['md_steps_completed']} MD step(s)")
+    if facts.get("scf_last_iterations") is not None:
+        bits.append(f"last SCF: {facts['scf_last_iterations']} iterations")
+    if facts.get("scf_iterations") is not None:
+        bits.append(
+            f"wavefunction optimisation: {facts['scf_iterations']} iterations, "
+            f"GEMAX {facts.get('gemax_last')} against {facts.get('gemax_criterion')}"
+        )
+    if facts.get("energy_total") is not None:
+        bits.append(f"total energy = {facts['energy_total']} a.u.")
+    elif facts.get("energy_last") is not None:
+        bits.append(f"EKS = {facts['energy_last']} a.u.")
+    if facts.get("t_qm_last") is not None:
+        bits.append(f"T(QM) = {facts['t_qm_last']} K, T(MM) = {facts.get('t_mm_last')} K")
+    if facts.get("eclassic_drift_ha_per_ps") is not None:
+        bits.append(
+            f"NVE over {facts['md_time_ps']:.4g} ps: ECLASSIC drift "
+            f"{facts['eclassic_drift_ha_per_ps']:.3g} Ha/ps, fluctuation "
+            f"{facts['eclassic_fluctuation_ha']:.2g} Ha")
+    elif facts.get("ion_temperature_control"):
+        bits.append(f"ions under {facts['ion_temperature_control']}: ECLASSIC not conserved")
+    dipole_path = path.parent / "DIPOLE"
+    dipole = (dipole_facts(text, dipole_path.read_text(errors="replace"))
+              if dipole_path.is_file() else {})
+    if dipole:
+        bits.append(f"QM dipole over {dipole['dipole_steps']} steps: "
+                    f"{dipole['dipole_debye_mean']:.3g} ± {dipole['dipole_debye_sd']:.2g} D")
+    if converged is False:
+        bits.append("wavefunction NOT converged")
+    # A log nothing could be read from is not a log that says the run was fine: a
+    # "finished normally, no step data parsed" would let unconverged forces into a fit
+    # unremarked.
+    head = (
+        "Run finished normally: " if ok
+        else ("Nothing could be read from this log: " if not read_something
+              else "Run NOT clean: ")
+    )
+    summary = (
+        head
+        + (", ".join(bits) if bits else "no step data parsed")
+        + (f". {diagnosis}" if diagnosis else "")
+        + (". The log's last lines are in log_tail." if not ok else "")
+    )
+    tail_text = None
+    if not ok:
+        tail_text = tail(text, LOG_TAIL_LINES)
+        if err_text.strip():
+            tail_text += "\n--- stderr ---\n" + tail(err_text, 20)
+    # the ionic temperature as the run states it: what a next stage starts from
+    ionic = cpmd_facts(text)
+    return Observation(
+        ok=ok,
+        summary=summary,
+        final_temperature_k=ionic.get("final_temperature_k"),
+        tail_mean_temperature_k=ionic.get("tail_mean_temperature_k"),
+        mean_temperature_k=ionic.get("mean_temperature_k"),
+        sd_temperature_k=ionic.get("sd_temperature_k"),
+        **dipole,
+        md_steps_completed=facts.get("md_steps_completed"),
+        md_steps_requested=facts.get("md_steps_requested"),
+        scf_last_iterations=facts.get("scf_last_iterations"),
+        energy_first=facts.get("energy_first"),
+        energy_last=facts.get("energy_last"),
+        eclassic_last=facts.get("eclassic_last"),
+        t_qm_last=facts.get("t_qm_last"),
+        t_mm_last=facts.get("t_mm_last"),
+        scf_iterations=facts.get("scf_iterations"),
+        gemax_last=facts.get("gemax_last"),
+        gemax_criterion=facts.get("gemax_criterion"),
+        scf_max_iterations=facts.get("scf_max_iterations"),
+        energy_total=facts.get("energy_total"),
+        wavefunction_converged=converged,
+        ion_temperature_control=facts.get("ion_temperature_control"),
+        md_time_ps=facts.get("md_time_ps"),
+        eclassic_drift_ha_per_ps=facts.get("eclassic_drift_ha_per_ps"),
+        eclassic_fluctuation_ha=facts.get("eclassic_fluctuation_ha"),
+        finished_normally=facts.get("finished_normally", False),
+        diagnosis=diagnosis,
+        cpmd_error=cpmd_error,
+        log_tail=tail_text,
+    )

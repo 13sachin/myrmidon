@@ -50,7 +50,7 @@ class FMPlanParams(BaseModel):
         default_factory=dict, description="extra fminput keys, passed through verbatim"
     )
     dataset_frames: int = Field(
-        description="total configurations in the dataset (from fm_collect) — REQUIRED "
+        description="total configurations in the dataset (from dataset_collect) — REQUIRED "
         "so the stride can be checked against reality",
     )
     output: str = Field(default="fminput.dat")
@@ -61,7 +61,7 @@ class FMPlanParams(BaseModel):
     "fm_plan",
     description="Write an explicit force-matching input (fminput.dat). Stride and QM "
     "total charge are REQUIRED; defaulted DRESP weights are surfaced as assumption "
-    "warnings; the stride is validated against the dataset size (from fm_collect).",
+    "warnings; the stride is validated against the dataset size (from dataset_collect).",
     tags={"mimic", "fm"},
     requires={"mimicpy"},
     contract=Contract(produces=(Produces("fm_input"),)),
@@ -143,7 +143,7 @@ class FMFitParams(BaseModel):
 
     topology: str
     coords: str
-    fmdata: str = Field(description="FMTRAJECTORY .h5 (from fm_collect)")
+    fmdata: str = Field(description="FMTRAJECTORY .h5 (from dataset_collect)")
     trajectory: str
     index: str = Field(description="index file with the QMatoms group (.ndx)")
     selection: str

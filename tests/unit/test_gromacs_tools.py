@@ -54,7 +54,7 @@ def test_gmx_energy_stats(ws_ctx):
     run_stage = ws.stage("run")
     (run_stage / "md.edr").write_text("MOCKEDR\n")
     obs = REGISTRY.call(
-        "gmx_energy",
+        "observable_measure",
         ws_ctx,
         {"edr": ws.relpath(run_stage / "md.edr"), "terms": ["Potential", "Temperature"]},
     )
@@ -487,7 +487,7 @@ def test_the_sensor_reads_time_series_and_only_those(ws_ctx, name, content, ok):
         path.write_text('@    title "x"\n@ s0 legend "Density"\n' + rows)
     else:
         np.savez(path, **{content: t, name.split(".")[0]: y})
-    obs = REGISTRY.call("series_convergence", ws_ctx, {"data": ws.relpath(path)})
+    obs = REGISTRY.call("observable_measure", ws_ctx, {"data": ws.relpath(path)})
     assert obs.ok is ok, obs.summary
     if ok:
         assert obs.series[0].criterion_met is None and obs.series[0].effective_samples > 10
@@ -548,7 +548,7 @@ def test_frames_are_minimised_and_reevaluated_under_one_topology(ws_ctx):
     assert done.ok, done.summary
     assert (done.n_requested, done.n_minimised, done.n_converged) == (3, 3, 3)
     minimised = next(a.path for a in done.artifacts if a.role == "trajectory")
-    geometry = REGISTRY.call("traj_analyze", ws_ctx, {
+    geometry = REGISTRY.call("observable_measure", ws_ctx, {
         "structure": "01_input/mol.gro", "trajectory": minimised, "metric": "pair_distance",
         "pairs": {"C-O": [1, 2]}, "reference": "01_input/ref.trr"})
     assert geometry.ok, geometry.summary

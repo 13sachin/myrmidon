@@ -183,7 +183,7 @@ def test_full_chain_on_trp_cage(real_ctx, approve_mandate):
 
     # --- analysis: numbers come from the harness, sanity-checked here ---
     energy = call(
-        ctx, "gmx_energy",
+        ctx, "observable_measure",
         edr=next(a.path for a in results.artifacts if a.role == "energy"),
         terms=["Potential", "Temperature"],
     )
@@ -194,7 +194,7 @@ def test_full_chain_on_trp_cage(real_ctx, approve_mandate):
 
     # topology from .gro, not .tpr: MDAnalysis lags new GROMACS tpx versions
     rmsd = call(
-        ctx, "traj_analyze",
+        ctx, "observable_measure",
         structure=next(a.path for a in results.artifacts if a.role == "structure"),
         trajectory=next(a.path for a in results.artifacts if a.role == "trajectory"),
         metric="rmsd", selection="protein",

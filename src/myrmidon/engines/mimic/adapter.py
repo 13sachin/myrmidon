@@ -67,6 +67,7 @@ ADAPTER = EngineAdapter(
     renders=("cpmd_inp",),
     render=lambda values, _origin, header: cpmd_input.render_cpmd_from_values(values, header),
     stage_text=_stage_text,
+    log_names=("cpmd.out",),
     reads_key=lambda key: key.startswith("&"),
     is_log_text=diagnostics.is_cpmd_text,
     is_log=diagnostics.is_cpmd_output,
@@ -79,4 +80,5 @@ ADAPTER = EngineAdapter(
     job_findings=collect.job_findings,
     size_walltime=collect.size_walltime,
     build_job=collect.build_job,
+    diagnose=collect.diagnose_log,
 )

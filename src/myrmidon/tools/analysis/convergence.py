@@ -1,55 +1,19 @@
-"""series_convergence: whether a time series has settled, and from where."""
+"""Settling: whether a time series has settled, and from where."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, Field
-
 from myrmidon.analysis.convergence import describe, read_series, verdict_line
-from myrmidon.core.contracts import Contract, Produces
 from myrmidon.core.observation import Observation
-from myrmidon.core.tool import ToolContext, tool
+from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding
 from myrmidon.engines.inputs import resolve_in_ws
 
 
-class ConvergenceParams(BaseModel):
-    data: str = Field(description="a time series: gmx_energy's .xvg, traj_analyze's .npz, or "
-                      "a run's .edr, whose named `series` are extracted first")
-    series: list[str] = Field(
-        default_factory=list,
-        description="which series of the file (legend names, e.g. 'Density'); empty = all. "
-        "Required for an .edr, spelled as GROMACS labels its terms",
-    )
-    max_drift_per_ns: float | None = Field(
-        default=None, gt=0,
-        description="the researcher's criterion: largest |drift| of the settled part, in the "
-        "series' unit per ns. Unset = no verdict",
-    )
-    min_settled_fraction: float = Field(
-        default=0.5, gt=0, le=1,
-        description="no verdict when the settled part is a smaller fraction of the series "
-        "than this: a series that is still drifting has most of it discarded, and its last "
-        "stretch looks flat",
-    )
-    max_halves_sigma: float | None = Field(
-        default=None, gt=0,
-        description="the researcher's criterion: largest difference between the settled "
-        "part's two half-means, in combined standard errors (e.g. 2). Unset = no verdict",
-    )
-
-
-@tool(
-    "series_convergence",
-    description="Measure whether a time series has settled: where its equilibrated part begins, "
-                "that part's mean with a correlation-corrected error, its drift, and its halves' "
-                "difference (Chodera 2016). Says whether a criterion is met only when the "
-                "researcher gives one.",
-    tags={"analysis"},
-    contract=Contract(consumes={"data": ("data", "energy")}, produces=(Produces("data"),)),
-)
-def series_convergence(ctx: ToolContext, params: ConvergenceParams) -> Observation:
+def series_settling(ctx: ToolContext, params) -> Observation:
+    """Whether a time series has settled: where its equilibrated part begins, that part's mean
+    with a correlation-corrected error, its drift, its halves' difference (Chodera 2016)."""
     from myrmidon.core.artifacts import ArtifactRef, fresh_path
 
     path = resolve_in_ws(ctx, params.data)
@@ -76,7 +40,7 @@ def series_convergence(ctx: ToolContext, params: ConvergenceParams) -> Observati
 
     def unit_of(name: str) -> str:
         if str(path).endswith(".npz"):
-            return "Å"  # traj_analyze's series are in MDAnalysis units
+            return "Å"  # a trajectory metric's series are in MDAnalysis units
         from myrmidon.analysis.energy import UNIT_BY_TERM
 
         return UNIT_BY_TERM.get(name.lower(), "kJ/mol")  # gmx energy's, by its term

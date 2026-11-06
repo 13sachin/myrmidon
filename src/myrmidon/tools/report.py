@@ -64,13 +64,16 @@ class StudyReportParams(BaseModel):
     )
     output: str = Field(default="report.md",
                         description="a file name in the study's directory")
+    max_rows: int = Field(default=40, ge=1, description="table rows per section of a fit's tables")
 
 
 def study_report_gate(ctx: ToolContext, params: StudyReportParams):
     from myrmidon.core.mandate import read_mandate
+    from myrmidon.orchestration.fm_report import find_rounds
 
     checked = ["mandate_exists"]
-    if read_mandate(ctx.workspace) is None:
+    fitted = find_rounds(list(ctx.workspace.ledger.events()))
+    if read_mandate(ctx.workspace) is None and not fitted:
         return [Precondition(
             id="REPORT_NO_MANDATE",
             message="this study has no mandate, so there is nothing to report against",
@@ -90,8 +93,9 @@ def study_report_gate(ctx: ToolContext, params: StudyReportParams):
 @tool(
     "study_report",
     description="Write the study's report as a file from its trace, in sections: question, "
-                "methods, ran, checks, results (each deliverable), deviations, record. The "
-                "harness writes every value with its source; you add prose per section.",
+                "methods, ran, checks, results (each deliverable), deviations, record, a fit's "
+                "tables. The harness writes every value with its source; you add prose per "
+                "section.",
     tags={"report"},
 )
 def study_report(ctx: ToolContext, params: StudyReportParams) -> Observation:
@@ -100,17 +104,59 @@ def study_report(ctx: ToolContext, params: StudyReportParams) -> Observation:
     from myrmidon.core.mandate import read_mandate
     from myrmidon.orchestration.report import mandate_report, narrative_sections, render_sections
 
-    sections, values = mandate_report(ctx, read_mandate(ctx.workspace))
+    mandate = read_mandate(ctx.workspace)
+    sections, values = mandate_report(ctx, mandate) if mandate is not None else ({}, [])
     path = ctx.workspace.root / params.output
-    path.write_text(render_sections(sections, params.narrative))
+    text = render_sections(sections, params.narrative) if mandate is not None else ""
+    fit = _fit_tables(ctx, params)
+    path.write_text(text + fit["text"])
     own = list(narrative_sections(params.narrative)[1])
     return Observation(
         ok=True,
         summary=f"report written to {ctx.workspace.relpath(path)}: {len(values)} parsed "
         "value(s); read it for the values before adding narrative"
-        + (f"; your section(s) {', '.join(own)} follow the report's" if own else ""),
+        + (f"; your section(s) {', '.join(own)} follow the report's" if own else "")
+        + fit["said"],
         path=ctx.workspace.relpath(path),
-        artifacts=[ArtifactRef.from_path(path, "report", ctx.workspace.root)],
+        artifacts=[ArtifactRef.from_path(path, "report", ctx.workspace.root), *fit["artifacts"]],
         values=values,
+        rounds=fit["rounds"],
         quiet={"values"},  # every value is in the report written
     )
+
+
+def _fit_tables(ctx: ToolContext, params: StudyReportParams) -> dict:
+    """A study with a fit's collection reports it too: per round the dataset, settings, outcome,
+    charge and bonded-term changes, candidate topology and validation, every number re-parsed
+    from the files the ledger names, with the same data beside it as report.json."""
+    import json
+
+    from myrmidon.core.artifacts import ArtifactRef
+    from myrmidon.orchestration.fm_report import (
+        build_fm_report,
+        find_rounds,
+        fmt_num,
+        render_fm_report,
+    )
+
+    ws = ctx.workspace
+    if not find_rounds(list(ws.ledger.events())):
+        return {"text": "", "said": "", "artifacts": [], "rounds": []}
+    data = build_fm_report(ws, compute=ctx.config.compute, backend=ctx.backend)
+    sidecar = ws.root / (params.output.removesuffix(".md") + ".json")
+    sidecar.write_text(json.dumps(data, indent=1, sort_keys=True, default=str) + "\n")
+    digest, bits = [], []
+    for r in data["rounds"]:
+        mae = {metric: m["mae"] for metric, m in r["validation"].get("metrics", {}).items()}
+        terms = sum(len(p.get("unphysical", [])) for p in r["parameters"])
+        digest.append({"stage": r["stage"], "clean": r["clean"],
+                       "n_snapshots": r["fit"].get("n_snapshots"),
+                       "validation_sdf": r["fit"].get("validation_sdf"),
+                       "n_unphysical": terms, "mae": mae})
+        said = (f"{r['stage']}: {r['fit'].get('n_snapshots')} snapshots, SDF "
+                f"{fmt_num(r['fit'].get('validation_sdf'))}")
+        bits.append(said + (f", {terms} UNPHYSICAL terms" if terms else ""))
+    return {"text": "\n\n" + render_fm_report(data, max_rows=params.max_rows),
+            "said": f"; {len(digest)} fit round(s) ({'; '.join(bits)}), data in "
+            f"{ws.relpath(sidecar)}", "rounds": digest,
+            "artifacts": [ArtifactRef.from_path(sidecar, "report", ws.root)]}

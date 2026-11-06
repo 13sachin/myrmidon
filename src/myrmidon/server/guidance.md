@@ -44,7 +44,7 @@
    `revise=true` and the reason, which the researcher approves again. After a submission,
    say the job id and the core-hours booked, and do not poll: `job_status` with
    `wait_seconds` only for a run that lands within minutes; the next session or `myrmidon tick`
-   collects the rest. `traj_analyze` with `deliverable=<name>` measures a deliverable as
+   collects the rest. `observable_measure` with `deliverable=<name>` measures a deliverable as
    approved, over the run of its stage. `mandate_show` shows the mandate and its spend;
    `study_report` builds the report from the trace.
 6. A finding is what a careful researcher would notice: what it sees, what it means, the

@@ -3,7 +3,7 @@
 A minimised frame says where a force field puts the nearest minimum of a geometry the
 reference sampled: the cheap test of whether it holds a structure. One job minimises
 every frame asked for and collects the minimised coordinates into one trajectory, which
-``traj_analyze`` then reads like any other; a comparison of topologies is the same call
+``observable_measure`` then reads like any other; a comparison of topologies is the same call
 on each, over the same frames.
 """
 
@@ -100,7 +100,7 @@ def _frames(params: MinimizeFramesParams, n_total: int) -> list[int]:
     description="Minimise trajectory frames under one topology in one job: each frame built with "
                 "grompp from the minimisation mdp and minimised. job_status collects the minimised"
                 " trajectory with each frame's convergence and energies; compare force fields with"
-                " traj_analyze pair_distance.",
+                " observable_measure pair_distance.",
     tags={"gromacs", "run"},
     requires={"gromacs"},
     expensive=True,
