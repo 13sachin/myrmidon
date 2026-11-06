@@ -54,8 +54,8 @@ parameters:
     rationale: cm^-1, the Nose-Hoover thermostat's frequency
     source: 0
   '&CPMD/DIPOLE DYNAMICS': {by_stage: thermostat, map: {constant: true}, source: 0}
-  '&CPMD/TRAJECTORY SAMPLE': {from_stage: sampling_steps, default: 100}
-  '&CPMD/STORE': {from_stage: sampling_steps, default: 100}
+  '&CPMD/TRAJECTORY SAMPLE': {from_stage: sampling_steps}
+  '&CPMD/STORE': {from_stage: sampling_steps}
   '&CPMD/RESTFILE': {value: 1, source: 0}
 sources:
 - kind: url

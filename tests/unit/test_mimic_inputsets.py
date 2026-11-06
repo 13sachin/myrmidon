@@ -154,7 +154,9 @@ DIFFERENT = {
     "mimic.mdp": {
         "rcoulomb": ("1.2", "1"), "rvdw": ("1.2", "1"),  # the Amber method's
         "nsteps": ("100000", "300"),  # the stage's steps; CPMD's MAXSTEP ends the run
-        "nstlog": ("50", None), "nstvout": ("50", None),
+        # both engines write at the stage's one stride
+        "nstxout": ("50", "10"), "nstvout": ("50", "10"), "nstenergy": ("50", "10"),
+        "nstlog": ("50", None),
         "fourierspacing": ("0.16", None), "pme_order": ("4", None), "nstlist": ("10", None),
         "ns_type": ("grid", None),
         "constraint_algorithm": (None, "lincs"),  # inert under constraints = none
@@ -188,7 +190,7 @@ def test_each_file_backed_stage_reproduces_the_published_input(reference):
         departures = {k: (expected.get(k), rendered.get(k))
                       for k in set(rendered) | set(expected)
                       if not _same_value(rendered.get(k), expected.get(k))}
-        assert departures == DIFFERENT.get(reference, {})
+        assert departures == DIFFERENT.get(reference, {}), departures
     else:
         rendered = _method_sections(render_cpmd_from_values(resolution.values))
         expected = _method_sections(text)
@@ -344,8 +346,9 @@ def test_the_force_matching_stage_reproduces_the_harness_fixtures():
                   if not _same_value(got.get(k), ref.get(k))}
     assert departures == {
         "rcoulomb": ("1.2", "1"), "rvdw": ("1.2", "1"),  # the Amber method's
+        "nstvout": ("0", "1"),  # both engines write at the stage's one stride, velocities too
         "fourierspacing": ("0.16", None), "pme_order": ("4", None), "nstlist": ("10", None),
-        "nstlog": ("100", None), "nstvout": ("0", None),  # the engine's defaults
+        "nstlog": ("100", None),  # the engine's defaults
         "constraint_algorithm": (None, "lincs"),  # inert under constraints = none
     }
 

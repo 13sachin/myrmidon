@@ -174,6 +174,8 @@ class StageRunParams(BaseModel):
         "its walltime, or one a stage that starts from itself extends")
     extend_ps: float | None = Field(default=None, gt=0, description="with continue_run: how many "
                                     "ps further than the run's end; unset, to the end it states")
+    snapshot: str | None = Field(default=None, description="a geometry snapshot_select wrote, for "
+                                 "a coupled stage to start from in place of the restart's")
     inputs: dict[str, str] = Field(
         default_factory=dict, description="files by kind, each read in place of what the ledger "
         "says the stage reads (trajectory, restart, geometry, ...); the rest are resolved")
@@ -201,6 +203,8 @@ class StageRunParams(BaseModel):
         continuing = self.continue_run or (begins is not None and begins.name == stage.name)
         inputs = {**stage_files(ctx.workspace, stage.name), **self.inputs}
         inputs |= {**engine.stage_inputs(ctx, mandate, stage, inputs, continuing), **self.inputs}
+        if self.snapshot:
+            inputs["geometry"] = self.snapshot
         inputs = {k: v for k, v in inputs.items() if k in _RUN_KINDS}
         files = {k: ctx.workspace.resolve(v) for k, v in inputs.items()}
         _, node = ctx.config.compute.billing(self.partition)

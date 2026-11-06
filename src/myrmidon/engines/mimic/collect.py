@@ -13,7 +13,12 @@ from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding, Precondition
 from myrmidon.engines.gromacs.collect import collect_run, spec_deffnm
 from myrmidon.engines.inputs import require_input, resolve_in_ws
-from myrmidon.engines.mimic.cpmd_input import cpmd_findings, get_keyword, parse_cpmd
+from myrmidon.engines.mimic.cpmd_input import (
+    cpmd_findings,
+    get_keyword,
+    parse_cpmd,
+    render_cpmd,
+)
 from myrmidon.engines.mimic.diagnostics import (
     cpmd_facts,
     dipole_facts,
@@ -287,6 +292,23 @@ def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, core
     return booked_minutes(minutes) if minutes is not None else None, why
 
 
+def _reads_geometry(run_input: Path, run_dir: Path) -> Path:
+    """The run input with GEOFILE on its RESTART line, so CPMD takes the ions from the GEOMETRY
+    a snapshot gave it: a copy in the run's directory, with its sidecar beside it."""
+    import shutil
+
+    sections = parse_cpmd(run_input.read_text())
+    sections["CPMD"] = [f"{line} GEOFILE" if line.strip().upper().startswith("RESTART")
+                        and "GEOFILE" not in line.upper() else line
+                        for line in sections.get("CPMD", [])]
+    target = run_dir / run_input.name
+    target.write_text(render_cpmd(sections))
+    sidecar = run_input.with_name(run_input.name + ".myrmidon.json")
+    if sidecar.is_file() and sidecar.parent != run_dir:
+        shutil.copy2(sidecar, target.with_name(target.name + ".myrmidon.json"))
+    return target
+
+
 def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request) -> StageJob:
     """A coupled stage as a job: CPMD and GROMACS started together in a directory of their own,
     never reused, since CPMD's output names are fixed and a second run would erase the first."""
@@ -295,6 +317,8 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
     root = ctx.workspace.root
     run_dir = ctx.workspace.run_dir(ctx.workspace.stage(stage.name), stage.name)
     run_input, aligned = align_mimic_paths(inputs["cpmd_input"], run_dir)
+    if request.snapshot:
+        run_input = _reads_geometry(run_input, run_dir)
     staged = []
     consumed = [ArtifactRef.from_path(inputs["cpmd_input"], "inputs.cpmd_input", root=root)]
     if "restart" in inputs:

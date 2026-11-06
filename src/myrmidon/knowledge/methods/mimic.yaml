@@ -17,6 +17,11 @@ parameters:
     value: 100
     rationale: how often the MM atoms are re-sorted into the short- and long-range sets
     source: 0
+  default_sampling_steps:
+    value: {minimize: 10, dynamics: 100, single_point: 1}
+    rationale: how often a coupled stage of each kind writes its frames when it states no
+      sampling_ps; both engines read this one stride, so CPMD's and GROMACS's frames fall on the
+      same steps and a snapshot can be cut from both at once
 sources:
 - kind: doi
   text: Olsen et al., J. Chem. Theory Comput. 15, 3810 (2019) — MiMiC, the multiscale coupling

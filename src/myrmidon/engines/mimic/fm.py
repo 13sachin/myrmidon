@@ -495,7 +495,7 @@ def fitted_pairs(top: Path, opt_itps: list[Path]) -> dict[str, Path]:
 # -- dataset_collect (combining several runs' reference data) ------------------------
 
 
-# -- fm_displace_plan (displacement single-point reference windows) -----------
+# -- snapshot_select (displacement single-point reference windows) -----------
 
 
 def force_type_table(blocks: dict[str, dict]) -> str:

@@ -457,6 +457,11 @@ def compile_stage(mandate: Mandate, stage: Stage | dict | str, template: Templat
     params, sources = flattened(template, templates)
     facts = facts or {}
     quantities = derived(view, mandate, methods.step_ps(view.get("regime", "mm")), facts)
+    if quantities["sampling_steps"] is None and view.get("regime", "mm") != "mm":
+        # a coupled stage's stride, the method's by kind
+        by_kind = methods.values.get("coupling", {}).get("default_sampling_steps")
+        if by_kind is not None:
+            quantities["sampling_steps"] = by_kind[0].get(str(view.get("kind")))
     res = Compiled(inputset=template.id, version=template.version, renders=template.renders,
                    method=", ".join(m.ref for m in methods.specs.values()) or None,
                    sources=sources)

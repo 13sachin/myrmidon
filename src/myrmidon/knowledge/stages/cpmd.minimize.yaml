@@ -19,8 +19,8 @@ parameters:
   '&CPMD/TEMPERATURE': {from_stage: temperature_k}
   '&CPMD/TIMESTEP': {from_method: timestep_au}
   '&CPMD/MAXSTEP': {from_stage: steps, required: true}
-  '&CPMD/TRAJECTORY SAMPLE': {from_stage: sampling_steps, default: 10}
-  '&CPMD/STORE': {from_stage: sampling_steps, default: 10}
+  '&CPMD/TRAJECTORY SAMPLE': {from_stage: sampling_steps}
+  '&CPMD/STORE': {from_stage: sampling_steps}
   '&CPMD/RESTFILE': {value: 1, source: 0}
 sources:
 - kind: url

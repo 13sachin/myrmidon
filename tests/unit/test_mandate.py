@@ -3,12 +3,16 @@ submission to what the researcher locked, and measured over the stage a delivera
 
 import json
 import shutil
+from pathlib import Path
 
+import numpy as np
 import pytest
 from tests.conftest import ACETONE
 from tests.unit.findings_catalog import blocking
 
+from myrmidon.core.mandate import Mandate
 from myrmidon.core.tool import REGISTRY
+from myrmidon.knowledge.stage import templates_for
 
 #: a protein and a ligand, each with the position restraints its own switch turns on
 COMPLEX_TOP = """#include "amber03.ff/forcefield.itp"
@@ -1007,3 +1011,84 @@ def test_every_deliverable_is_measured_through_one_tool_on_either_regime(ws_ctx)
                  for stage in ("md", "hot")}
     assert diagnosed["md"].finished_normally is True, diagnosed["md"].summary
     assert diagnosed["hot"].finished_normally is True, diagnosed["hot"].summary
+
+
+def test_a_coupled_stage_writes_both_engines_at_one_stride(ws_ctx):
+    """A coupled stage that states no sampling takes its kind's stride from the method, and a
+    stated one is its own; both engines' output keys read that one number."""
+    from myrmidon.knowledge.stage import MethodStore, TemplateStore, compile_stage, methods_for
+
+    templates = TemplateStore.builtin()
+    mandate = Mandate.model_validate({"question": "q", "system": QMMM, "method": {"stages": [
+        _qmmm_stage(name="cool", kind="minimize", ensemble=None),
+        _qmmm_stage(name="stated", sampling_ps=0.0483776865),
+        {"name": "single", "kind": "single_point", "regime": "qmmm",
+         "qm_region": {"subsystems": ["solute"], "charge": 0}},
+        _qmmm_stage()]}})
+    methods = methods_for(mandate, MethodStore.builtin())
+    wanted = {"cool": 10, "stated": 200, "single": 1, "prod": 100}
+    for stage in mandate.method.stages:
+        view = stage.model_dump(mode="json")
+        by_engine = {}
+        for template in templates_for(view, templates):
+            by_engine[template.engine] = compile_stage(
+                mandate, stage, template, templates=templates, methods=methods).values
+        stride = wanted[stage.name]
+        cpmd = by_engine["cpmd"]
+        assert cpmd.get("&CPMD/FORCE_MATCHING", cpmd.get("&CPMD/TRAJECTORY SAMPLE")) == stride
+        assert by_engine["gromacs"]["nstxout"] == stride
+        assert by_engine["gromacs"]["nstenergy"] == stride
+
+
+def test_a_snapshot_of_a_coupled_run_is_one_step_cut_from_both_engines(ws_ctx):
+    """The frame nearest a target in the settled part, written as GEOMETRY for CPMD and .gro for
+    GROMACS from a step both stored, and the run's own numbering of it respected."""
+    from MDAnalysis.lib.formats.libmdaxdr import TRRFile
+
+    from myrmidon.core.lineage import stage_run as collected_run
+    from myrmidon.engines.mimic.trajectory import frame_rows, trajectory_steps
+
+    cpmd = Path(__file__).parents[1] / "fixtures" / "cpmd"
+    _coupled_study(ws_ctx, [{"name": "hot", "kind": "dynamics", "regime": "qmmm",
+                             "ensemble": "NVE", "steps": 20, "qm_region": REGION}])
+    ws = ws_ctx.workspace
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "hot"}).ok
+    assert _run_stage(ws_ctx, "hot")[1].ok
+    wrote = collected_run(ws, "hot")[0]
+    roles = {a.role: ws.resolve(a.path) for a in wrote}
+    roles["trajectory"] = next(ws.resolve(a.path) for a in wrote if a.path.endswith(".trr"))
+    roles["qm_trajectory"].write_text((cpmd / "acetone_coupled.TRAJECTORY_4atoms").read_text())
+    roles["energies"].write_text((cpmd / "acetone_coupled.ENERGIES").read_text())
+    positions = np.arange(12.0).reshape(4, 3)
+    with TRRFile(str(roles["trajectory"]), "w") as fh:
+        for step in (0, 10):
+            fh.write(positions + step, positions, positions, np.eye(3) * 3.0, step, 0.01 * step,
+                     0.0, 4)
+    atoms = "".join(f"    1ACT     C{i}{i:5d}   0.100   0.100   0.100\n" for i in range(1, 5))
+    gro = ws.stage("input") / "four.gro"
+    gro.write_text(f"four atoms\n    4\n{atoms}   3.00000   3.00000   3.00000\n")
+    assert trajectory_steps(roles["qm_trajectory"]) == [1, 11]
+    # steps 1 and 11 are at 0.111 and a higher temperature in the fixture: nearest 0 is step 1
+    obs = REGISTRY.call("snapshot_select", ws_ctx, {
+        "stage": "hot", "structure": ws.relpath(gro), "target_temperature_k": 0.0})
+    assert obs.ok, obs.summary
+    (frame,) = obs.frames
+    assert frame["step"] == 1
+    written = [[float(v) for v in line.split()]
+               for line in ws.resolve(frame["geometry"]).read_text().splitlines()]
+    rows = frame_rows(roles["qm_trajectory"], 1)
+    assert np.allclose(written, rows, atol=1e-11) and len(written) == 4
+    # the .gro is the GROMACS half's frame of that step: its coordinates, in Å from nm
+    lines = ws.resolve(frame["structure"]).read_text().splitlines()
+    assert float(lines[2][20:28]) == pytest.approx(positions[0, 0], abs=1e-3)
+    assert {"geometry", "structure", "snapshot"} <= {a.role for a in obs.artifacts}
+    # a stride the two do not share leaves nothing to cut
+    with TRRFile(str(roles["trajectory"]), "w") as fh:
+        fh.write(positions, positions, positions, np.eye(3) * 3.0, 7, 0.07, 0.0, 4)
+    apart = REGISTRY.call("snapshot_select", ws_ctx, {
+        "stage": "hot", "structure": ws.relpath(gro), "target_temperature_k": 0.0})
+    assert not apart.ok
+    # a stage starts from the geometry, and CPMD is told to read it
+    run = REGISTRY.call("stage_run", ws_ctx, {"stage": "hot", "snapshot": frame["geometry"],
+                                              "preview": True})
+    assert run.ok, run.summary

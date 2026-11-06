@@ -17,9 +17,8 @@ from pydantic import BaseModel, Field
 
 from myrmidon.analysis.trajectory import has_bonds
 from myrmidon.core.artifacts import ArtifactRef
-from myrmidon.core.contracts import Contract, Produces
 from myrmidon.core.observation import Observation
-from myrmidon.core.tool import ToolContext, tool
+from myrmidon.core.tool import ToolContext
 from myrmidon.engines.inputs import resolve_in_ws
 from myrmidon.knowledge.sensors import evaluate
 
@@ -408,98 +407,6 @@ def _contacts(ctx: ToolContext, params: TrajParams, u, atoms, g2, times: np.ndar
         selection=params.selection,
         transformations=transformations,
         contacts=rows,
-    )
-
-
-class TrajFramesParams(BaseModel):
-    structure: str = Field(description="topology-bearing file (.gro preferred)")
-    trajectory: str = Field(description="trajectory to pick frames from (.trr/.xtc)")
-    frames: list[int] = Field(
-        default_factory=list,
-        description="frame INDICES (0-based) to write; empty = n_frames evenly spaced",
-    )
-    n_frames: int = Field(default=3, ge=1, description="used when frames is empty")
-    output: Literal["structures", "trajectory"] = Field(
-        default="structures",
-        description="'structures': one .gro per frame; 'trajectory': the frames in order as "
-        "one <prefix>.trr, its k-th frame the k-th index (e.g. the frames a rerun "
-        "re-evaluates)")
-    stage: str = Field(default="frames")
-    prefix: str = Field(default="frame")
-
-
-class FrameRef(BaseModel):
-    index: int
-    time_ps: float
-    path: str
-
-
-
-
-@tool(
-    "traj_frames",
-    description="Pick snapshots from a trajectory (frame index and time recorded): explicit "
-    "indices, or n_frames evenly spaced over the whole trajectory. Written as one .gro per "
-    "frame (the starting structures for QM/MM single points), or with "
-    "output='trajectory' as one trajectory of those frames in order.",
-    # "analysis", not "fm": extracting frames is what any study does before single
-    # points, and a tag says what a tool is
-    tags={"analysis"},
-    contract=Contract(consumes={"structure": ("structure", "tpr"),
-                                "trajectory": "trajectory"},
-                      produces=(Produces(kind_of=lambda ctx, p: (
-                          "trajectory" if p.get("output") == "trajectory" else "structure")),)),
-)
-def traj_frames(ctx: ToolContext, params: TrajFramesParams) -> Observation:
-    try:
-        import MDAnalysis as mda
-    except ImportError:
-        return Observation(
-            ok=False, summary="MDAnalysis is not installed — install myrmidon[analysis]",
-        )
-    structure = resolve_in_ws(ctx, params.structure)
-    trajectory = resolve_in_ws(ctx, params.trajectory)
-    u = mda.Universe(str(structure), str(trajectory))
-    n_total = len(u.trajectory)
-    if params.frames:
-        indices = list(params.frames)
-        bad = [i for i in indices if i < 0 or i >= n_total]
-        if bad:
-            return Observation(
-                ok=False, n_total=n_total,
-                summary=f"frame index out of range {bad}: the trajectory has {n_total} frames",
-            )
-    else:
-        k = min(params.n_frames, n_total)
-        indices = sorted({int(round(x)) for x in np.linspace(0, n_total - 1, k)})
-    stage = ctx.workspace.stage(params.stage)
-    root = ctx.workspace.root
-    refs, artifacts = [], []
-    if params.output == "trajectory":
-        out = stage / f"{params.prefix}.trr"
-        with mda.Writer(str(out), n_atoms=len(u.atoms)) as w:
-            for i in indices:
-                ts = u.trajectory[i]
-                w.write(u.atoms)
-                refs.append(FrameRef(index=i, time_ps=float(ts.time),
-                                     path=ctx.workspace.relpath(out)))
-        return Observation(
-            ok=True, n_total=n_total, frames=refs,
-            artifacts=[ArtifactRef.from_path(out, "trajectory", root=root)],
-            summary=f"{len(refs)} frame(s) of {n_total} written in order to "
-            f"{ctx.workspace.relpath(out)}: indices {indices}")
-    for i in indices:
-        ts = u.trajectory[i]
-        out = stage / f"{params.prefix}_{i:05d}.gro"
-        with mda.Writer(str(out), n_atoms=len(u.atoms)) as w:
-            w.write(u.atoms)
-        refs.append(FrameRef(index=i, time_ps=float(ts.time), path=ctx.workspace.relpath(out)))
-        artifacts.append(ArtifactRef.from_path(out, "structure", root=root))
-    listed = ", ".join(f"#{r.index} (t={r.time_ps:g} ps)" for r in refs)
-    return Observation(
-        ok=True, n_total=n_total, frames=refs, artifacts=artifacts,
-        summary=f"{len(refs)} frame(s) of {n_total} written to {ctx.workspace.relpath(stage)}: "
-        f"{listed}",
     )
 
 

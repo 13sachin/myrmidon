@@ -13,7 +13,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Build a better force field for this molecule — and of these candidates, which one agrees best?"
-  myrmidon-tools: "study_open mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup fm_plan fm_fit traj_frames gmx_grompp gmx_rerun observable_measure gmx_minimize_frames observable_measure study_report job_status file_write file_check"
+  myrmidon-tools: "study_open mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup fm_plan fm_fit snapshot_select gmx_grompp gmx_rerun observable_measure gmx_minimize_frames observable_measure study_report job_status file_write file_check"
   myrmidon-protocols: "fm_reference_singlepoint"
   myrmidon-stages: "gromacs.single_point gromacs.minimize"
 ---
@@ -51,7 +51,7 @@ needs (with `file_write`).
 3. `fm_fit` with the selection as a file path and a classical rerun mdp:
    `inputset_apply` with `stage=<the validation stage>`. An edit it asks of the topology goes
    through `file_write`, then `file_check`.
-4. Per arm, the starting topology included: `traj_frames` with `output: trajectory` writes
+4. Per arm, the starting topology included: `snapshot_select` with `output: trajectory` writes
    the held-out frames once; `gmx_grompp` with that rerun mdp and the arm's topology →
    `gmx_rerun` over those frames → `observable_measure` with the same `frames`. For the
    minimised geometry, `gmx_minimize_frames` with that `minimize` stage's mdp, then

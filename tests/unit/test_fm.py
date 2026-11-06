@@ -270,13 +270,13 @@ def test_displace_plan_moves_mobile_atom(ws_ctx):
 
     stage = ws_ctx.workspace.stage("prep")
     (stage / "base.gro").write_text(MINI_GRO)
-    plan = REGISTRY.call("fm_displace_plan", ws_ctx, {
+    plan = REGISTRY.call("snapshot_select", ws_ctx, {
         "coords": ws_ctx.workspace.relpath(stage / "base.gro"),
         "pair": [1, 2], "pair_label": "C1-O1", "targets_a": [1.10, 1.35]})
     assert plan.ok, plan.summary
     assert plan.original_distance_a == pytest.approx(1.22, abs=1e-3)
     for win, target in zip(plan.windows, (1.10, 1.35), strict=True):
-        text = (ws_ctx.workspace.root / win.coords).read_text().splitlines()
+        text = (ws_ctx.workspace.root / win["coords"]).read_text().splitlines()
         def xyz(line):
             return [float(line[20:28]), float(line[28:36]), float(line[36:44])]
         a, b = xyz(text[2]), xyz(text[3])
@@ -286,7 +286,7 @@ def test_displace_plan_moves_mobile_atom(ws_ctx):
 
 
 def test_fm_merge_h5_sources(ws_ctx):
-    from myrmidon.engines.mimic.fm_dataset import DatasetRequest, merge_sources
+    from myrmidon.engines.mimic.fm_dataset import DatasetRequest, joined_trajectory, merge_sources
 
     h5py = pytest.importorskip("h5py")
     import numpy as np
@@ -311,11 +311,11 @@ def test_fm_merge_h5_sources(ws_ctx):
     with h5py.File(ws_ctx.workspace.root / merged["reference_dataset"], "r") as fh:
         assert sorted(fh.keys(), key=lambda k: int(k.split("_")[1]))[-1] == "config_4"
     # the runs' trajectories are joined in the same order by the generic tool
-    joined = REGISTRY.call("traj_concat", ws_ctx, {
-        "trajectories": [ws_ctx.workspace.relpath(stage / "a.trr"),
-                         ws_ctx.workspace.relpath(stage / "b.trr")]})
-    assert joined.ok, joined.summary
-    text = (ws_ctx.workspace.root / joined.artifacts[0].path).read_text()
+    joined = joined_trajectory(ws_ctx, DatasetRequest(
+        fmdata=[], trajectory=[ws_ctx.workspace.relpath(stage / "a.trr"),
+                               ws_ctx.workspace.relpath(stage / "b.trr")],
+        topology="", coords="", selection=""))
+    text = (ws_ctx.workspace.root / joined).read_text()
     assert text.index("TRRa.h5") < text.index("TRRb.h5")
 
 
@@ -331,11 +331,11 @@ def test_fm_displace_plan_rigid_group(ws_ctx):
         "    1AKG     C2    3   1.300   1.100   1.000\n"
         "    1SOL     OW    4   2.000   2.000   2.000\n"
         "   5.00000   5.00000   5.00000\n")
-    obs = REGISTRY.call("fm_displace_plan", ws_ctx, {
+    obs = REGISTRY.call("snapshot_select", ws_ctx, {
         "coords": "rigid.gro", "pair": [1, 2], "pair_label": "Mg-O3",
-        "targets_a": [4.0], "rigid_group": [2, 3], "stage": "rg"})
+        "targets_a": [4.0], "rigid_group": [2, 3], "output_stage": "rg"})
     assert obs.ok, obs.summary
-    out = (ws.root / obs.windows[0].coords).read_text().splitlines()
+    out = (ws.root / obs.windows[0]["coords"]).read_text().splitlines()
     def xyz(i):
         ln = out[1 + i]
         return [float(ln[20:28]), float(ln[28:36]), float(ln[36:44])]
@@ -349,13 +349,13 @@ def test_fm_displace_plan_rigid_group(ws_ctx):
     # non-group atom untouched
     assert ow == [2.0, 2.0, 2.0]
     # guards
-    bad = REGISTRY.call("fm_displace_plan", ws_ctx, {
+    bad = REGISTRY.call("snapshot_select", ws_ctx, {
         "coords": "rigid.gro", "pair": [1, 2], "pair_label": "x",
-        "targets_a": [4.0], "rigid_group": [3], "stage": "rg2"})
+        "targets_a": [4.0], "rigid_group": [3], "output_stage": "rg2"})
     assert not bad.ok and "must include the mobile" in bad.summary
-    bad = REGISTRY.call("fm_displace_plan", ws_ctx, {
+    bad = REGISTRY.call("snapshot_select", ws_ctx, {
         "coords": "rigid.gro", "pair": [1, 2], "pair_label": "x",
-        "targets_a": [4.0], "rigid_group": [1, 2], "stage": "rg3"})
+        "targets_a": [4.0], "rigid_group": [1, 2], "output_stage": "rg3"})
     assert not bad.ok and "anchor" in bad.summary
 
 
@@ -483,16 +483,16 @@ def test_traj_frames_picks_evenly_spaced_snapshots(ws_ctx):
     inputs = ws.stage("inputs")
     (inputs / "ref.gro").write_text(MINI_GRO)
     _write_trr(inputs / "ref.trr", inputs / "ref.gro", n_frames=5)
-    obs = REGISTRY.call("traj_frames", ws_ctx, {
+    obs = REGISTRY.call("snapshot_select", ws_ctx, {
         "structure": "01_inputs/ref.gro", "trajectory": "01_inputs/ref.trr", "n_frames": 3,
     })
     assert obs.ok, obs.summary
-    assert obs.n_total == 5 and [f.index for f in obs.frames] == [0, 2, 4]
-    assert [f.time_ps for f in obs.frames] == [0.0, 20.0, 40.0]
+    assert obs.n_total == 5 and [f["index"] for f in obs.frames] == [0, 2, 4]
+    assert [f["time_ps"] for f in obs.frames] == [0.0, 20.0, 40.0]
     for f in obs.frames:
-        assert (ws.root / f.path).exists() and f.path.startswith("02_frames/frame_")
-    assert {a.role for a in obs.artifacts} == {"structure"}
-    explicit = REGISTRY.call("traj_frames", ws_ctx, {
+        assert (ws.root / f["path"]).exists() and f["path"].startswith("02_frames/frame_")
+    assert {a.role for a in obs.artifacts} == {"structure", "snapshot"}
+    explicit = REGISTRY.call("snapshot_select", ws_ctx, {
         "structure": "01_inputs/ref.gro", "trajectory": "01_inputs/ref.trr", "frames": [1, 9],
     })
     assert not explicit.ok and "out of range [9]" in explicit.summary

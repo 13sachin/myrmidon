@@ -30,9 +30,10 @@ parameters:
     source: 0
   pcoupl: {value: 'no', source: 0}
   QMMM-grps: {from_system: qm_group}
-  nstxout: {by_stage: kind, map: {single_point: 1, minimize: 50, dynamics: 50}, source: 0}
+  nstxout: {from_stage: sampling_steps}
+  nstvout: {from_stage: sampling_steps}
   nstfout: {by_stage: kind, map: {single_point: 1}, source: 0}
-  nstenergy: {by_stage: kind, map: {single_point: 1, minimize: 50, dynamics: 50}, source: 0}
+  nstenergy: {from_stage: sampling_steps}
 sources:
 - kind: url
   text: MiMiC documentation, the GROMACS side of a coupled run (integrator mimic, QMMM-grps).

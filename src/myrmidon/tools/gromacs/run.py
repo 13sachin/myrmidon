@@ -411,7 +411,7 @@ class RerunParams(SubmitParams):
     tpr: str = Field(description="run input from gmx_grompp with the topology whose energies "
                      "and forces are wanted (nstfout = 1 in its mdp to write forces)")
     trajectory: str = Field(description="the frames to evaluate (.trr/.xtc), e.g. from "
-                            "traj_frames with output='trajectory'")
+                            "snapshot_select with output='trajectory'")
     deffnm: str = Field(default="rerun", description="output file prefix")
     stage: str = Field(default="rerun")
     nthreads: int | None = Field(default=None, description="gmx mdrun -nt")

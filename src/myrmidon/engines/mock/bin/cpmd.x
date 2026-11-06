@@ -243,6 +243,10 @@ with open("ENERGIES", "w") as fh:
         fh.write(f"   {nfi}   0.00000000   {max(0.0, temperature(nfi)):.3f}  -17.12345678\n")
 with open("GEOMETRY", "w") as fh:
     fh.write("  0.0  0.0  0.0  0.0  0.0  0.0\n")
+# real CPMD's rows: every atom's position and velocity at each stored step
+with open("TRAJECTORY", "w") as fh:
+    for nfi in nfis:
+        fh.write(f"   {nfi}  0.0  0.0  0.0  0.0  0.0  0.0\n")
 if "DIPOLE DYNAMICS" in inp_text:
     # real CPMD's rows: the step, the electronic and the total dipole per cell volume (a.u.)
     with open("DIPOLE", "w") as fh:

@@ -12,7 +12,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Make me QM/MM reference forces for these frames."
-  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search traj_frames gmx_grompp qm_region mimic_prepare mimic_run run_diagnose dataset_collect traj_concat dataset_collect dataset_collect fm_displace_plan job_status file_write"
+  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search snapshot_select gmx_grompp qm_region mimic_prepare mimic_run run_diagnose dataset_collect dataset_collect dataset_collect dataset_collect snapshot_select job_status file_write"
   myrmidon-protocols: "fm_reference_singlepoint"
   myrmidon-stages: "cpmd.single_point gromacs.mimic"
 ---
@@ -22,7 +22,7 @@ metadata:
 Frames in, a registered reference dataset out: the expensive, reusable half of force
 matching, cited later by its hash. The sequence is `fm_reference_singlepoint`. Not here: the
 fit (`fm-fit-and-validate`), the classical box (`setup-and-equilibrate`), a dynamics
-preflight (`qmmm-preflight`); displaced geometries are `fm_displace_plan`.
+preflight (`qmmm-preflight`); displaced geometries are `snapshot_select`.
 
 ## The researcher decides
 
@@ -36,7 +36,7 @@ first frame as the probe, the rest's resources from what the probe measured.
 
 ## Drive
 
-1. `traj_frames` over the named trajectory, one structure per frame; `frames` is the
+1. `snapshot_select` over the named trajectory, one structure per frame; `frames` is the
    manifest the rest is indexed by.
 2. `qm_region` on the first frame, the probe: the index holding the QM group, and the
    QM total charge it declares.
@@ -56,7 +56,7 @@ first frame as the probe, the rest's resources from what the probe measured.
    `scf_iterations` against `scf_max_iterations`, `energy_total`.
 6. The remaining frames the same way, `qm_region` first, `run_diagnose` on each as
    it lands.
-7. `dataset_collect` the records and `traj_concat` the trajectories in the same order, then
+7. `dataset_collect` the records and `dataset_collect` the trajectories in the same order, then
    `dataset_collect`; read `index_aligned` and `dropped`. `dataset_collect` with `monitor_pairs`
    gives `monitor_stats` per pair.
 

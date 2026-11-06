@@ -68,7 +68,7 @@ def collect_dataset(ctx: ToolContext, params: DatasetRequest) -> Observation:
                                  if a.role == "reference_dataset")
     else:
         params.fmdata_one = params.fmdata[0]
-    trajectory = _joined_trajectory(ctx, params)
+    trajectory = joined_trajectory(ctx, params)
     if isinstance(trajectory, Observation):
         return trajectory
     params.trajectory = [trajectory]
@@ -94,7 +94,7 @@ def collect_dataset(ctx: ToolContext, params: DatasetRequest) -> Observation:
     return collected
 
 
-def _joined_trajectory(ctx: ToolContext, params: DatasetRequest) -> str | Observation:
+def joined_trajectory(ctx: ToolContext, params: DatasetRequest) -> str | Observation:
     """The one trajectory the dataset's frames pair with: several joined in the order given,
     every frame kept."""
     if len(params.trajectory) == 1:

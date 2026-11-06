@@ -13,7 +13,7 @@ md: [fetch_pdb, structure_select, ligand_parametrize, complex_assemble, gmx_pdb2
        gmx_mdrun, checkpoint_continue, observable_measure]
 qmmm: [gmx_grompp, gmx_make_ndx, qm_region, mimic_prepare, mimic_run, run_diagnose,
        observable_measure]
-fm: [traj_frames, traj_concat, fm_displace_plan, qm_region, mimic_prepare, mimic_run,
-       run_diagnose, dataset_collect, fm_plan, fm_fit, gmx_grompp, gmx_rerun,
-       gmx_minimize_frames, observable_measure, study_report]
-analysis: [observable_measure, traj_frames, viz_open, viz_command, session_summary]
+fm: [snapshot_select, dataset_collect, qm_region, mimic_prepare, mimic_run, run_diagnose,
+       fm_plan, fm_fit, gmx_grompp, gmx_rerun, gmx_minimize_frames, observable_measure,
+       study_report]
+analysis: [observable_measure, snapshot_select, viz_open, viz_command, session_summary]

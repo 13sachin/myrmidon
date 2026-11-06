@@ -13,7 +13,7 @@ parameters:
   '&CPMD/OPTIMIZE WAVEFUNCTION': {value: true, source: 0}
   '&CPMD/PCG MINIMIZE': {value: true, source: 0}
   '&CPMD/FORCE_MATCHING':
-    value: 1
+    from_stage: sampling_steps
     rationale: 'the pace the reference forces are written at: every frame; the GROMACS side
       writes its frames at the same pace (nstxout 1), and a fit pairs them by index'
     source: 0

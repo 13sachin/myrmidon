@@ -162,11 +162,11 @@ def test_named_pairs_are_measured_under_the_box_and_against_a_reference(
 
 def test_frames_written_as_one_trajectory_keep_the_order_asked(rigid):
     """The k-th frame of the written trajectory is the k-th index asked for."""
-    obs = REGISTRY.call("traj_frames", rigid, {
+    obs = REGISTRY.call("snapshot_select", rigid, {
         "structure": "01_input/rigid.gro", "trajectory": "01_input/rigid.trr",
         "frames": [7, 2, 5], "output": "trajectory"})
     assert obs.ok, obs.summary
-    assert [a.role for a in obs.artifacts] == ["trajectory"]
+    assert [a.role for a in obs.artifacts] == ["trajectory", "snapshot"]
     u = mda.Universe(str(rigid.workspace.root / "01_input/rigid.gro"),
                      str(rigid.workspace.root / obs.artifacts[0].path))
     assert [ts.time for ts in u.trajectory] == [7.0, 2.0, 5.0]
