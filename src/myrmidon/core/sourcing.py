@@ -11,8 +11,8 @@ already knows which:
                 and if that somebody was the model then nothing records where they
                 came from. This is the case the store exists to remove.
 ``derived``     produced by a tool that took its scientific content from another file
-                (mimicpy's prepqm builds ``cpmd.inp`` from a template), so the
-                question is really about that file and we follow one hop.
+                (its contract names the parameter, ``upstream``), so the question
+                is really about that file and we follow one hop.
 
 This module answers the question; the engine gates decide what to do about the
 answer, and they report it. The answer stays advisory rather than a refusal: the input
@@ -31,10 +31,6 @@ from myrmidon.core.validation import Finding
 
 Provenance = Literal["inputset", "user_input", "authored", "derived", "unknown"]
 
-#: tools that produce a file whose scientific content came from another file, and the
-#: parameter naming that file. Following one hop answers the real question.
-UPSTREAM_PARAM = {"mimic_select_qm": "template"}
-
 #: the tool that means "the model typed this"
 AUTHORING_TOOLS = {"file_write"}
 
@@ -50,6 +46,15 @@ class ParameterSource(BaseModel):
     @property
     def line(self) -> str:
         return f"{self.path}: {self.detail}"
+
+
+def _upstream_param(tool: str) -> str | None:
+    """The parameter naming the file ``tool``'s outputs take their content from, by its
+    contract; None for a tool whose outputs are its own."""
+    from myrmidon.core.tool import REGISTRY
+
+    spec = next((s for s in REGISTRY.specs() if s.name == tool), None)
+    return spec.contract.upstream if spec is not None and spec.contract is not None else None
 
 
 def _sidecar_protocol(root: Path, relpath: str) -> dict | None:
@@ -102,7 +107,7 @@ def parameter_source(workspace, relpath: str, _depth: int = 0) -> ParameterSourc
             detail=f"written by {producer.tool} in this session; nothing records where "
             "its values came from",
         )
-    upstream_param = UPSTREAM_PARAM.get(producer.tool)
+    upstream_param = _upstream_param(producer.tool)
     upstream = (producer.params or {}).get(upstream_param) if upstream_param else None
     if upstream and _depth < 3:
         origin = parameter_source(workspace, upstream, _depth + 1)

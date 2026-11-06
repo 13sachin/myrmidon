@@ -44,7 +44,7 @@ def parse_progress(log_path: Path) -> RunProgress | None:
 _LOG_MARKS = (b"GROMACS - gmx mdrun", b"Started mdrun on rank", b"Input Parameters:",
               b"Reading checkpoint file")
 #: the labels of mdrun's end-of-run averages block a report states, by fact key and unit;
-#: the keys are shared with the CPMD facts (facts.RUN_FACTS) where the quantity is one
+#: the keys are shared with the QM engine's facts where the quantity is one
 _AVERAGE_FACTS = {
     "Temperature": ("mean_temperature_k", "K"),
     "Pressure (bar)": ("mean_pressure_bar", "bar"),
@@ -52,8 +52,36 @@ _AVERAGE_FACTS = {
     "Total Energy": ("mean_total_energy_kj_mol", "kJ/mol"),
     "Conserved En.": ("mean_conserved_energy_kj_mol", "kJ/mol"),
 }
+#: what an mdrun log states, how a report labels it and its unit (``run_facts``): the means
+#: are mdrun's own, averaged over the whole run, relaxation included
+GROMACS_FACTS = {
+    "minimisation_steps": ("minimisation steps", ""),
+    "minimisation_converged": ("minimisation converged to its force tolerance", ""),
+    "final_potential_kj_mol": ("final potential energy", "kJ/mol"),
+    "final_max_force_kj_mol_nm": ("final maximum force", "kJ/mol/nm"),
+    "md_steps_completed": ("MD steps completed", ""),
+    "md_time_ps": ("simulated time", "ps"),
+    "mean_temperature_k": ("mean temperature over the run (mdrun's average)", "K"),
+    "mean_pressure_bar": ("mean pressure over the run (mdrun's average)", "bar"),
+    "mean_potential_kj_mol": ("mean potential energy over the run (mdrun's average)",
+                              "kJ/mol"),
+    "mean_total_energy_kj_mol": ("mean total energy over the run (mdrun's average)",
+                                 "kJ/mol"),
+    "mean_conserved_energy_kj_mol": ("mean conserved energy over the run (mdrun's average)",
+                                     "kJ/mol"),
+    "averaged_over_frames": ("energy frames the averages are over", ""),
+    "atoms": ("atoms", ""),
+    "performance_ns_per_day": ("performance", "ns/day"),
+    "finished_normally": ("finished normally", ""),
+}
 _COLUMN = 15  # mdrun prints its energy tables in %15s / %15.5e columns
 _MINIMISERS = ("steep", "cg", "l-bfgs")
+
+
+def is_gromacs_text(text: str) -> bool:
+    """Whether this log text is an mdrun log, finished or not, from its first 16 kB."""
+    head = text[:16384]
+    return any(mark.decode() in head for mark in _LOG_MARKS)
 
 
 def is_gromacs_log(path: Path) -> bool:
@@ -100,7 +128,7 @@ def parse_averages(text: str) -> dict[str, float]:
 def run_facts(text: str) -> dict:
     """What an mdrun log states: how far the dynamics got, whether mdrun finished, its
     performance, and — for a completed run — the means mdrun itself averaged over the run.
-    Parsed from the log, never typed; the keys are the report's (facts.GROMACS_FACTS).
+    Parsed from the log, never typed; the keys are the report's (GROMACS_FACTS).
     """
     facts: dict = {}
     integrator = re.search(r"^\s*integrator\s*=\s*(\S+)", text, re.MULTILINE)

@@ -102,7 +102,8 @@ def select_qm_gate(ctx: ToolContext, params: SelectQMParams):
     requires={"mimicpy"},
     contract=Contract(consumes={"topology": "topology", "coords": "structure",
                                 "template": "cpmd_input"},
-                      produces=(Produces("cpmd_input"), Produces("index"))),
+                      produces=(Produces("cpmd_input"), Produces("index")),
+                      upstream="template"),
 )
 def mimic_select_qm(ctx: ToolContext, params: SelectQMParams) -> Observation:
     precheck(ctx, select_qm_gate(ctx, params)[0])

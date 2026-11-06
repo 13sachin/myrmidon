@@ -235,15 +235,11 @@ def compiled(ctx: ToolContext, mandate: mandates.Mandate, facts: dict | None = N
 
 def _topology_parts(ctx: ToolContext, mandate: mandates.Mandate) -> dict[str, dict]:
     """The system's parts as its topology lays them out (engines/facts.system_parts)."""
-    from pathlib import Path
-
-    from myrmidon.engines.facts import system_parts
+    from myrmidon.engines.facts import data_dir_of, system_parts
 
     files = {f.kind: ctx.workspace.resolve(f.path) for f in mandate.system.files
              if ctx.workspace.resolve(f.path).is_file()}
-    info = ctx.engines.get("gromacs") if ctx.engines else None
-    data = Path(info.data_dir) if info is not None and info.data_dir else None
-    return system_parts(files, data)
+    return system_parts(files, data_dir_of(ctx.engines))
 
 
 def _read_system(ctx: ToolContext, mandate: mandates.Mandate, params: MandateWriteParams,

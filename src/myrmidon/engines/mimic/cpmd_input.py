@@ -9,7 +9,7 @@ import re
 
 from pydantic import BaseModel, Field
 
-from myrmidon.core.contracts import Property, declare_identity, define_kind
+from myrmidon.core.contracts import Property, declare_alias, declare_identity, define_kind
 from myrmidon.core.validation import Finding
 from myrmidon.knowledge.catalog import Catalog
 from myrmidon.knowledge.sensors import evaluate
@@ -132,6 +132,7 @@ def has_keyword(lines: list[str], keyword: str) -> bool:
 # What a CPMD input decides about a coupled run's outputs: force-matching reference data
 # is written only with FORCE_MATCHING in &CPMD. An input set's flat values are read as
 # the sections they render.
+declare_alias("cpmd_inp", "cpmd_input")
 define_kind(
     "cpmd_input", lambda path: parse_cpmd(path.read_text()),
     Property("fm_reference", lambda s: has_keyword(s.get("CPMD", []), "FORCE_MATCHING")),

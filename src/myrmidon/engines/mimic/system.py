@@ -1,5 +1,5 @@
-"""Facts read from a MiMiC system's own files: the elements of the QM region, the
-pseudopotential each one is given, and whether CPMD will find that file.
+"""Facts read from a MiMiC system's own files: the system input prepqm wrote, the elements
+of the QM region, the pseudopotential each one is given, and whether CPMD will find that file.
 
 prepqm names a pseudopotential for every element, guessing `<El>_MT_BLYP.psp` for one its
 table lacks, and CPMD stops with ECPFILE NOT FOUND only after the job is scheduled; the
@@ -13,10 +13,47 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
+from myrmidon.core.artifacts import sha256_file
 from myrmidon.core.validation import Finding, Precondition
+from myrmidon.engines.mimic.cpmd_input import (
+    PREPQM_KEYWORDS,
+    keyword_value,
+    parse_cpmd,
+    qm_geometry,
+)
+from myrmidon.knowledge.catalog import SystemFact
 
 _ELEMENT = re.compile(r"[A-Z][a-z]?")
 _COORD = re.compile(r"^[-+]?\d*\.\d+([eE][-+]?\d+)?\s+[-+]?\d*\.\d+")
+
+
+def system_facts(cpmd_input: Path | None, rules: set[str] | None = None
+                 ) -> dict[str, SystemFact]:
+    """What a system's CPMD input holds, by the key each fact decides: its ``&ATOMS`` block
+    (rule ``qm_atoms``), every keyword prepqm writes from the system (rule ``qm_system``) and
+    the QM region's size and grid (rule ``qm_size``: ``qm_atoms``, ``cell_bohr``,
+    ``cutoff_ry``). ``rules`` keeps only the ones named; none without an input."""
+    if cpmd_input is None:
+        return {}
+    sections = parse_cpmd(cpmd_input.read_text())
+    digest, read = sha256_file(cpmd_input), [str(cpmd_input)]
+    facts: list[SystemFact] = []
+
+    def fact(key: str, value: object, rule: str) -> None:
+        if value is not None and (rules is None or rule in rules):
+            facts.append(SystemFact(key=key, value=str(value), rule=rule, read=read,
+                                    sha256=digest))
+
+    fact("&ATOMS", "\n".join(sections["ATOMS"]) if "ATOMS" in sections else None, "qm_atoms")
+    for keyword in sorted(PREPQM_KEYWORDS):
+        fact(f"&{keyword}", keyword_value(sections, f"&{keyword}"), "qm_system")
+    geometry = qm_geometry(sections) or {}
+    fact("qm_atoms", geometry.get("n_atoms"), "qm_size")
+    cell = geometry.get("cell_bohr")
+    fact("cell_bohr", " ".join(str(v) for v in cell) if cell else None, "qm_size")
+    cutoff = keyword_value(sections, "&SYSTEM/CUTOFF")
+    fact("cutoff_ry", cutoff.split()[0] if cutoff else None, "qm_size")
+    return {f.key: f for f in facts}
 
 
 def qm_pseudopotentials(sections: dict[str, list[str]]) -> dict[str, str]:

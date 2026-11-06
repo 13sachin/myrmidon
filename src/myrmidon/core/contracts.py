@@ -3,7 +3,7 @@ condition.
 
 A kind is the role the ledger records on an artifact (``ArtifactRef.role``): ``structure``,
 ``topology``, ``mdp``, ``tpr``, ``trajectory``, ``energy``, ``checkpoint``, ``log``,
-``index``, ``data``, ``cpmd_input``, ``qm_log``, ``fm_reference``, ``fm_dataset``. A
+``index``, ``data``, and those an engine module declares. A
 property is a fact about an artifact that decides what a tool downstream gets: an mdp's
 ``frames`` (coordinates are written) and ``energies``; a tpr inherits its mdp's; a run
 writes a trajectory only from a tpr whose ``frames`` holds. A property is read from a file
@@ -24,8 +24,14 @@ from typing import Any
 
 Props = dict[str, bool]
 
-#: roles some tools record under a name of their own, read as the kind they are
-KIND_ALIASES = {"cpmd_inp": "cpmd_input", "fminput": "fm_input"}
+#: roles some tools record under a name of their own, read as the kind they are; an engine
+#: module declares its own
+KIND_ALIASES: dict[str, str] = {}
+
+
+def declare_alias(alias: str, kind: str) -> None:
+    """Read artifacts recorded under ``alias`` as the kind they are."""
+    KIND_ALIASES[alias] = kind
 
 
 def canonical(kind: str) -> str:
@@ -151,6 +157,8 @@ class Contract:
 
     consumes: Mapping[str, str | tuple[str, ...]] = field(default_factory=dict)
     produces: tuple[Produces, ...] = ()
+    #: the parameter naming the file this tool's outputs take their scientific content from
+    upstream: str | None = None
 
     def accepts(self, param: str) -> tuple[str, ...]:
         kinds = self.consumes[param]

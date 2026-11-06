@@ -11,12 +11,14 @@ from pathlib import Path
 from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.provenance import ProvenanceEvent
 from myrmidon.core.workspace import Workspace
-from myrmidon.engines.gromacs.itp import BONDED_N_ATOMS, parse_itp_atoms, parse_itp_bonded
-from myrmidon.engines.mimic.fm import (
+from myrmidon.engines.fit_files import (
+    BONDED_N_ATOMS,
     VALIDATION_RESIDUALS_FILENAME,
     force_type_table,
     parse_fm_log,
     parse_fmcheck_report,
+    parse_itp_atoms,
+    parse_itp_bonded,
     parse_optimization_results,
     parse_validation_force_residuals,
     unphysical_force_constants,

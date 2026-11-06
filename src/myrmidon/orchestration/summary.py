@@ -12,6 +12,7 @@ import re
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 
+from myrmidon.core.contracts import parameter_kinds
 from myrmidon.core.observation import JobTally, Observation, ToolTally
 from myrmidon.core.provenance import ProvenanceEvent
 from myrmidon.core.workspace import Workspace
@@ -21,8 +22,6 @@ from myrmidon.execution.jobs import existing_jobstore
 #: the calls that open a session's work in a study; the default window starts at the last
 _SESSION_OPENERS = {"study_create", "study_open"}
 _DURATION = re.compile(r"^(\d+(?:\.\d+)?)\s*([mhd])$")
-#: the kinds of file that carry an engine's parameters
-_PARAM_KINDS = {"mdp", "cpmd_input"}
 
 
 def _param_files() -> dict[str, str]:
@@ -33,7 +32,7 @@ def _param_files() -> dict[str, str]:
 
     return {spec.name: param for spec in REGISTRY.specs() if spec.contract is not None
             for param in spec.contract.consumes
-            if set(spec.contract.accepts(param)) & _PARAM_KINDS}
+            if set(spec.contract.accepts(param)) & parameter_kinds()}
 
 
 def window_start(since: str | None, events: list[ProvenanceEvent]) -> datetime:

@@ -8,7 +8,7 @@ from myrmidon.core.lineage import stages_run
 from myrmidon.core.provenance import ProvenanceEvent
 from myrmidon.core.tool import REGISTRY
 from myrmidon.core.workspace import Workspace
-from myrmidon.engines.facts import dipole_values, engine_log, run_values
+from myrmidon.engines.facts import dipole_values, engine_log, is_run_log, run_values
 from myrmidon.errors import UnknownToolError
 from myrmidon.knowledge.observables import compile_deliverable
 from myrmidon.orchestration.summary import summarize
@@ -348,14 +348,12 @@ def run_lines(ws, events, label: str, rec, event_id: str) -> tuple[list[str], li
     from pathlib import Path
 
     from myrmidon.core.observation import ReportValue
-    from myrmidon.engines.gromacs.parse import is_gromacs_log
-    from myrmidon.engines.mimic.diagnostics import is_cpmd_output
 
     lines: list[str] = []
     values: list[ReportValue] = []
     out = engine_log(rec)
     rel = ws.relpath(out) if out.is_file() else str(out)
-    if not out.is_file() or not (is_cpmd_output(out) or is_gromacs_log(out)):
+    if not is_run_log(out):
         lines.append(f"- {label}: no engine log this report parses ({rel}); what the "
                      "analyses made of its files follows")
     else:

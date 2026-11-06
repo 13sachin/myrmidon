@@ -376,10 +376,9 @@ def read_facts(ctx: ToolContext, topology: str | None, index: str | None,
                structure: str | None, rules: set[str] | None = None) -> dict:
     """The facts the named system files hold, each naming the files it read as the study
     names them, so the record holds no machine path."""
-    from myrmidon.engines.facts import system_facts
+    from myrmidon.engines.facts import data_dir_of, system_facts
 
-    info = ctx.engines.get("gromacs") if ctx.engines else None
-    data = Path(info.data_dir) if info is not None and info.data_dir else None
+    data = data_dir_of(ctx.engines)
     files = {"topology": _file(ctx, topology), "index": _file(ctx, index),
              "structure": _file(ctx, structure)}
     facts = system_facts({k: v for k, v in files.items() if v is not None}, data, rules)

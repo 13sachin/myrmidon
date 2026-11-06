@@ -8,6 +8,27 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+#: what a coupled run's CPMD log states, by its key, and how a report labels it
+RUN_FACTS = {
+    "ion_temperature_control": ("ionic temperature control", ""),
+    "md_steps_completed": ("MD steps completed", ""),
+    "md_time_ps": ("simulated time", "ps"),
+    "final_temperature_k": ("final ionic temperature", "K"),
+    "tail_mean_temperature_k": ("mean ionic temperature over the last 10 % of steps", "K"),
+    "mean_temperature_k": ("mean ionic temperature", "K"),
+    "sd_temperature_k": ("its standard deviation", "K"),
+    "eclassic_drift_ha_per_ps": ("conserved-energy drift", "Ha/ps"),
+    "eclassic_fluctuation_ha": ("fluctuation about the fit", "Ha"),
+    "finished_normally": ("finished normally", ""),
+}
+#: what DIPOLE DYNAMICS's file beside a coupled run's log states, with the log's cell volume
+DIPOLE_FACTS = {
+    "dipole_steps": ("steps of the QM dipole series", ""),
+    "dipole_debye_mean": ("mean magnitude of the QM dipole", "D"),
+    "dipole_debye_sd": ("its standard deviation", "D"),
+    "dipole_debye_last": ("last magnitude of the QM dipole", "D"),
+}
+
 
 def run_completed(facts: dict) -> bool:
     """Whether the log's own evidence says the run did what it was asked: it ended
@@ -292,6 +313,41 @@ def parse_cpmd_output(text: str) -> dict:
 #: its tail-end echo still has the echo)
 _CPMD_MARKS = (b"PROGRAM CPMD STARTED", b"The CPMD consortium",
                b"PATH TO THE RESTART FILES", b"MAXIMUM NUMBER OF ITERATIONS FOR SC")
+
+
+def is_cpmd_text(text: str) -> bool:
+    """Whether this log text is CPMD's stdout, finished or not, from its first 16 kB."""
+    head = text[:16384]
+    return any(mark.decode() in head for mark in _CPMD_MARKS)
+
+
+def cpmd_facts(text: str) -> dict:
+    """What a coupled run's CPMD log states, by RUN_FACTS key: how the ionic temperature
+    was controlled, how far the dynamics got, the temperature it ran at, and — only for a
+    run whose header says the ions were not thermostatted — the drift of the conserved
+    energy."""
+    parsed = parse_cpmd_output(text)
+    series = parse_cpmd_series(text)
+    facts: dict = {}
+    if series:
+        facts["ion_temperature_control"] = (parsed.get("ion_temperature_control")
+                                            or "none (energy conserved)")
+    for key in ("md_steps_completed", "md_time_ps", "eclassic_drift_ha_per_ps",
+                "eclassic_fluctuation_ha"):
+        if parsed.get(key) is not None:
+            facts[key] = parsed[key]
+    if series:
+        temps = [step["temp_k"] for step in series]
+        facts["final_temperature_k"] = temps[-1]
+        tail = temps[-max(1, -(-len(temps) // 10)):]  # the last 10 %, at least one step
+        facts["tail_mean_temperature_k"] = sum(tail) / len(tail)
+        if len(temps) > 1:
+            mean = sum(temps) / len(temps)
+            facts["mean_temperature_k"] = mean
+            facts["sd_temperature_k"] = (sum((t - mean) ** 2 for t in temps)
+                                         / (len(temps) - 1)) ** 0.5
+    facts["finished_normally"] = bool(parsed.get("finished_normally"))
+    return facts
 
 
 def is_cpmd_output(path: Path) -> bool:

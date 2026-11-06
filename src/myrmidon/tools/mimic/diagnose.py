@@ -14,6 +14,7 @@ from myrmidon.core.observation import Observation
 from myrmidon.core.tool import FileReader, ToolContext, tool
 from myrmidon.engines.inputs import resolve_in_ws
 from myrmidon.engines.mimic.diagnostics import (
+    cpmd_facts,
     dipole_facts,
     is_cpmd_output,
     parse_cpmd_output,
@@ -143,8 +144,6 @@ def mimic_diagnose(ctx: ToolContext, params: MimicDiagnoseParams) -> Observation
         tail_text = tail(text, LOG_TAIL_LINES)
         if err_text.strip():
             tail_text += "\n--- stderr ---\n" + tail(err_text, 20)
-    from myrmidon.engines.facts import cpmd_facts
-
     # the ionic temperature as the run states it: what a next stage starts from
     ionic = cpmd_facts(text)
     return Observation(

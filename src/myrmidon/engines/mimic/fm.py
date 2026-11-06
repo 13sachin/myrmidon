@@ -11,6 +11,7 @@ import math
 import re
 from pathlib import Path
 
+from myrmidon.core.contracts import declare_alias
 from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding, Precondition
 from myrmidon.engines.gromacs.itp import atom_charges, bond_angle_rows
@@ -239,6 +240,9 @@ def parse_validation_force_residuals(text: str, n_atoms_listed: int = 10) -> dic
         "outliers": [a for a in per_atom if a["outlier"]],
         "worst_atoms": per_atom[:n_atoms_listed],
     }
+
+
+declare_alias("fminput", "fm_input")
 
 
 def render_fminput(

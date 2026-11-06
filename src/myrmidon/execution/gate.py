@@ -91,18 +91,14 @@ def lock_expectations(ctx: ToolContext, held: mandates.Mandate):
 def mandate_facts(ctx: ToolContext, mandate: mandates.Mandate) -> dict:
     """The facts the mandate's system files hold: its topology's force field, restraints
     and groups, its index's QM group, its structure's starting state."""
-    from pathlib import Path
-
-    from myrmidon.engines.facts import system_facts
+    from myrmidon.engines.facts import data_dir_of, system_facts
 
     files = {}
     for f in mandate.system.files:
         path = ctx.workspace.resolve(f.path)
         if path.is_file():
             files.setdefault(f.kind, path)
-    info = ctx.engines.get("gromacs") if ctx.engines else None
-    data = Path(info.data_dir) if info is not None and info.data_dir else None
-    return system_facts(files, data)
+    return system_facts(files, data_dir_of(ctx.engines))
 
 
 def _within(ws, held: mandates.Mandate, est: float, findings: list[Finding]):

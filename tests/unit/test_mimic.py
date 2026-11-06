@@ -429,3 +429,24 @@ def test_a_restarted_segment_hashes_the_restart_it_stages(ws_ctx):
     assert second.ok, second.summary
     spec = existing_jobstore(ws_ctx.workspace).get(second.job_id).spec
     assert any(p.endswith("RESTART") for p in spec.receipt_inputs), spec.receipt_inputs
+
+
+def test_a_systems_files_are_read_by_the_engine_each_belongs_to(tmp_path):
+    """The facts of a system's files are the union of what each file's engine reads from it."""
+    from myrmidon.engines.facts import system_facts
+
+    top = tmp_path / "system.top"
+    top.write_text('#include "amber99sb-ildn.ff/forcefield.itp"\n[ system ]\nx\n[ molecules ]\n')
+    inp = tmp_path / "cpmd.inp"
+    inp.write_text("&SYSTEM\n CELL ABSOLUTE\n  20.0 21.0 22.0 0 0 0\n CUTOFF\n  70.0\n"
+                   " CHARGE\n  0\n&END\n\n&MIMIC\n OVERLAPS\n  1\n  2 1 1 1\n&END\n\n"
+                   "&ATOMS\n*C_MT_BLYP.psp\n LMAX=P\n 1\n 1.0 2.0 3.0\n&END\n")
+    facts = system_facts({"topology": top, "cpmd_input": inp})
+    assert facts["forcefield"].value == "amber99sb-ildn"
+    assert facts["qm_atoms"].value == "1"
+    assert facts["cell_bohr"].value == "20.0 21.0 22.0"
+    assert facts["cutoff_ry"].value == "70.0"
+    assert facts["&SYSTEM/CHARGE"].value == "0"
+    assert "1.0 2.0 3.0" in facts["&ATOMS"].value
+    assert set(system_facts({"cpmd_input": inp}, rules={"qm_size"})) == {
+        "qm_atoms", "cell_bohr", "cutoff_ry"}
