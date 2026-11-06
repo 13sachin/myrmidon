@@ -34,7 +34,7 @@ decomposition:
   qm_step_scaling:
     qm_atoms: 2.0
     cutoff_ry: 1.5
-    cores: -0.8
+    cores: -0.5
   single_point_steps: 10
 keys:
   ATOMS/ATOMIC CHARGES:

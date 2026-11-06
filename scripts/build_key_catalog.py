@@ -316,8 +316,8 @@ DECOMPOSITION = {
         "mm_share": 6,
         # exponents of one coupled step's seconds: plane-wave DFT grows about with the square
         # of the QM atoms over a sub-hundred-atom region, with the mesh's points in the cutoff,
-        # and scales sublinearly in cores
-        "qm_step_scaling": {"qm_atoms": 2.0, "cutoff_ry": 1.5, "cores": -0.8},
+        # and scales well short of linearly in cores once ranks approach the mesh's planes
+        "qm_step_scaling": {"qm_atoms": 2.0, "cutoff_ry": 1.5, "cores": -0.5},
         # a wavefunction optimised from a cold start takes about this many extrapolated BO
         # steps' worth of iterations
         "single_point_steps": 10,

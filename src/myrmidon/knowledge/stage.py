@@ -847,7 +847,7 @@ def plausible_s_per_step(compute, qm_atoms: int | None, cutoff_ry: float | None,
     seconds = (ref.s_per_step
                * (atoms / ref.qm_atoms) ** scaling.get("qm_atoms", 2.0)
                * (cutoff / ref.cutoff_ry) ** scaling.get("cutoff_ry", 1.5)
-               * (cores / ref.cores) ** scaling.get("cores", -0.8))
+               * (cores / ref.cores) ** scaling.get("cores", -0.5))
     return seconds, (f"unmeasured here: {seconds:.3g} s/step, scaled from {ref.s_per_step:g} "
                      f"s/step on {ref.qm_atoms} QM atoms at {ref.cutoff_ry:g} Ry and "
                      f"{ref.cores} cores (compute.plausible_s_per_step) to {atoms} QM atoms at "
