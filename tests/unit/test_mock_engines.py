@@ -2,6 +2,8 @@
 
 import os
 
+import pytest
+
 from myrmidon.core.tool import REGISTRY
 from myrmidon.engines import mock
 
@@ -40,3 +42,26 @@ def test_a_mock_job_is_seen_running_exactly_once_whatever_the_host(ws_ctx):
             sequences.append([REGISTRY.call("job_status", ctx, {"job_id": job.job_id}).state
                               for _ in range(3)])
     assert sequences[0] == sequences[1] == ["RUNNING", "COMPLETED", "COMPLETED"]
+
+
+@pytest.mark.parametrize("fails,exit_code", [(False, 0), (True, 7)])
+def test_the_mock_srun_runs_a_multi_prog_step_as_the_real_one_does(tmp_path, fails, exit_code):
+    """A coupled launch's wrappers write a program's stdout only from its first rank."""
+    import subprocess
+
+    from myrmidon.config import SlurmDefaults
+    from myrmidon.execution.backend import CoupledCmd, JobSpec, Resources
+    from myrmidon.execution.slurm import SlurmBackend
+
+    spec = JobSpec(argv=["echo", "qm"], cwd=tmp_path, stdout="qm.out", stderr="qm.err", mpi_ranks=3,
+                   resources=Resources(ntasks=4),
+                   coupled=[CoupledCmd(argv=["sh", "-c", f"echo mm; exit {7 if fails else 0}"],
+                                       mpi_ranks=1, stdout="mm.out", stderr="mm.err")])
+    backend = SlurmBackend(SlurmDefaults(coupled_launch="multi-prog"))
+    script = backend.render_script(spec, "job")
+    srun = mock.BIN / "srun"
+    done = subprocess.run(["sh", "-c", script.replace("srun ", f"{srun} ")], cwd=tmp_path,
+                          capture_output=True, text=True, check=False)
+    assert done.returncode == exit_code, done.stderr
+    assert (tmp_path / "qm.out").read_text() == "qm\n"
+    assert (tmp_path / "mm.out").read_text() == "mm\n"

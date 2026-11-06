@@ -1,5 +1,26 @@
 #!/bin/sh
-# Mock srun: drop the step options (`--ntasks=N --exact`, as the SLURM backend writes a
-# coupled launch's steps) and exec the command.
-while [ $# -gt 0 ] && [ "${1#--}" != "$1" ]; do shift; done
-exec "$@"
+# Mock srun: a job step runs its program once, as one rank stands for them all. `--multi-prog
+# FILE` starts each program the file lists (`FIRST-LAST SCRIPT`) as its first rank, and waits for
+# them, as the real step does, failing if any does; every other option is dropped.
+conf=""
+while [ "${1#--}" != "$1" ]; do
+    case "$1" in
+        --multi-prog) conf=$2; shift ;;
+        --multi-prog=*) conf=${1#--multi-prog=} ;;
+    esac
+    shift
+done
+if [ -z "$conf" ]; then
+    exec "$@"
+fi
+status=0
+pids=""
+while read -r ranks program; do
+    [ -n "$program" ] || continue
+    SLURM_PROCID=${ranks%%-*} "$program" &
+    pids="$pids $!"
+done < "$conf"
+for pid in $pids; do
+    wait "$pid" || status=$?
+done
+exit $status
