@@ -39,16 +39,20 @@ def approve_mandate():
     """Write a mandate over the built system and record the researcher's yes, so the jobs
     run under the gate the way a study's jobs do."""
 
-    def approve(ctx, question, ceiling_core_h, **files):
+    def approve(ctx, question, ceiling_core_h, stages=(), hamiltonian=None, subsystems=None,
+                **files):
         from myrmidon.core import mandate as mandates
         from myrmidon.core.tool import REGISTRY
 
         system = [{"path": path, "kind": kind} for kind, path in files.items()]
         written = REGISTRY.call("mandate_write", ctx, {
-            "question": question, "ceiling_core_h": ceiling_core_h, "system_files": system})
+            "question": question, "ceiling_core_h": ceiling_core_h, "system_files": system,
+            "stages": list(stages), **({"hamiltonian": hamiltonian} if hamiltonian else {}),
+            **({"subsystems": subsystems} if subsystems else {})})
         assert written.ok, written.summary
         ws = ctx.workspace
-        mandates.record_approval(ws, mandates.read_mandate(ws), approver="researcher",
-                                 via="terminal")
+        held = mandates.read_mandate(ws)
+        mandates.record_approval(ws, held, approver="researcher", via="terminal")
+        return held
 
     return approve

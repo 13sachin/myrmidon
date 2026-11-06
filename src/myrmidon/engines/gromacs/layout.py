@@ -31,11 +31,15 @@ def smooth_at_most(n: int, primes: list[int]) -> int:
     return 1
 
 
-def layout_facts(inputs: Mapping) -> dict:
-    """What a classical run's layout reads from its inputs: its atoms, and its integrator."""
+def layout_facts(inputs: Mapping, stage=None) -> dict:
+    """What a classical run's layout reads from its inputs: its atoms, and its integrator; a
+    batch minimising frames is one driver process, however many atoms it holds."""
     from myrmidon.core.contracts import lookup
+    from myrmidon.engines.gromacs.run import frame_batch
     from myrmidon.engines.gromacs.system import atom_count
 
+    if stage is not None and stage.kind == "minimize" and frame_batch(stage):
+        return {"integrator": "l-bfgs"}
     facts: dict = {}
     if inputs.get("structure") is not None and (found := atom_count(inputs["structure"])):
         facts["atoms"] = found

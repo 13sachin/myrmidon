@@ -2,7 +2,7 @@
 
 Input sets, protocols and skills name findings. A name nothing can raise is a pointer to
 nowhere, so the tests check each one against this catalogue: ids given to a
-Finding (directly or through fm_fit's `note` helper).
+Finding (directly or through a `note` helper).
 """
 
 import re

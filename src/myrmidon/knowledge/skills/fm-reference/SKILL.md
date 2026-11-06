@@ -12,7 +12,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Make me QM/MM reference forces for these frames."
-  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search snapshot_select gmx_grompp qm_region mimic_prepare mimic_run run_diagnose dataset_collect dataset_collect dataset_collect dataset_collect snapshot_select job_status file_write"
+  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search snapshot_select qm_region stage_prepare stage_run run_diagnose dataset_collect job_status file_write"
   myrmidon-protocols: "fm_reference_singlepoint"
   myrmidon-stages: "cpmd.single_point gromacs.mimic"
 ---
@@ -29,8 +29,8 @@ preflight (`qmmm-preflight`); displaced geometries are `snapshot_select`.
 Into `decisions_yours`, quoted: how many frames, as a count or a stride; the QM selection;
 the QM method when they name one; what happens to a frame that fails; the ceiling. Into
 `decisions_proposed`, with the source: the QM total charge the probe's `qm_region`
-declares (an integer sum of the selection's topology charges), and the multiplicity
-`mimic_prepare` derives.
+declares (an integer sum of the selection's topology charges), and the multiplicity its
+electrons decide (`derived_multiplicity`).
 Yours, recorded: frames spread over the trajectory, the stage rendered once per engine, the
 first frame as the probe, the rest's resources from what the probe measured.
 
@@ -46,23 +46,17 @@ first frame as the probe, the rest's resources from what the probe measured.
    with the probe as its source; the decisions; the ceiling. It prices the stage from the coupled steps measured
    here. The approval is the researcher's: `/approve` in Hermes, the dialog in Pi, or
    `myrmidon approve` at a terminal. Say the cost and the digest and end the turn.
-4. `inputset_apply` with `stage=<the reference>` once with an `.inp` output and once with an
-   `.mdp` output and the probe's index; the protocol keeps the CPMD and GROMACS outputs
-   paired.
-5. The probe alone: `gmx_grompp` → `mimic_prepare` with `method` the rendered `.inp` (its
-   wavefunction optimisation and force output) →
-   `mimic_run`; when it lands,
+4. The probe alone: `stage_prepare` with `stage=<the reference>` and the probe's `structure`
+   writes the complete CPMD input and the compiled MM half, paired; `stage_run`; when it lands,
    `run_diagnose`: `wavefunction_converged`, `gemax_last` against `gemax_criterion`,
    `scf_iterations` against `scf_max_iterations`, `energy_total`.
-6. The remaining frames the same way, `qm_region` first, `run_diagnose` on each as
-   it lands.
-7. `dataset_collect` the records and `dataset_collect` the trajectories in the same order, then
-   `dataset_collect`; read `index_aligned` and `dropped`. `dataset_collect` with `monitor_pairs`
-   gives `monitor_stats` per pair.
+5. The remaining frames the same way, `qm_region` first, `run_diagnose` on each as it lands.
+6. `dataset_collect` with `stage=<the reference>` merges every run's records and trajectories,
+   in order; read `index_aligned` and `dropped`. `monitor_pairs` gives `monitor_stats` per pair.
 
 ## Stop
 
-- `needs_input` from `mimic_prepare` or `mandate_write`: ask.
+- `needs_input` from `mandate_write`, or a multiplicity `qm_region` leaves open: ask.
 - After each submission: the job id and the core-hours, then stop.
 - The probe's wavefunction did not converge: submit nothing more.
 - No log, or nothing `run_diagnose` can read: report `cpmd_error` and the scheduler's

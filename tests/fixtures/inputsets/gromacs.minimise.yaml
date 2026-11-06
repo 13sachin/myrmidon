@@ -6,7 +6,7 @@ title: Steepest-descent energy minimisation
 system_class: any solvated system before dynamics, or single frames of a trajectory
 scope: engine
 applicability: Relaxing close contacts before dynamics, and minimising single frames pulled from a
-  trajectory (gmx_minimize_frames in a force-field comparison). The interactions are the force field's
+  trajectory (a minimising stage in a force-field comparison). The interactions are the force field's
   (the method set).
 parameters:
   integrator:
@@ -41,7 +41,7 @@ parameters:
 sources:
 - kind: in_house
   text: 'The integrator/nsteps/emtol a force-field comparison minimises reference frames with: the
-    mdp gmx_minimize_frames takes is rendered from this input set.
+    mdp a minimising stage takes is rendered from this input set.
 
     '
   locator: src/myrmidon/tools/gromacs/minimize.py

@@ -3,7 +3,7 @@ name: qmmm-preflight
 description: >-
   Check a prepared QM/MM system before any MiMiC core-hour is spent: the QM region and its
   boundary, the total charge and the multiplicity, the vacuum around the QM cell, the
-  pseudopotentials, and the review surface mimic_prepare returns. Use when the user asks
+  pseudopotentials, and the review surface qm_region returns. Use when the user asks
   whether a QM/MM input is right, wants a QM region picked or reviewed, asks what MiMiC
   needs before it will run, or is about to launch a coupled run. Do not use to build and
   equilibrate the classical box first (setup-and-equilibrate), to make reference forces for
@@ -13,7 +13,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Is my QM/MM input right before I spend the allocation?"
-  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup qm_region mimic_prepare gmx_grompp mimic_run run_diagnose job_status"
+  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup qm_region stage_prepare stage_run run_diagnose observable_measure job_status"
   myrmidon-protocols: "mimic_qmmm_solvated_solute"
   myrmidon-stages: "cpmd.minimize cpmd.dynamics cpmd.single_point gromacs.mimic"
 ---
@@ -36,48 +36,41 @@ Into `decisions_yours`, quoted:
   (`add-bound` marks a boundary atom; the harness places no link atom);
 - the QM method when the question names one, and the ceiling.
 
-Into `decisions_proposed`, with the source: the charge and multiplicity `mimic_prepare`
-derived (its `facts` say from what), the QM method the protocol's `hamiltonian` names, the
+Into `decisions_proposed`, with the source: the charge and multiplicity `qm_region`
+derived (`declared_charge`, `derived_multiplicity`, why in its sidecar), the QM method the protocol's `hamiltonian` names, the
 padding around the QM atoms (the stage's `qm_region.padding_nm`). Yours, recorded: the order
-the protocol states, the stage that renders the CPMD template.
+the protocol states.
 
 ## Drive
 
 The preflight runs in the session and spends nothing:
 
-1. `mandate_write` names the structure and topology as the system; the Hamiltonian
-   (`hamiltonian.qm` with the method and any cutoff to converge, `hamiltonian.coupling`);
-   the coupled stages in physical terms, each with `regime: qmmm` and its `qm_region`
-   (subsystems, the QM subsystem's topology charge, multiplicity, padding), a cutoff scan as
-   a stage with a `scan`; the decisions, locking the lengths the researcher stated; the
-   deliverables; the ceiling. It compiles and prices each stage. Its `ready` is not yet the
-   one to approve: the draft renders, and nothing books until step 6's is approved.
-2. `inputset_apply` with `stage=<the first coupled stage>` and an `.inp` output: the CPMD
-   template.
-3. `qm_region` with the topology, the coordinates, the researcher's `selections`, the
-   stage's padding as `padding_nm` and that `template`. It returns the index with the QM
-   group, the CPMD input, and the review surface: `qm_atoms` (count and order against what
-   the researcher described), `declared_charge`, `min_vacuum_bohr` and `qm_cell_bohr`.
-4. `inputset_apply` with the same stage, an `.mdp` output and the index from step 3, then
-   `gmx_grompp` with that index.
-5. `mimic_prepare` with the CPMD input from step 3. Leave the charge and multiplicity unset
-   when the system decides them: it derives both and says how in `facts`. Read `charge`,
-   `multiplicity`, `functional`, `sections` and `paths` in full.
-6. `mandate_write` again, the QM index among the system files and each `qm_region` with the
-   charge and multiplicity `mimic_prepare` derived, proposed with its `facts` as the source:
-   the draft is written in place, and the approval makes the region's chemistry the
-   researcher's.
+1. `qm_region` with the topology, the coordinates, the researcher's `selections`, the padding
+   as `padding_nm` and `pp_info`. It writes the system's CPMD input, the index with the QM
+   group and the selection file, and returns the review surface: `qm_atoms` (count and order
+   against what the researcher described), `declared_charge`, `derived_multiplicity`,
+   `electrons`, `guessed_elements` (an element misread goes back through `atomtypes_map`),
+   `min_vacuum_bohr` and `qm_cell_bohr`.
+2. `mandate_write` names the structure and topology as the system, and what the selection wrote
+   joins them; the Hamiltonian (`hamiltonian.qm` with the method and any cutoff to converge,
+   `hamiltonian.coupling`); the coupled stages in physical terms, each with `regime: qmmm`, its
+   `starts_from` when it branches, and its `qm_region` (subsystems, the charge and multiplicity
+   step 1 derived, proposed with its source), a cutoff scan as a stage with a `scan`; the
+   decisions, locking the lengths the researcher stated; the deliverables; the ceiling. It
+   compiles and prices each stage, a first coupled stage from the machine's reference step.
+3. `stage_prepare` with `stage=<the first coupled stage>`: the complete run input and its
+   compiled MM half. Read its findings and `file_read` the input in full.
    The approval is the researcher's: `/approve` in Hermes, the dialog in Pi, or
    `myrmidon approve` at a terminal.
 
-Per stage: `inputset_apply` with `stage=<name>` for the `.inp` (the method `mimic_prepare`
-takes) and the `.mdp`; each later stage names the earlier one's restart with
-`restart_from`.
+Per stage, under the approved mandate: `stage_prepare`, then `stage_run`; each finds what the
+stage it starts from left in the ledger. `observable_measure` with `deliverable=<name>` measures
+each deliverable; `snapshot_select` picks a frame for a later stage to start from.
 
 ## Stop
 
-- `mimic_prepare` returns `needs_input`: ask its question; the answer goes into
-  `decisions_yours`.
+- `qm_region` leaves the charge or the multiplicity open: ask; the answer goes into
+  `decisions_yours`, and the stage's `qm_region` states it.
 - A selection prepqm refuses: report the commands it names; never shrink the region.
 - A boundary the selection cuts: say what it cuts and hand the decision back.
 - `mandate_write` returns `needs_input` (ask); step 6's `ready`: say the cost and the
@@ -88,5 +81,5 @@ takes) and the `.mdp`; each later stage names the earlier one's restart with
 
 `mandate_show` and the deliverables it names; the selection as given and the atom count
 parsed, the charge and multiplicity with who decided each, the vacuum, the
-pseudopotentials, the CPMD sections `mimic_prepare` assembled, what was not checked, and
+pseudopotentials, the CPMD sections `stage_prepare` assembled, what was not checked, and
 what the first coupled run would book.

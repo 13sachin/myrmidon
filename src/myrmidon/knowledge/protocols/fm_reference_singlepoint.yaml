@@ -2,26 +2,46 @@ id: fm_reference_singlepoint
 system_class: frames of any QM/MM system whose QM region the QM method covers
 title: QM/MM reference forces for force matching — the single-point pipeline
 scope: engine
-applicability: 'Generate the reference force set a force-matching fit is trained against: render the
-  CPMD and GROMACS halves, then one coupled run over the sampled frames. Start from it when you have
-  frames and want QM forces for them.'
+applicability: 'Generate the reference force set a force-matching fit is trained against: render the CPMD
+  and GROMACS halves, then one coupled run over the sampled frames. Start from it when you have frames
+  and want QM forces for them.'
 given:
 - structure
 - topology
 - frames
-hamiltonian: {qm: {method: blyp_mt}, coupling: {scheme: mimic}}
+hamiltonian:
+  qm:
+    method: blyp_mt
+  coupling:
+    scheme: mimic
 steps:
-- name: cpmd_input
-  tool: mimic_prepare
-  cites: stage:reference/cpmd_inp
+- name: qm_region
+  tool: qm_region
   needs:
   - structure
   - topology
   produces:
-  - cpmd_input
+  - system_input
   - index_qm
+  - qm_selection
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+  note: which atoms are quantum is the researcher's; run on the first frame, the probe
+- name: cpmd_input
+  tool: stage_prepare
+  cites: stage:reference/cpmd_inp
+  needs:
+  - structure
+  - topology
+  - system_input
+  - index_qm
+  produces:
+  - cpmd_input
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+  note: the frame's complete run input
 - name: mm_mdp
-  tool: gmx_grompp
+  tool: stage_prepare
   cites: stage:reference/mdp
   needs:
   - structure
@@ -29,8 +49,11 @@ steps:
   - index_qm
   produces:
   - tpr_fm
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+  note: the same call as cpmd_input; named so the rule between the two files has both to read
 - name: reference_run
-  tool: mimic_run
+  tool: stage_run
   needs:
   - tpr_fm
   - cpmd_input
@@ -38,8 +61,26 @@ steps:
   produces:
   - reference_forces
   - trajectory_mm
-  stage: {name: reference, kind: single_point, regime: qmmm,
-    qm_region: {subsystems: [ligand], charge: 0, multiplicity: 1}}
+  stage:
+    name: reference
+    kind: single_point
+    regime: qmmm
+    qm_region:
+      subsystems:
+      - ligand
+      charge: 0
+      multiplicity: 1
+- name: dataset
+  tool: dataset_collect
+  needs:
+  - reference_forces
+  - trajectory_mm
+  - qm_selection
+  produces:
+  - reference_dataset
+  estimate_core_h: 0.0
+  estimate_basis: runs in the session, not on the scheduler
+  note: every frame's run merged, aligned and summarised, from the stage's runs in the ledger
 invariants:
 - id: FM_PACE_MATCHES_NSTXOUT
   equal:
@@ -50,10 +91,9 @@ invariants:
     silently pairs QM forces with the wrong geometry'
 sources:
 - kind: in_house
-  text: 'The acetone force-matching reference pair generated through the harness with MiMiC-enabled
-    CPMD and GROMACS on a SLURM cluster. Inputs kept verbatim in tests/fixtures/acetone/ as
-    fm_singlepoint_template.inp and mimic_fm.mdp; the pace/nstxout rule is stated in that mdp''s
-    own comments.
+  text: 'The acetone force-matching reference pair generated through the harness with MiMiC-enabled CPMD
+    and GROMACS on a SLURM cluster. Inputs kept verbatim in tests/fixtures/acetone/ as fm_singlepoint_template.inp
+    and mimic_fm.mdp; the pace/nstxout rule is stated in that mdp''s own comments.
 
     '
   locator: tests/fixtures/acetone/fm_singlepoint_template.inp

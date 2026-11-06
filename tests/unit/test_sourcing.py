@@ -73,7 +73,7 @@ def _rendered(ws_ctx):
 
 
 def _foreign_sidecar(ws_ctx):
-    """mimic_prepare writes a sidecar too; only inputset_apply's counts as a source."""
+    """qm_region writes a sidecar too; only a render's counts as a source."""
     stage = ws_ctx.workspace.stage("input")
     (stage / "cpmd.inp").write_text("&CPMD\n&END\n")
     (stage / "cpmd.inp.myrmidon.json").write_text(
@@ -114,14 +114,25 @@ def test_every_parameter_file_says_where_its_values_came_from(ws_ctx, make, prov
     assert list(origin.via or []) == via
 
 
-def _grompp_on(make):
-    def run(ws_ctx):
-        gro, top = _inputs(ws_ctx)
-        mdp = make(ws_ctx)
-        return REGISTRY.call("gmx_grompp", ws_ctx, {
-            "mdp": mdp, "structure": gro, "topology": top, "stage": "run"})
-    run.__name__ = f"grompp{make.__name__}"
-    return run
+def _run_rendered(ws_ctx):
+    """A stage's run, on what its preparation rendered."""
+    from tests.conftest import NVT_STAGE, approved_study
+
+    gro, top = _inputs(ws_ctx)
+    approved_study(ws_ctx, gro, top, [NVT_STAGE])
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt"}).ok
+    return REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "preview": True})
+
+
+def _run_written(ws_ctx):
+    """A stage's run, told to read a parameter file somebody typed."""
+    from tests.conftest import NVT_STAGE, approved_study
+
+    gro, top = _inputs(ws_ctx)
+    approved_study(ws_ctx, gro, top, [NVT_STAGE])
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt"}).ok
+    return REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "preview": True,
+                                               "inputs": {"mdp": _written(ws_ctx)}})
 
 
 def _nvt_rendered(ws_ctx):
@@ -133,20 +144,11 @@ def _nvt_rendered(ws_ctx):
     return "01_input/nvt.mdp"
 
 
-def _mimic_prepare_unsourced(ws_ctx):
-    obs = _select_qm(ws_ctx)  # no template: prepqm's own defaults, nothing recorded
-    assert obs.ok, obs.summary
-    generated = next(a.path for a in obs.artifacts if a.role == "cpmd_input")
-    return REGISTRY.call("mimic_prepare", ws_ctx,
-                         {"cpmd_input": generated, "total_charge": 0, "multiplicity": 1})
-
-
 # Advisory by design: the store has to cover the common recipes before a warning here
 # would be anything but noise. (gate call, the advisory it carries)
 GATES = [
-    (_grompp_on(_written), "PARAM_UNSOURCED"),
-    (_grompp_on(_nvt_rendered), "PARAM_SOURCED"),
-    (_mimic_prepare_unsourced, "PARAM_UNSOURCED"),
+    (_run_written, "PARAM_UNSOURCED"),
+    (_run_rendered, "PARAM_SOURCED"),
 ]
 
 

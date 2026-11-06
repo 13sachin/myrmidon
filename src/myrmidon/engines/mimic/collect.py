@@ -92,7 +92,7 @@ def coupled_findings(ctx: ToolContext, cpmd_input: str, tpr: str, restart_from: 
         warnings.append(
             Precondition(
                 id="QM_CHARGE_MISSING",
-                message="&SYSTEM has no CHARGE — run mimic_prepare (charge must be "
+                message="&SYSTEM has no CHARGE — stage_prepare the stage (charge must be "
                 "explicit, never assumed)",
             )
         )
@@ -102,7 +102,7 @@ def coupled_findings(ctx: ToolContext, cpmd_input: str, tpr: str, restart_from: 
         warnings.append(
             Precondition(
                 id="QM_MULTIPLICITY_UNCONFIRMED",
-                message="the input states no multiplicity — run mimic_prepare (closed-shell "
+                message="the input states no multiplicity — stage_prepare the stage (closed-shell "
                 "runs carry it in the .myrmidon.json sidecar, open-shell runs in &SYSTEM)",
             )
         )

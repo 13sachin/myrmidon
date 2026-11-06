@@ -61,7 +61,7 @@ sources:
 - kind: in_house
   text: 'A bonded fit of a solvated solute with the production MiMiC mdp as the rerun input is invalid:
     the MiMiC integrator removes the QM charges and the QM-QM nonbonded terms from the GROMACS force.
-    The fm_fit gate refuses it (FM_RERUN_MDP_IS_MIMIC); a valid rerun mdp differs from the MiMiC one
+    The gate of a fit refuses it (FM_RERUN_MDP_IS_MIMIC); a valid rerun mdp differs from the MiMiC one
     only in the integrator and the absence of QMMM-grps.
 
     '

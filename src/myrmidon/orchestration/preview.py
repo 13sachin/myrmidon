@@ -198,6 +198,10 @@ def _call_tool(trial, step, files, kind, path, stage: Stage):
     """The stage's tool on the rendered file and the built system, by the parameters the
     step wires to roles and the one its contract takes the rendered kind in; None when the
     tool takes no such file or needs a parameter nothing here supplies."""
+    if step.tool == "stage_prepare":
+        return REGISTRY.call("stage_prepare", trial, {
+            "stage": _cited(step)[0], **{k: files[k] for k in ("structure", "topology", "index")
+                                         if k in files}})
     try:
         spec = REGISTRY.get(step.tool)
     except UnknownToolError:

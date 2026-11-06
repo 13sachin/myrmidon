@@ -12,7 +12,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Set up this system in water and equilibrate it — and what will it cost?"
-  myrmidon-tools: "study_open study_create protocol_lookup protocol_preview lookup mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup journal_write fetch_pdb structure_select ligand_parametrize complex_assemble gmx_pdb2gmx gmx_editconf gmx_solvate gmx_genion gmx_make_ndx gmx_genrestr gmx_grompp gmx_mdrun checkpoint_continue observable_measure observable_measure observable_measure job_status study_report"
+  myrmidon-tools: "study_open study_create protocol_lookup protocol_preview lookup mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup journal_write fetch_pdb structure_select ligand_parametrize complex_assemble gmx_pdb2gmx gmx_editconf gmx_solvate gmx_genion gmx_make_ndx gmx_genrestr observable_measure job_status study_report stage_prepare stage_run"
   myrmidon-protocols: "mimic_qmmm_solvated_solute protein_ligand_complex_in_water"
   myrmidon-stages: "gromacs.minimize gromacs.dynamics"
 ---
@@ -84,12 +84,13 @@ compiles and prices every stage. The approval is the researcher's: `/approve` in
 dialog in Pi, or `myrmidon approve` at a terminal. Say the cost and the digest and end the
 turn.
 
-Under the approved mandate, per stage: `inputset_apply` with `stage=<name>`, the output
-`.mdp` and the structure the stage starts from → `gmx_grompp` → `gmx_mdrun`, whose walltime
-the harness sizes. Extending a finished run is `checkpoint_continue`, never a fresh
-`gmx_mdrun`. Then `observable_measure` with `deliverable=<name>` for each deliverable, `observable_measure`
-for the thermodynamics, and `observable_measure` on the series the question is about, in the
-session and without being asked.
+Under the approved mandate, per stage: `stage_prepare` with `stage=<name>` writes its `.mdp` and
+compiles its run input, from the structure the stage it starts from left; `stage_run` books it,
+its ranks and walltime sized by the harness. Extending a finished run is `stage_run` with
+`continue_run: true`, never a fresh run. Then `observable_measure` with `deliverable=<name>` for
+each deliverable, with `stage=<name>` and `property: thermodynamics` for the thermodynamics, and
+with `property: settling` on the series the question is about, in the session and without being
+asked.
 
 ## Stop
 
@@ -98,7 +99,7 @@ session and without being asked.
 - A submission: say the job id and the core-hours booked, then stop.
 - A submission the gate did not make: say what it named; a different system or a bigger
   ceiling is `mandate_write` with `revise=true` and the reason.
-- A refusal from `gmx_solvate`, `gmx_genion` or `gmx_grompp`: the system is not what the
+- A refusal from `gmx_solvate`, `gmx_genion` or `stage_prepare`: the system is not what the
   sequence assumed; say what the engine said.
 - Another segment past the ceiling, or "equilibrated" with no criterion stated: theirs.
 

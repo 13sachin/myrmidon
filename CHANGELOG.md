@@ -9,8 +9,8 @@ through MiMiC, and MiMiCPy through typed, gated and recorded tools, on a worksta
 SLURM cluster.
 
 - **Tools for the whole path.** GROMACS preparation, runs and analysis (`fetch_pdb`,
-  `gmx_pdb2gmx`, `gmx_editconf`, `gmx_solvate`, `gmx_genion`, `gmx_make_ndx`, `gmx_grompp`,
-  `gmx_mdrun`, `observable_measure`, `observable_measure`, `observable_measure`); protein–ligand complexes
+  `gmx_pdb2gmx`, `gmx_editconf`, `gmx_solvate`, `gmx_genion`, `gmx_make_ndx`, `stage_prepare`,
+  `stage_run`, `observable_measure`); protein–ligand complexes
   (`structure_select`, `ligand_parametrize` with acpype GAFF/GAFF2 and AM1-BCC or Gasteiger
   charges and a PDB chemical-component lookup, `complex_assemble`); MiMiC QM/MM (QM region,
   CPMD input, coupled launch, diagnosis); MiMiCPy force matching. Building a system runs in
@@ -23,7 +23,7 @@ SLURM cluster.
   deliverables as physical observables of named subsystems; the cost estimate and ceiling;
   and the recovery bounds. The researcher approves it once: in Pi's dialog, with `/approve`
   in Hermes, or with `myrmidon approve`. The agent has no way to approve its own.
-- **One gate on every booking.** `gmx_mdrun`, `mimic_run`, `fm_fit`, and `script_run` above
+- **One gate on every booking.** `stage_run` and `script_run` above
   the session envelope are checked against the approved mandate: the price within its
   ceiling, every input traced back to the mandate's system files through the ledger, and
   the locked decisions as the run input on disk states them. Each job writes a receipt on

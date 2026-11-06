@@ -69,19 +69,18 @@ def test_gmx_energy_stats(ws_ctx):
     assert obs.time_span_ps == 10.0
 
 
-def test_mdrun_account_is_booked_and_named(ws_ctx):
+def test_a_run_account_is_booked_and_named(ws_ctx):
     """One user, several allocations: a submission may name the account it bills, the
     job spec carries it to the backend, and the budget line says so before the run."""
     from myrmidon.execution.accounting import budget_warnings
-    from myrmidon.tools.gromacs.run import MdrunParams
+    from myrmidon.tools.stage import StageRunParams
 
-    params = MdrunParams(tpr="x.tpr", account="ant1qmmm")
-    res = params.resources()
-    assert res.account == "ant1qmmm"
-    assert MdrunParams(tpr="x.tpr").resources().account is None
+    res = StageRunParams(stage="x", account="project_b").resources()
+    assert res.account == "project_b"
+    assert StageRunParams(stage="x").resources().account is None
     _, findings = budget_warnings(res, ws_ctx.config.compute, "slurm")
-    assert "billed to account ant1qmmm" in findings[0].message
-    _, findings = budget_warnings(MdrunParams(tpr="x.tpr").resources(),
+    assert "billed to account project_b" in findings[0].message
+    _, findings = budget_warnings(StageRunParams(stage="x").resources(),
                                   ws_ctx.config.compute, "slurm")
     assert "billed to" not in findings[0].message
 
@@ -94,27 +93,23 @@ def test_mdrun_account_is_booked_and_named(ws_ctx):
 # got, and that it can continue.
 CRASHES = [
     ("lincs", [], "LINCS WARNING"),
-    ("walltime", ["killed at its walltime", "10995 of 50000", "checkpoint_continue"], None),
+    ("walltime", ["killed at its walltime", "10995 of 50000", "continue_run"], None),
 ]
 
 
 @pytest.mark.parametrize("mode,says,words", CRASHES)
-def test_a_failed_mdrun_returns_its_log_for_the_reader(ws_ctx, monkeypatch, mode, says, words):
+def test_a_failed_run_returns_its_log_for_the_reader(ws_ctx, monkeypatch, mode, says, words):
+    from tests.conftest import NVT_STAGE, approved_study
+
     ws = ws_ctx.workspace
-    run_stage = ws.stage("run")
-    (run_stage / "good.mdp").write_text(GOOD_MDP)
     prep = REGISTRY.call("gmx_pdb2gmx", ws_ctx, {"structure": _write_pdb(ws),
                                                  "forcefield": "amber99sb-ildn",
                                                  "water": "tip3p"})
-    tpr = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": ws.relpath(run_stage / "good.mdp"),
-        "structure": next(a.path for a in prep.artifacts if a.role == "structure"),
-        "topology": next(a.path for a in prep.artifacts if a.role == "topology"),
-    })
-    assert tpr.ok, tpr.summary
+    approved_study(ws_ctx, next(a.path for a in prep.artifacts if a.role == "structure"),
+                   next(a.path for a in prep.artifacts if a.role == "topology"), [NVT_STAGE])
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt"}).ok
     monkeypatch.setenv("MOCK_GMX_FAIL", mode)
-    submitted = REGISTRY.call("gmx_mdrun", ws_ctx, {
-        "tpr": next(a.path for a in tpr.artifacts if a.role == "tpr")})
+    submitted = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt"})
     results = _wait_for_job(ws_ctx, submitted.job_id)
     assert results.state == "FAILED" and not results.ok
     assert (results.diagnosis is None) is not bool(says)
@@ -125,11 +120,12 @@ def test_a_failed_mdrun_returns_its_log_for_the_reader(ws_ctx, monkeypatch, mode
 
 
 @pytest.mark.parametrize("grompp_fails", [False, True])
-def test_a_restrained_grompp_holds_atoms_at_its_structure_unless_told(ws_ctx, monkeypatch,
-                                                                     grompp_fails):
-    """`-DPOSRES*` with no restraint_reference: grompp is given the structure as `-r`, the
-    usual choice, and the call says so rather than refusing; when grompp fails, the note is
-    never named among grompp's own warnings."""
+def test_a_restrained_run_input_holds_atoms_at_its_structure(ws_ctx, monkeypatch, grompp_fails):
+    """`-DPOSRES*` with no reference given: grompp is given the structure as `-r`, the usual
+    choice, and says so rather than refusing; when grompp fails, the note is never named among
+    grompp's own warnings."""
+    from myrmidon.engines.gromacs.run import grompp
+
     ws = ws_ctx.workspace
     run_stage = ws.stage("run")
     (run_stage / "nvt.mdp").write_text(GOOD_MDP + "define = -DPOSRES\n")
@@ -137,11 +133,11 @@ def test_a_restrained_grompp_holds_atoms_at_its_structure_unless_told(ws_ctx, mo
                                                  "forcefield": "amber99sb-ildn",
                                                  "water": "tip3p"})
     structure = next(a.path for a in prep.artifacts if a.role == "structure")
+    topology = next(a.path for a in prep.artifacts if a.role == "topology")
     if grompp_fails:
         monkeypatch.setenv("MOCK_GMX_FAIL", "grompp")
-    tpr = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": ws.relpath(run_stage / "nvt.mdp"), "structure": structure,
-        "topology": next(a.path for a in prep.artifacts if a.role == "topology")})
+    tpr = grompp(ws_ctx, run_stage / "nvt.mdp", ws.resolve(structure), ws.resolve(topology), None,
+                 None, run_stage / "nvt.tpr", run_stage)
     assert tpr.ok is not grompp_fails, tpr.summary
     assert "REFERENCE" not in tpr.summary
     assert tpr.command[tpr.command.index("-r") + 1].endswith(structure)
@@ -536,13 +532,20 @@ def _four_atoms(ws):
 def test_frames_are_minimised_and_reevaluated_under_one_topology(ws_ctx):
     """The two runs a force-field comparison is built from: frames of a reference minimised
     under a topology, measured against the reference; and the same frames re-evaluated for
-    the topology's forces."""
+    the topology's forces. Each is a stage, whichever job it comes to."""
+    from tests.conftest import approved_study
+
     ws = ws_ctx.workspace
     _four_atoms(ws)
-    common = {"topology": "01_input/mol.top", "structure": "01_input/mol.gro",
-              "trajectory": "01_input/ref.trr"}
-    job = REGISTRY.call("gmx_minimize_frames", ws_ctx, {
-        **common, "mdp": "01_input/em.mdp", "frames": [0, 2, 3], "walltime_min": 5})
+    approved_study(ws_ctx, "01_input/mol.gro", "01_input/mol.top", [
+        {"name": "frames", "kind": "minimize", "steps": 10,
+         "scan": {"parameter": "frames", "values": [0, 2, 3]}},
+        {"name": "again", "kind": "single_point", "starts_from": "frames"}])
+    frames = {"trajectory": "01_input/ref.trr"}
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "frames",
+                                                   "structure": "01_input/mol.gro"}).ok
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": "frames", "inputs": frames,
+                                              "walltime_min": 5})
     assert job.ok, job.summary
     done = _wait_for_job(ws_ctx, job.job_id)
     assert done.ok, done.summary
@@ -554,12 +557,10 @@ def test_frames_are_minimised_and_reevaluated_under_one_topology(ws_ctx):
     assert geometry.ok, geometry.summary
     assert geometry.n_frames == 3 and geometry.mae is not None
 
-    tpr = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": "01_input/rerun.mdp", "structure": "01_input/mol.gro",
-        "topology": "01_input/mol.top", "output": "rerun.tpr"})
-    assert tpr.ok, tpr.summary
-    rerun = REGISTRY.call("gmx_rerun", ws_ctx, {
-        "tpr": tpr.artifacts[0].path, "trajectory": "01_input/ref.trr", "walltime_min": 5})
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "again",
+                                                   "structure": "01_input/mol.gro"}).ok
+    rerun = REGISTRY.call("stage_run", ws_ctx, {"stage": "again", "inputs": frames,
+                                                "walltime_min": 5})
     assert rerun.ok, rerun.summary
     collected = _wait_for_job(ws_ctx, rerun.job_id)
     assert collected.ok, collected.summary
@@ -573,39 +574,9 @@ MINIMISE_GATE = [
 ]
 
 
-@pytest.mark.parametrize("extra,finding,refuses", MINIMISE_GATE)
-def test_a_minimisation_of_frames_states_what_it_suppresses(ws_ctx, extra, finding, refuses):
-    _four_atoms(ws_ctx.workspace)
-    obs = REGISTRY.call("gmx_minimize_frames", ws_ctx, {
-        "topology": "01_input/mol.top", "structure": "01_input/mol.gro",
-        "trajectory": "01_input/ref.trr", "mdp": "01_input/em.mdp", **extra})
-    assert obs.ok is not refuses
-    assert finding in {w.id for w in blocking(obs) + obs.findings}
-
-
 # (the submission, whether the partition bills whole 48-core nodes, the (ranks, threads)
 # booked when the call leaves them unset): a run fills the node with ranks; the frame
 # minimiser is one driver process, so the node goes to its threads
-RANKS = [
-    ("mdrun", True, (48, 1)), ("mdrun", False, (1, 1)),
-    ("minimize", True, (1, 48)), ("minimize", False, (1, 1)),
-]
-
-
-@pytest.mark.parametrize("submission,whole,booked", RANKS)
-def test_unset_ranks_fill_what_the_booking_pays_for(ws_ctx, submission, whole, booked):
-    from myrmidon.tools.gromacs.minimize import MinimizeFramesParams
-    from myrmidon.tools.gromacs.run import CheckpointContinueParams
-
-    compute = ws_ctx.config.compute
-    compute.cores_per_node, compute.node_exclusive = 48, whole
-    params = (CheckpointContinueParams(tpr="a.tpr", checkpoint="a.cpt", extend_ps=10)
-              if submission == "mdrun" else
-              MinimizeFramesParams(topology="t", mdp="m", structure="s", trajectory="x"))
-    res = params.sized(ws_ctx).resources()
-    assert (res.ntasks, res.cpus_per_task) == booked
-
-
 GROMACS_FIXTURES = Path(__file__).parents[1] / "fixtures"
 TRPCAGE_TOP = GROMACS_FIXTURES / "gromacs" / "pdb2gmx_trpcage" / "topol.top"
 TRPCAGE_ATOMS = 304
@@ -680,7 +651,7 @@ def test_a_rename_is_said_with_what_the_group_holds(ws_ctx, solvated, commands, 
 
 
 # (the run's integrator, what the walltime kill advises): a minimisation has no checkpoint
-STOPPED = [("md", "checkpoint_continue"), ("steep", "writes no checkpoint")]
+STOPPED = [("md", "continue_run"), ("steep", "writes no checkpoint")]
 
 
 @pytest.mark.parametrize("integrator,advice", STOPPED)

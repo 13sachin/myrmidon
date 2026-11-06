@@ -35,6 +35,6 @@ sources:
   - tests/fixtures/acetone/mimic_fm.mdp
 pitfalls:
 - FM_RERUN_MDP_IS_MIMIC
-notes: 'Charge is never supplied here; mimic_prepare requires it confirmed. The classical rerun the
+notes: 'Charge is never supplied here; stage_prepare requires it confirmed. The classical rerun the
   fit subtracts is a different mdp, gromacs.rerun: do not reuse the coupled run''s for it.'
 version: 1

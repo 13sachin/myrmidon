@@ -26,7 +26,7 @@ def _wf(tmp_path, **over):
         "title": "a toy pipeline",
         "applicability": "testing",
         "given": ["structure"],
-        "steps": [{"name": "a", "tool": "gmx_grompp", "needs": ["structure"],
+        "steps": [{"name": "a", "tool": "stage_prepare", "needs": ["structure"],
                    "produces": ["tpr"]}],
         "sources": [{"kind": "in_house", "text": "this test", "evidence": ["ev-1"]}],
         **over,
@@ -59,7 +59,7 @@ def test_a_protocol_without_a_source_is_refused(tmp_path):
     directory.mkdir(parents=True)
     (directory / "bare.yaml").write_text(yaml.safe_dump({
         "id": "bare", "title": "t", "applicability": "a",
-        "steps": [{"name": "a", "tool": "gmx_grompp"}],
+        "steps": [{"name": "a", "tool": "stage_prepare"}],
     }))
     with pytest.raises(ValueError):
         ProtocolStore(path=directory, builtin_path=tmp_path / "absent").get("bare")
@@ -106,7 +106,7 @@ def test_the_shipped_pack_says_which_systems_each_recipe_is_for():
 
 def test_a_protocol_wires_roles_and_states_no_values(tmp_path):
     """A protocol may say which role feeds which parameter; a value is an input set's."""
-    step = {"name": "a", "tool": "gmx_grompp", "needs": ["structure"], "produces": ["tpr"]}
+    step = {"name": "a", "tool": "stage_prepare", "needs": ["structure"], "produces": ["tpr"]}
     ok = _wf(tmp_path, steps=[dict(step, values={"structure": "structure"})])
     assert ok.get("toy").steps[0].values == {"structure": "structure"}
     with pytest.raises(ValueError, match="not roles it needs"):

@@ -86,53 +86,54 @@ def test_acetone_qmmm_chain(ctx, approve_mandate):
             shutil.copy(f, inputs / f.name)
     rel = lambda name: ws.relpath(inputs / name)  # noqa: E731
 
-    # --- QM region via real prepqm (charge reported, not trusted) ---
+    # --- QM region via real prepqm: what the selection leaves of its chemistry ---
     sel = call(
         ctx, "qm_region",
         topology=rel("acetone_equilibrated.top"), coords=rel("acetone_equilibrated.gro"),
-        selections=["add resname is ACT"], template=rel("template.inp"),
-        pp_info=rel("pp_info.dat"), padding_nm=0.4,
+        selections=["add resname is ACT"], pp_info=rel("pp_info.dat"), padding_nm=0.4,
     )
     assert sel.qm_atoms == 10
     assert sel.min_vacuum_bohr is not None and sel.min_vacuum_bohr > 7  # 0.4 nm = 7.56 bohr
     assert sel.declared_charge == 0
+    assert (sel.derived_multiplicity, sel.electrons) == (1, 24)
+    assert sel.guessed_elements["c3"] == "C" and "PP_LMAX_ALL_S_ON_HEAVY_ATOMS" not in {
+        f.id for f in sel.findings}
+    assert {a.role for a in sel.artifacts} >= {"cpmd_input", "index", "qm_selection"}
 
-    # --- tpr through the gate, with the QM index group ---
-    tpr = call(
-        ctx, "gmx_grompp", mdp=rel("mimic.mdp"), structure=rel("acetone_equilibrated.gro"),
-        topology=rel("acetone_equilibrated.top"), index=art(sel, "index"),
-        output="mimic.tpr", stage="qmmm", max_warn=1,
-    )
+    approve_mandate(
+        ctx, "Run 20 coupled QM/MM steps of acetone in water", 128.0,
+        stages=[{"name": "cool", "kind": "minimize", "regime": "qmmm", "steps": MAXSTEPS,
+                 "temperature_k": 300, "qm_region": {"subsystems": ["solute"], "charge": 0}}],
+        hamiltonian={"mm": "amber", "qm": {"method": "blyp_mt", "cutoff_ry": 70},
+                     "coupling": {"scheme": "mimic"}},
+        subsystems={"solute": {"kind": "ligand", "resnames": ["ACT"]},
+                    "solvent": {"kind": "solvent", "molecules": ["SOL"]}},
+        structure=rel("acetone_equilibrated.gro"), topology=rel("acetone_equilibrated.top"))
 
-    # --- explicit charge/multiplicity; short run ---
-    prep = call(
-        ctx, "mimic_prepare", cpmd_input=art(sel, "cpmd_input"),
-        total_charge=0, multiplicity=1, maxsteps=MAXSTEPS,
-    )
-    assert prep.maxsteps == MAXSTEPS and prep.paths == 1
-    report = call(ctx, "file_check", path=art(prep, "cpmd_input"), tpr=art(tpr, "tpr"))
+    # --- one call: the complete run input and its compiled MM half, through grompp ---
+    prepared = call(ctx, "stage_prepare", stage="cool")
+    assert {"cpmd_input", "mdp", "tpr"} <= set(prepared.files)
+    report = call(ctx, "file_check", path=prepared.files["cpmd_input"],
+                  tpr=prepared.files["tpr"])
     assert not blocking(report), report.summary
 
-    approve_mandate(ctx, "Run 20 coupled QM/MM steps of acetone in water", 128.0,
-                    structure=rel("acetone_equilibrated.gro"),
-                    topology=rel("acetone_equilibrated.top"))
-
     # --- coupled launch ---
-    job = call(
-        ctx, "mimic_run", cpmd_input=art(prep, "cpmd_input"), tpr=art(tpr, "tpr"),
-        cpmd_ranks=CPMD_RANKS, gromacs_ranks=1,
-    )
+    job = call(ctx, "stage_run", stage="cool", cores=CPMD_RANKS + 1)
     done = wait_job(ctx, job.job_id)
     assert done.state == "COMPLETED", f"{done.summary}\n{done.log_tail or ''}"
 
     # --- diagnostics are parsed from CPMD output, never asserted by the LLM ---
-    diag = call(ctx, "run_diagnose")
+    diag = call(ctx, "run_diagnose", stage="cool")
     assert diag.finished_normally
     assert diag.md_steps_completed == MAXSTEPS
     assert diag.energy_last is not None and diag.energy_last < -30  # acetone/BLYP ≈ -36 a.u.
-    run_dir = next(ws.stage("qmmm").glob("*_mimic"))
-    assert (run_dir / "mimic.log").exists() and (run_dir / "ENERGIES").exists()
+    run_dir = next(ws.stage("cool").glob("*_cool"))
+    assert (run_dir / "cool.log").exists() and (run_dir / "ENERGIES").exists()
+
+    # --- a matched snapshot: both engines write at the stage's one stride ---
+    snapshot = call(ctx, "snapshot_select", stage="cool", n_frames=1)
+    assert {"geometry", "structure"} <= {a.role for a in snapshot.artifacts}
 
     events = list(ws.ledger.events())
     tools = {e.tool for e in events}
-    assert tools >= {"qm_region", "gmx_grompp", "mimic_prepare", "mimic_run"}
+    assert tools >= {"qm_region", "stage_prepare", "stage_run"}

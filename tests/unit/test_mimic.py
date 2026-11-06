@@ -67,34 +67,28 @@ def _select_qm(ws_ctx):
     )
 
 
-def test_run_gate_blocks_unconfirmed_charge(ws_ctx):
+def test_run_gate_blocks_an_input_with_no_settled_spin(ws_ctx):
+    """What the selection wrote is the system, not a stage's input: nothing settled its spin."""
+    from myrmidon.engines.mimic.collect import coupled_findings
+
     select = _select_qm(ws_ctx)
     cpmd_inp = next(a.path for a in select.artifacts if a.role == "cpmd_input")
     stage = ws_ctx.workspace.stage("qmmm")
     (stage / "mimic.tpr").write_text("MOCKTPR\n")
-    refused = REGISTRY.call(
-        "mimic_run",
-        ws_ctx,
-        {"cpmd_input": cpmd_inp, "tpr": ws_ctx.workspace.relpath(stage / "mimic.tpr")},
-    )
-    assert not refused.ok
-    blocking_ids = {w.id for w in blocking(refused)}
-    # mock prepqm writes no CHARGE keyword into &SYSTEM? it does not — both block
-    assert "QM_MULTIPLICITY_UNCONFIRMED" in blocking_ids
+    found, _ = coupled_findings(ws_ctx, cpmd_inp, ws_ctx.workspace.relpath(stage / "mimic.tpr"),
+                                None, None)
+    assert "QM_MULTIPLICITY_UNCONFIRMED" in {w.id for w in found if w.severity == "block"}
 
 
-def _full_mimic_setup(ws_ctx):
-    select = _select_qm(ws_ctx)
-    cpmd_inp = next(a.path for a in select.artifacts if a.role == "cpmd_input")
-    prepared = REGISTRY.call(
-        "mimic_prepare",
-        ws_ctx,
-        {"cpmd_input": cpmd_inp, "total_charge": 0, "multiplicity": 1, "maxsteps": 5},
-    )
-    run_inp = next(a.path for a in prepared.artifacts if a.role == "cpmd_input")
-    stage = ws_ctx.workspace.stage("qmmm")
-    (stage / "mimic.tpr").write_text("MOCKTPR\n")
-    return run_inp, ws_ctx.workspace.relpath(stage / "mimic.tpr")
+def _coupled_stage(ws_ctx, name="run", **over):
+    """A prepared coupled stage under an approved mandate, of 5 steps."""
+    from tests.conftest import REGION, coupled_study
+
+    coupled_study(ws_ctx, [{"name": name, "kind": "dynamics", "regime": "qmmm",
+                            "ensemble": "NVE", "steps": 5, "qm_region": REGION, **over}])
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": name})
+    assert prepared.ok, prepared.summary
+    return name
 
 
 def _wait(ctx, job_id, timeout=15):
@@ -143,35 +137,26 @@ SPIN = [(-1, 1, None, False), (0, 2, "2", True)]
 
 
 @pytest.mark.parametrize("charge,multiplicity,written,lsd", SPIN)
-def test_prepare_writes_the_charge_and_the_spin_cpmd_will_accept(ws_ctx, charge,
-                                                                 multiplicity, written, lsd):
+def test_a_stage_writes_the_charge_and_the_spin_cpmd_will_accept(ws_ctx, charge, multiplicity,
+                                                                 written, lsd):
     import json
 
-    select = _select_qm(ws_ctx)
-    cpmd_inp = next(a.path for a in select.artifacts if a.role == "cpmd_input")
-    obs = REGISTRY.call("mimic_prepare", ws_ctx, {
-        "cpmd_input": cpmd_inp, "total_charge": charge, "multiplicity": multiplicity,
-        "maxsteps": 50})
+    from tests.conftest import coupled_study
+
+    coupled_study(ws_ctx, [{"name": "run", "kind": "dynamics", "regime": "qmmm",
+                            "ensemble": "NVE", "steps": 50, "qm_region": {
+                                "subsystems": ["solute"], "charge": charge,
+                                "multiplicity": multiplicity}}])
+    obs = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "run"})
     assert obs.ok, obs.summary
-    assert (obs.charge, obs.multiplicity, obs.functional, obs.paths) == (
-        charge, multiplicity, "BLYP", 1)
-    out = next(a.path for a in obs.artifacts if a.role == "cpmd_input")
+    out = obs.files["cpmd_input"]
     sections = parse_cpmd((ws_ctx.workspace.root / out).read_text())
     assert get_keyword(sections["SYSTEM"], "CHARGE") == str(charge)
     assert get_keyword(sections["SYSTEM"], "MULTIPLICITY") == written
     assert any(line.strip() == "LSD" for line in sections["CPMD"]) is lsd
     assert get_keyword(sections["CPMD"], "MAXSTEP") == "50"
-    meta = next(a.path for a in obs.artifacts if a.role == "run_metadata")
-    assert json.loads((ws_ctx.workspace.root / meta).read_text())["multiplicity"] == multiplicity
-
-
-def test_prepare_refuses_an_input_that_is_not_a_coupled_run(ws_ctx):
-    stage = ws_ctx.workspace.stage("qmmm")
-    (stage / "plain.inp").write_text("&CPMD\nOPTIMIZE WAVEFUNCTION\n&END\n")
-    obs = REGISTRY.call("mimic_prepare", ws_ctx, {
-        "cpmd_input": ws_ctx.workspace.relpath(stage / "plain.inp"),
-        "total_charge": 0, "multiplicity": 1})
-    assert not obs.ok and not obs.artifacts
+    meta = json.loads((ws_ctx.workspace.root / (out + ".myrmidon.json")).read_text())
+    assert (meta["charge"], meta["multiplicity"]) == (charge, multiplicity)
 
 
 def test_the_qm_cell_is_read_in_every_unit_cpmd_takes():
@@ -332,38 +317,34 @@ def test_the_mock_prepqm_selects_and_charges_as_real_prepqm_does(tmp_path, top, 
 
 WHOLE, CUT = ["add resname is ACT"], ["add resname is ACT", "delete name is O1"]
 
-# (the selection, the charge and multiplicity the call gives, what is written — or what it
-# asks for — and a finding on the result). The selected atoms' topology charges decide the
-# charge when they sum to an integer; the electron count decides the multiplicity when it is
-# even and no open-shell metal is in the region (acetone: 32 electrons). A value the
-# researcher stated is taken as given, and one its electrons cannot have is said.
+# (the selection, the charge the mock's topology rounds it to, the multiplicity the stage
+# states, what the selection leaves decided, and what is noticed). The selected atoms' topology
+# charges decide the charge when they sum to an integer; the electron count decides the
+# multiplicity when it is even and no open-shell metal is in the region (acetone: 32 electrons).
+# A value the researcher stated is taken as given, and one its electrons cannot have is said.
 SPIN_STATE = [
-    (WHOLE, (None, None), (0, 1), None),
-    (WHOLE, (0, 3), (0, 3), None),
-    (WHOLE, (0, 2), (0, 2), "QM_MULTIPLICITY_PARITY"),
-    (WHOLE, (1, None), ["multiplicity"], None),  # 31 electrons: a doublet or higher
-    (CUT, (None, None), ["total_charge"], None),  # prepqm rounded a non-integer sum
+    (WHOLE, 0, 1, 1, None),
+    (WHOLE, 0, 2, 1, "QM_MULTIPLICITY_PARITY"),
+    (CUT, 1, None, None, None),  # prepqm rounded a non-integer sum: neither is decided
 ]
 
 
-@pytest.mark.parametrize("selections,given,written,finding", SPIN_STATE)
-def test_a_qm_charge_and_multiplicity_are_derived_or_asked(ws_ctx, selections, given,
-                                                           written, finding):
-    select = _select(ws_ctx, selections)
-    cpmd_inp = next(a.path for a in select.artifacts if a.role == "cpmd_input")
-    call = {"cpmd_input": cpmd_inp}
-    for key, value in zip(("total_charge", "multiplicity"), given, strict=True):
-        if value is not None:
-            call[key] = value
-    obs = REGISTRY.call("mimic_prepare", ws_ctx, call)
-    if isinstance(written, list):
-        assert not obs.ok and obs.status == "needs_input" and obs.needs == written
-        assert obs.error.code == "NEEDS_INPUT"
-        return
+@pytest.mark.parametrize("selections,declared,stated,derived,noticed", SPIN_STATE)
+def test_a_qm_charge_and_multiplicity_are_derived_or_left_open(ws_ctx, selections, declared,
+                                                               stated, derived, noticed):
+    from tests.conftest import coupled_study
+
+    obs = _select(ws_ctx, selections)
     assert obs.ok, obs.summary
-    assert (obs.charge, obs.multiplicity) == written and len(obs.facts) == 2
-    assert (finding in {f.id for f in obs.findings}) if finding else not {
-        f.id for f in obs.findings} & {"QM_MULTIPLICITY_PARITY"}
+    assert (obs.declared_charge, obs.derived_multiplicity) == (declared, derived)
+    if noticed is None:
+        return
+    coupled_study(ws_ctx, [{"name": "run", "kind": "dynamics", "regime": "qmmm",
+                            "ensemble": "NVE", "steps": 5, "qm_region": {
+                                "subsystems": ["solute"], "charge": declared,
+                                "multiplicity": stated}}])
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "run"})
+    assert prepared.ok and noticed in {f.id for f in prepared.findings}, prepared.summary
 
 
 # (the &ATOMS block, the atoms read). A species whose element or count cannot be read, or
@@ -387,46 +368,42 @@ def test_the_qm_atoms_are_read_atom_by_atom_or_not_at_all(block, read):
 
 # A stage's run input is the stage's method on the system the QM selection made once: what a
 # staged MiMiC run (anneal, NVE test, heat, produce) changes between stages is the method and
-# never the system. Each row is a stage of a real staged run: its input made by mimic_prepare
-# from the annealing system input and the stage's method must be the input it ran with.
+# never the system. Each row is a stage of a real staged run: its input made from the annealing
+# system input and the stage's method must be the input it ran with.
 STAGES = Path(__file__).parents[1] / "fixtures" / "mimic_stages"
 
 
 @pytest.mark.parametrize("stage", ["nve_test", "heating", "production"])
-def test_a_stage_input_is_its_method_on_the_system_made_once(ws_ctx, stage):
-    from myrmidon.engines.mimic.cpmd_input import parse_cpmd
+def test_a_stage_input_is_its_method_on_the_system_made_once(stage):
+    from myrmidon.engines.mimic.cpmd_input import apply_method, render_cpmd, set_spin
 
-    here = ws_ctx.workspace.stage(stage)
-    for name in ("system_from_prepqm.inp", f"{stage}_method.inp"):
-        (here / name).write_text((STAGES / name).read_text())
-    rel = ws_ctx.workspace.relpath(here)
-    obs = REGISTRY.call("mimic_prepare", ws_ctx, {
-        "cpmd_input": f"{rel}/system_from_prepqm.inp", "method": f"{rel}/{stage}_method.inp",
-        "total_charge": 0, "multiplicity": 1, "output": "run.inp"})
-    assert obs.ok, obs.summary
+    made = set_spin(apply_method(parse_cpmd((STAGES / "system_from_prepqm.inp").read_text()),
+                                 parse_cpmd((STAGES / f"{stage}_method.inp").read_text())), 0, 1)
 
-    def lines(path):
-        return {k: [x.strip() for x in v if x.strip()]
-                for k, v in parse_cpmd(path.read_text()).items()}
+    def lines(text):
+        return {k: [x.strip() for x in v if x.strip()] for k, v in parse_cpmd(text).items()}
 
-    made, real = lines(here / "run.inp"), lines(STAGES / f"{stage}_run_real.inp")
+    made, real = lines(render_cpmd(made)), lines((STAGES / f"{stage}_run_real.inp").read_text())
     assert list(made) == list(real)
     assert made == real
 
 
 def test_a_restarted_segment_hashes_the_restart_it_stages(ws_ctx):
-    """What the node reads of a continued segment includes the restart staged into its
-    directory: an edit to the staged copy while the job waits is seen at collection."""
+    """What the node reads of a continued stage includes the restart staged into its directory,
+    found in the ledger: an edit to the staged copy while the job waits is seen at collection."""
+    from tests.conftest import REGION, coupled_study
+
     from myrmidon.execution.jobs import existing_jobstore
 
-    run_inp, tpr = _full_mimic_setup(ws_ctx)
-    ws_ctx.person = "researcher"
-    first = REGISTRY.call("mimic_run", ws_ctx, {"cpmd_input": run_inp, "tpr": tpr})
+    region = {"regime": "qmmm", "ensemble": "NVE", "steps": 5, "qm_region": REGION}
+    coupled_study(ws_ctx, [{"name": "first", "kind": "dynamics", **region},
+                           {"name": "second", "kind": "dynamics", **region}])
+    for name in ("first", "second"):
+        assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": name}).ok
+    first = REGISTRY.call("stage_run", ws_ctx, {"stage": "first"})
     assert first.ok, first.summary
-    done = _wait(ws_ctx, first.job_id)
-    restart = next(a.path for a in done.artifacts if a.role == "restart")
-    second = REGISTRY.call("mimic_run", ws_ctx, {"cpmd_input": run_inp, "tpr": tpr,
-                                                 "restart_from": restart})
+    _wait(ws_ctx, first.job_id)
+    second = REGISTRY.call("stage_run", ws_ctx, {"stage": "second"})
     assert second.ok, second.summary
     spec = existing_jobstore(ws_ctx.workspace).get(second.job_id).spec
     assert any(p.endswith("RESTART") for p in spec.receipt_inputs), spec.receipt_inputs

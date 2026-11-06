@@ -135,7 +135,7 @@ def _coerce(key: str, values: list[str], field: FieldInfo, tool: str) -> Any:
 
 def nested_models(annotation: Any) -> list[type[BaseModel]]:
     """The models inside a field's type, so the help can say what a JSON value holds
-    (``mimic_prepare``'s distance restraints are the case)."""
+    (a list of restraints, say)."""
     inner, _ = _unwrap_optional(annotation)
     if isinstance(inner, type) and issubclass(inner, BaseModel):
         return [inner]

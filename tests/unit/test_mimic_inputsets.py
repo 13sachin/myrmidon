@@ -234,13 +234,12 @@ def test_each_dynamics_stage_is_the_annealing_input_plus_its_documented_changes(
     assert not any(k.startswith("&CPMD/RESTART") for k in anneal.values)
 
 
-def test_the_qm_charge_is_never_a_default_of_the_preparing_tool():
-    """Chemistry is never a default: the charge and multiplicity mimic_prepare puts on the
-    system are the researcher's, confirmed against the selection's report."""
-    from myrmidon.tools.mimic.prepare import MimicPrepareParams
+def test_the_qm_charge_is_never_a_default_of_a_stage():
+    """Chemistry is never a default: a stage's QM region states its charge, which the mandate's
+    approval makes the researcher's."""
+    from myrmidon.core.mandate import QMRegion
 
-    fields = MimicPrepareParams.model_fields
-    assert fields["total_charge"].default is None and fields["multiplicity"].default is None
+    assert QMRegion.model_fields["charge"].is_required()
 
 
 @pytest.mark.parametrize("reference", [r for r in FILE_BACKED if r.endswith(".mdp")])

@@ -244,7 +244,7 @@ def test_a_parameter_spelled_as_a_string_is_read_as_meant(given, read):
 @pytest.mark.parametrize("tool,args", [
     ("mandate_write", {"question": "q", "questions": '["How long, in ps?"]'}),
     ("mandate_write", {"question": "q", "questions": "How long would you like it?"}),
-    ("gmx_mdrun", {"tpr": "x.tpr", "walltime_min": "None"}),
+    ("stage_run", {"stage": "x", "walltime_min": "None"}),
     # nested lists written as one word or as nothing, a proposal with what it would lock
     ("mandate_write", {"question": "q", "subsystems": {
         "ligand": {"kind": "ligand", "resnames": "JZ4", "chains": None, "resid": 164}},

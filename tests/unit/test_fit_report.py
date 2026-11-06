@@ -1,4 +1,4 @@
-"""fm_report: the campaign report from the ledger — parsers on real-format .itp text,
+"""A fit's tables: the campaign report from the ledger — parsers on real-format .itp text,
 round linking by artifact paths, the mocked chain end to end."""
 
 import time
@@ -6,7 +6,7 @@ import time
 import pytest
 
 from myrmidon.core.tool import REGISTRY
-from myrmidon.orchestration.fm_report import (
+from myrmidon.orchestration.fit_report import (
     bonded_diff,
     charge_diff,
     parse_itp_atoms,

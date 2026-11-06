@@ -28,8 +28,8 @@ def rendered(ws_ctx, solvated):
     return ws_ctx
 
 
-def _edit(ws, pattern, replacement):
-    path = ws.root / "01_input" / "heat.mdp"
+def _edit(ws, pattern, replacement, path="01_input/heat.mdp"):
+    path = ws.root / path
     path.write_text(re.sub(pattern, replacement, path.read_text(), flags=re.M))
 
 
@@ -103,18 +103,21 @@ GATE = [
 
 
 @pytest.mark.parametrize("edit,finding", GATE)
-def test_the_gate_reports_the_edit_before_the_run(rendered, edit, finding):
-    ws = rendered.workspace
+def test_the_gate_reports_the_edit_before_the_run(ws_ctx, edit, finding):
+    """A stage's file edited after it was rendered is said before its run, on the record."""
+    from tests.conftest import NVT_STAGE, approved_study
+
+    ws = ws_ctx.workspace
     stage = ws.stage("input")
     (stage / "conf.gro").write_text(
         "mock\n 3\n" + "    1ALA     CA    1   0.1   0.2   0.3\n" * 3 + "   2.5 2.5 2.5\n"
     )
     (stage / "topol.top").write_text("[ system ]\nMock\n[ molecules ]\nProtein 1\n")
-    _edit(ws, *edit)
-    call = {"mdp": "01_input/heat.mdp", "structure": "01_input/conf.gro",
-            "topology": "01_input/topol.top", "stage": "run"}
-    obs = REGISTRY.call("gmx_grompp", rendered, call)
-    assert obs.ok, obs.summary
-    assert finding in [w.id for w in obs.findings]
-    event = [ev for ev in ws.ledger.events() if ev.tool == "gmx_grompp"][-1]
+    approved_study(ws_ctx, "01_input/conf.gro", "01_input/topol.top", [NVT_STAGE])
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt"})
+    assert prepared.ok, prepared.summary
+    _edit(ws, *edit, path=prepared.files["mdp"])
+    obs = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "preview": True})
+    assert finding in [w.id for w in obs.findings], obs.summary
+    event = [ev for ev in ws.ledger.events() if ev.tool == "stage_run"][-1]
     assert finding in event.knowledge_refs

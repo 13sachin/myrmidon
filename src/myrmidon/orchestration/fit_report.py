@@ -443,7 +443,7 @@ def _comparison_block(root: Path, events: list[ProvenanceEvent], mandate=None) -
     return {"forces": forces, "geometry": geometry, "minimisations": minimisations}
 
 
-def build_fm_report(ws: Workspace, compute=None, backend=None) -> dict:
+def build_fit_report(ws: Workspace, compute=None, backend=None) -> dict:
     """The campaign as data: every value re-parsed from a ledger-recorded file."""
     events = list(ws.ledger.events())
     root = ws.root
@@ -526,7 +526,7 @@ def _md_table(header: list[str], rows: list[list], max_rows: int | None = None,
     return lines
 
 
-def render_fm_report(data: dict, max_rows: int = 40) -> str:
+def render_fit_report(data: dict, max_rows: int = 40) -> str:
     w = data["workspace"]
     L = [f"# {w['name']} — force-matching campaign report", "",
          f"workspace: `{w['path']}`  ", f"created: {w.get('created') or '?'}  "
@@ -611,7 +611,7 @@ def render_fm_report(data: dict, max_rows: int = 40) -> str:
             L += _md_table(["type", "element", "n atoms", "RMSE", "ref RMS", "relative"],
                            [[t["type"], t["element"], t["n_atoms"], t["rmse"], t["ref_rms"],
                              t["rel_rmse"]] for t in fo["by_type"]], max_rows,
-                           " (all in fm_report.json)")
+                           " (all in report.json)")
             if fo["outliers"]:
                 L += ["", f"**{len(fo['outliers'])} outlier atom(s)** (RMSE above 3× the median "
                       f"atom's {fmt_num(fo['median_atom_rmse'], 2)}):", ""]
@@ -646,7 +646,7 @@ def render_fm_report(data: dict, max_rows: int = 40) -> str:
                     ["molecule", "nr", "atom", "type", "q before", "q after", "Δq"],
                     [[x["molecule"], x["nr"], x["atom"], x["type"], x["q_before"],
                       x["q_after"], x["dq"]] for x in c["rows"]],
-                    max_rows, " (all in fm_report.json)")
+                    max_rows, " (all in report.json)")
                 L += ["", "by atom type:", ""]
                 L += _md_table(["type", "n atoms", "mean Δq", "max |Δq|"],
                                [[t["type"], t["n"], t["mean_dq"], t["max_abs_dq"]]
@@ -671,7 +671,7 @@ def render_fm_report(data: dict, max_rows: int = 40) -> str:
                                                                  else "")
                                    if x["rel_change"] is not None else "—")]
                      for x in b["rows"]],
-                    max_rows, " (all in fm_report.json)")
+                    max_rows, " (all in report.json)")
             L.append("")
         if r.get("candidate"):
             L += [f"candidate topology: `{r['candidate']['path']}` "

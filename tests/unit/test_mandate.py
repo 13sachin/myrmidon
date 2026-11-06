@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from tests.conftest import ACETONE
+from tests.conftest import ACETONE, REGION, coupled_study
 from tests.unit.findings_catalog import blocking
 
 from myrmidon.core.mandate import Mandate
@@ -104,16 +104,11 @@ def _approved(ws_ctx, system, **params):
 
 
 def _run_input(ws_ctx, system, mdp_call: dict, name: str) -> tuple:
-    """A rendered parameter file and the run input grompp builds on it."""
-    structure = mdp_call.get("structure", system["structure"])
-    rendered = REGISTRY.call("inputset_apply", ws_ctx, {
-        "output": f"02_run/{name}.mdp", "structure": structure, **mdp_call})
-    assert rendered.ok, rendered.summary
-    tpr = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": f"02_run/{name}.mdp", "structure": structure,
-        "topology": system["topology"], "output": f"{name}.tpr", "stage": "run"})
-    assert tpr.ok, tpr.summary
-    return rendered, tpr.artifacts[0].path
+    """A stage prepared on the system: its call's outcome, and the run input it compiled."""
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {
+        "structure": system["structure"], "topology": system["topology"], **mdp_call})
+    assert prepared.ok, prepared.summary
+    return prepared, prepared.files["tpr"]
 
 
 # (the stage rendered, what else the call says, what the file holds, whether the job is
@@ -129,7 +124,6 @@ RENDERS = [
     ("production", {}, {"pcoupl": "C-rescale", "gen-vel": "yes"}, False),
     ("production", {"overrides": {"nsteps": 125000}}, {"nsteps": 125000}, True),
     ("nvt", {}, {"define": "-DPOSRES -DPOSRES_LIG", "nsteps": 50000}, False),
-    ("nvt", {"inputset": "gromacs.nvt"}, {"nsteps": 50000}, False),
     ("nvt", {"overrides": {"define": "-DPOSRES"}}, {"define": "-DPOSRES"}, True),
     ("npt", {"overrides": {"ref-t": 310}}, {"ref-t": "310 310"}, True),  # per group
     ("npt", {"overrides": {"ref_t": 310}}, {"ref-t": "310 310"}, True),  # any spelling
@@ -142,15 +136,15 @@ def test_a_stage_compiles_from_the_mandate_and_is_held_to_its_locks(
     _approved(ws_ctx, complex_system)
     rendered, tpr = _run_input(ws_ctx, complex_system, {"stage": stage, **call}, stage)
     for key, value in holds.items():
-        assert rendered.values[key] == value, rendered.values
-    assert "ref_t" not in rendered.values
+        assert rendered.values["mdp"][key] == value, rendered.values
+    assert "ref_t" not in rendered.values["mdp"]
     assert ("MANDATE_LOCK_OVERRIDDEN" in {f.id for f in rendered.findings}) is refused
     event = [e for e in ws_ctx.workspace.ledger.events() if e.tool == "inputset_apply"][-1]
     assert f"stage:{stage}" in event.knowledge_refs
     if "structure" in call:
         return  # a run built from a structure outside the approved system is refused anyway
 
-    obs = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": tpr, "preview": True})
+    obs = REGISTRY.call("stage_run", ws_ctx, {"stage": stage, "preview": True})
     assert [w.id for w in blocking(obs)] == (["MANDATE_DECISION"] if refused else []), obs.summary
 
 
@@ -228,7 +222,7 @@ def test_a_mandate_that_cannot_bind_is_not_written(ws_ctx, complex_system, chang
     assert mandates.read_mandate(ws_ctx.workspace) is None
 
 
-def test_a_run_of_no_named_stage_is_held_to_every_stages_locks_and_stands_in_for_none(
+def test_a_run_of_another_stage_stands_in_for_no_deliverable_and_no_stage(
         ws_ctx, complex_system):
     from myrmidon.core.mandate import deliverable_findings
 
@@ -236,15 +230,8 @@ def test_a_run_of_no_named_stage_is_held_to_every_stages_locks_and_stands_in_for
     _approved(ws_ctx, complex_system, deliverables=[
         {"name": "potential energy", "tool": "observable_measure", "over": "production",
          "params": {"terms": ["Potential"]}}])
-    adhoc = {"inputset": "gromacs.nvt", "topology": complex_system["topology"],
-             "overrides": {"nsteps": 500}}
-    _, hot = _run_input(ws_ctx, complex_system,
-                        {**adhoc, "overrides": {"nsteps": 500, "ref_t": 310}}, "adhoc_hot")
-    refused = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": hot, "preview": True})
-    assert {w.id for w in blocking(refused)} == {"MANDATE_DECISION"}, refused.summary
-    _, tpr = _run_input(ws_ctx, complex_system, {**adhoc, "overrides": {"nsteps": 500,
-                                                                       "ref_t": 300}}, "adhoc")
-    job = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": tpr, "deffnm": "adhoc"})
+    _run_input(ws_ctx, complex_system, {"stage": "em"}, "em")
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": "em"})
     assert job.ok, job.summary
     done = REGISTRY.call("job_status", ws_ctx, {"job_id": job.job_id, "wait_seconds": 30})
     assert done.ok, done.summary
@@ -387,17 +374,14 @@ def test_a_stage_file_edited_by_hand_is_still_held_to_its_stage(ws_ctx, complex_
     import re
 
     _approved(ws_ctx, complex_system)
-    _run_input(ws_ctx, complex_system, {"stage": "production"}, "production")
-    mdp = ws_ctx.workspace.root / "02_run/production.mdp"
-    short = re.sub(r"(?m)^nsteps\s*=.*$", "nsteps = 125000", mdp.read_text())
-    edited = REGISTRY.call("file_write", ws_ctx, {"path": "02_run/production.mdp",
-                                                  "content": short})
+    prepared, _ = _run_input(ws_ctx, complex_system, {"stage": "production"}, "production")
+    path = prepared.files["mdp"]
+    short = re.sub(r"(?m)^nsteps\s*=.*$", "nsteps = 125000",
+                   ws_ctx.workspace.resolve(path).read_text())
+    edited = REGISTRY.call("file_write", ws_ctx, {"path": path, "content": short})
     assert edited.ok, edited.summary
-    tpr = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": "02_run/production.mdp", "structure": complex_system["structure"],
-        "topology": complex_system["topology"], "output": "short.tpr", "stage": "run"})
-    obs = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": tpr.artifacts[0].path, "preview": True})
-    assert [w.id for w in blocking(obs)] == ["MANDATE_DECISION"], obs.summary
+    obs = REGISTRY.call("stage_run", ws_ctx, {"stage": "production", "preview": True})
+    assert {w.id for w in blocking(obs)} == {"MANDATE_DECISION"}, obs.summary
 
 
 DELIVERABLES = [
@@ -483,8 +467,8 @@ def test_a_deliverable_is_measured_as_approved_over_its_stages_run(ws_ctx, compl
             u.trajectory.ts.time = float(i)
             w.write(u.atoms)
     monkeypatch.setenv("MOCK_GMX_XTC", str(frames))  # the frames the run writes
-    _, tpr = _run_input(ws_ctx, complex_system, {"stage": "production"}, "production")
-    job = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": tpr, "deffnm": "production"})
+    _run_input(ws_ctx, complex_system, {"stage": "production"}, "production")
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": "production"})
     assert job.ok, job.summary
     done = REGISTRY.call("job_status", ws_ctx, {"job_id": job.job_id, "wait_seconds": 30})
     xtc = next(a.path for a in done.artifacts if a.path.endswith(".xtc"))
@@ -541,10 +525,9 @@ def test_a_run_books_the_walltime_its_length_needs_at_the_measured_pace(
     for pace in paces:
         record_pace(ws_ctx.config.studies_root, Pace(**pace, where="measured"))
     _approved(ws_ctx, complex_system)
-    _, tpr = _run_input(ws_ctx, complex_system, {"stage": stage}, stage)
-    ranks = {"ntasks": ntasks} if ntasks else {}
-    obs = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": tpr, **ranks, "preview": True})
-    assert (obs.ok, obs.walltime_min, obs.ntasks) == (True, minutes, 48), obs.summary
+    _run_input(ws_ctx, complex_system, {"stage": stage}, stage)
+    obs = REGISTRY.call("stage_run", ws_ctx, {"stage": stage, "preview": True})
+    assert (obs.ok, obs.walltime_min) == (True, minutes), obs.summary
 
 
 def test_a_coupled_stage_is_priced_from_the_seconds_a_qmmm_step_took_here():
@@ -586,10 +569,10 @@ def test_a_file_the_topology_includes_is_the_system_and_an_input(ws_ctx, complex
     written = _approved(ws_ctx, complex_system)
     held = mandates.holding(ws)
     assert {f.path: f.kind for f in held.system.files}["01_input/jz4.itp"] == "itp"
-    _, tpr = _run_input(ws_ctx, complex_system, {"stage": "nvt"}, "nvt")
-    grompp = [e for e in ws.ledger.events() if e.tool == "gmx_grompp"][-1]
-    assert {i.path: i.role for i in grompp.inputs}["01_input/jz4.itp"] == "topology.include"
-    obs = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": tpr, "preview": True})
+    _run_input(ws_ctx, complex_system, {"stage": "nvt"}, "nvt")
+    prepared = [e for e in ws.ledger.events() if e.tool == "stage_prepare"][-1]
+    assert {i.path: i.role for i in prepared.inputs}["01_input/jz4.itp"] == "topology.include"
+    obs = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "preview": True})
     assert obs.ok, obs.summary
 
     (top.parent / "jz4.itp").write_text((top.parent / "jz4.itp").read_text() + "\n")
@@ -728,34 +711,8 @@ def test_a_ramp_starts_where_the_stage_before_ended(temperature, ramp):
             else None) == ramp
 
 
-def _coupled_study(ws_ctx, stages, **extra):
-    """Acetone in water, its QM region selected, under an approved mandate of these stages."""
-    from myrmidon.core import mandate as mandates
-
-    ws = ws_ctx.workspace
-    stage = ws.stage("input")
-    for name in ("acetone_equilibrated.top", "acetone.itp", "acetone_equilibrated.gro"):
-        (stage / name).write_text((ACETONE / name).read_text())
-    shutil.copytree(ACETONE / "amber03.ff", stage / "amber03.ff")
-    rel = ws.relpath
-    top, gro = rel(stage / "acetone_equilibrated.top"), rel(stage / "acetone_equilibrated.gro")
-    selected = REGISTRY.call("qm_region", ws_ctx, {
-        "topology": top, "coords": gro, "selections": ["add resname is ACT"], "padding_nm": 0.4})
-    assert selected.ok, selected.summary
-    written = REGISTRY.call("mandate_write", ws_ctx, {
-        "question": "Run acetone in water under QM/MM", "ceiling_core_h": 5000.0,
-        "system_files": [{"path": gro, "kind": "structure"}, {"path": top, "kind": "topology"}],
-        "subsystems": {"solute": {"kind": "ligand", "resnames": ["ACT"]},
-                       "solvent": {"kind": "solvent", "molecules": ["SOL"]}},
-        **{k: v for k, v in QMMM.items() if k != "subsystems"},
-        "stages": stages, **extra})
-    assert written.ok and written.status == "ready", written.summary
-    held = mandates.read_mandate(ws)
-    mandates.record_approval(ws, held, approver="researcher", via="terminal")
-    return held
 
 
-REGION = {"subsystems": ["solute"], "charge": 0}
 
 
 def test_a_coupled_stage_is_prepared_in_one_call_from_the_mandate_alone(ws_ctx):
@@ -763,7 +720,7 @@ def test_a_coupled_stage_is_prepared_in_one_call_from_the_mandate_alone(ws_ctx):
     selection's files are the mandate's system, and the charge and spin are the stage's."""
     from myrmidon.engines.mimic.cpmd_input import keyword_value, parse_cpmd
 
-    held = _coupled_study(ws_ctx, [
+    held = coupled_study(ws_ctx, [
         {"name": "anneal", "kind": "minimize", "regime": "qmmm", "steps": 300,
          "temperature_k": 300, "qm_region": REGION},
         {"name": "nve_check", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE",
@@ -789,7 +746,7 @@ def test_a_coupled_stage_is_prepared_in_one_call_from_the_mandate_alone(ws_ctx):
         assert (sidecar["charge"], sidecar["multiplicity"]) == (0, 1)
         assert sidecar["stage"] == name
     tools = {ev.tool for ev in ws.ledger.events()}
-    assert "stage_prepare" in tools and not tools & {"mimic_prepare", "gmx_grompp"}
+    assert {"stage_prepare", "qm_region"} <= tools
     from myrmidon.engines.file_origin import edit_findings
 
     assert not edit_findings(ws_ctx, obs.files["cpmd_input"])
@@ -800,7 +757,7 @@ def test_a_stage_after_a_classical_run_starts_with_a_fresh_wavefunction(ws_ctx):
     from myrmidon.core.lineage import stage_run as collected
     from myrmidon.engines.mimic.cpmd_input import keyword_value, parse_cpmd
 
-    _coupled_study(ws_ctx, [
+    coupled_study(ws_ctx, [
         {"name": "em", "kind": "minimize", "steps": 100},
         {"name": "first", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE",
          "steps": 10, "qm_region": REGION}])
@@ -813,7 +770,7 @@ def test_a_stage_after_a_classical_run_starts_with_a_fresh_wavefunction(ws_ctx):
     assert keyword_value(sections, restart) == "True"  # what the run before leaves is not known
     em = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "em"})
     assert em.ok, em.summary
-    run = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": em.files["tpr"], "walltime_min": 5})
+    run = REGISTRY.call("stage_run", ws_ctx, {"stage": "em", "walltime_min": 5})
     assert run.ok, run.summary
     assert REGISTRY.call("job_status", ws_ctx, {"job_id": run.job_id,
                                                 "wait_seconds": 15}).ok
@@ -833,7 +790,7 @@ def test_a_fit_stage_is_compiled_to_its_input_over_the_collected_dataset(ws_ctx)
     from myrmidon.core.tool import ToolRegistry, tool
     from myrmidon.engines.mimic.fm import parse_fminput
 
-    _coupled_study(ws_ctx, [
+    coupled_study(ws_ctx, [
         {"name": "reference", "kind": "single_point", "regime": "qmmm", "qm_region": REGION},
         {"name": "fit", "kind": "parameter_fit", "qm_region": {**REGION, "charge": -1}}])
     ws = ws_ctx.workspace
@@ -882,7 +839,7 @@ def test_every_shape_of_stage_runs_through_one_tool(ws_ctx):
     holds them to the mandate, and the collection is found again as that stage's run."""
     from myrmidon.core.lineage import stage_run as collected_run
 
-    _coupled_study(ws_ctx, [
+    coupled_study(ws_ctx, [
         {"name": "md", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300,
          "steps": 100, "sampling_ps": 0.05},
         {"name": "cool", "kind": "minimize", "regime": "qmmm", "steps": 10, "temperature_k": 300,
@@ -948,7 +905,7 @@ def test_every_shape_of_stage_runs_through_one_tool(ws_ctx):
 def test_a_stage_run_is_held_to_the_mandate_like_any_booking(ws_ctx):
     """stage_run names only a stage, and the gate still reads the files it runs on: an edited
     system file lapses the approval, a lock broken in its input refuses it."""
-    held = _coupled_study(ws_ctx, [
+    held = coupled_study(ws_ctx, [
         {"name": "md", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300, "steps": 100}])
     ws = ws_ctx.workspace
     prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "md"})
@@ -979,7 +936,7 @@ def test_every_deliverable_is_measured_through_one_tool_on_either_regime(ws_ctx)
         {"name": "drift hot", "property": "energy_drift", "over": "hot"},
         {"name": "dipole prod", "property": "dipole", "over": "prod"},
     ]
-    held = _coupled_study(ws_ctx, [
+    held = coupled_study(ws_ctx, [
         {"name": "md", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300,
          "steps": 100, "sampling_ps": 0.05},
         {"name": "hot", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE", "steps": 10,
@@ -1049,7 +1006,7 @@ def test_a_snapshot_of_a_coupled_run_is_one_step_cut_from_both_engines(ws_ctx):
     from myrmidon.engines.mimic.trajectory import frame_rows, trajectory_steps
 
     cpmd = Path(__file__).parents[1] / "fixtures" / "cpmd"
-    _coupled_study(ws_ctx, [{"name": "hot", "kind": "dynamics", "regime": "qmmm",
+    coupled_study(ws_ctx, [{"name": "hot", "kind": "dynamics", "regime": "qmmm",
                              "ensemble": "NVE", "steps": 20, "qm_region": REGION}])
     ws = ws_ctx.workspace
     assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "hot"}).ok

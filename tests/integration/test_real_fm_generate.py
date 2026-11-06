@@ -2,7 +2,7 @@
 
 One MiMiC BO-MD run with CPMD FORCE_MATCHING pace 1 and GROMACS nstxout=1 writes
 FMTRAJECTORY.json and mimic.trr in lockstep; dataset_collect converts, aligns and
-registers the pair; a quick fm_fit proves it is fit-ready. Opt-in (a real
+registers the pair; a quick fit proves it is fit-ready. Opt-in (a real
 multi-minute QM/MM run): set MYRMIDON_FM_GENERATE=1. Steps via
 MYRMIDON_FM_STEPS (default 300), CPMD ranks via MYRMIDON_TEST_CPMD_RANKS.
 """
@@ -93,68 +93,43 @@ def test_generate_reference_pair(ctx, approve_mandate):
     sel = call(
         ctx, "qm_region",
         topology=rel("acetone_equilibrated.top"), coords=rel("acetone_equilibrated.gro"),
-        selections=["add resname is ACT"], template=rel("fm_template.inp"),
-        pp_info=rel("pp_info.dat"), padding_nm=0.4,
+        selections=["add resname is ACT"], pp_info=rel("pp_info.dat"), padding_nm=0.4,
     )
-    tpr = call(
-        ctx, "gmx_grompp", mdp=rel("mimic_fm.mdp"), structure=rel("acetone_equilibrated.gro"),
-        topology=rel("acetone_equilibrated.top"), index=art(sel, "index"),
-        output="mimic.tpr", stage="qmmm", max_warn=2,
-    )
-    prep = call(
-        ctx, "mimic_prepare", cpmd_input=art(sel, "cpmd_input"),
-        total_charge=0, multiplicity=1, maxsteps=STEPS,
-    )
-    report = call(ctx, "file_check", path=art(prep, "cpmd_input"), tpr=art(tpr, "tpr"))
+    region = {"subsystems": ["solute"], "charge": sel.declared_charge}
+    # a frame each step, so each reference record pairs with a GROMACS frame
+    approve_mandate(
+        ctx, "Generate a force-matching reference pair, and fit it", 256.0,
+        stages=[{"name": "reference", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE",
+                 "steps": STEPS, "sampling_ps": 2.418884326585747e-4, "qm_region": region},
+                {"name": "fit", "kind": "parameter_fit", "qm_region": region}],
+        hamiltonian={"mm": "amber", "qm": {"method": "blyp_mt", "cutoff_ry": 70},
+                     "coupling": {"scheme": "mimic"}},
+        subsystems={"solute": {"kind": "ligand", "resnames": ["ACT"]},
+                    "solvent": {"kind": "solvent", "molecules": ["SOL"]}},
+        structure=rel("acetone_equilibrated.gro"), topology=rel("acetone_equilibrated.top"))
+    prepared = call(ctx, "stage_prepare", stage="reference", overrides={
+        "&CPMD/FORCE_MATCHING": 1, "nstfout": 1})
+    report = call(ctx, "file_check", path=prepared.files["cpmd_input"],
+                  tpr=prepared.files["tpr"])
     assert not blocking(report), report.summary
 
-    approve_mandate(ctx, "Generate a force-matching reference pair", 256.0,
-                    structure=rel("acetone_equilibrated.gro"),
-                    topology=rel("acetone_equilibrated.top"))
-    job = call(
-        ctx, "mimic_run", cpmd_input=art(prep, "cpmd_input"), tpr=art(tpr, "tpr"),
-        cpmd_ranks=CPMD_RANKS, gromacs_ranks=1,
-    )
+    job = call(ctx, "stage_run", stage="reference", cores=CPMD_RANKS + 1)
     done = wait_job(ctx, job.job_id)
     assert done.state == "COMPLETED", f"{done.summary}\n{done.log_tail or ''}"
-    diag = call(ctx, "run_diagnose")
+    diag = call(ctx, "run_diagnose", stage="reference")
     assert diag.md_steps_completed == STEPS
 
-    qmmm = ws.stage("qmmm")
-    assert (qmmm / "FMTRAJECTORY.json").exists() and (qmmm / "mimic.trr").exists()
-
-    ds = call(
-        ctx, "dataset_collect",
-        fmdata=ws.relpath(qmmm / "FMTRAJECTORY.json"), trajectory=ws.relpath(qmmm / "mimic.trr"),
-        topology=rel("acetone_equilibrated.top"), coords=rel("acetone_equilibrated.gro"),
-        selection=ws.relpath(_write_sele(inputs)),
-    )
+    ds = call(ctx, "dataset_collect", stage="reference")
     # a lockstep run must lose at most the trivial first-frame offset
     assert ds.qm_atoms == 10
     assert ds.frames >= STEPS - 2, ds.summary
     assert not ds.dropped or ds.dropped <= 2
 
-    plan = call(ctx, "fm_plan", stride=[0, ds.frames, 1], qm_total_charge=0,
-                dataset_frames=ds.frames)
-    dataset = {a.role: str(ws.root / a.path) for a in ds.artifacts}
-    fit = call(
-        ctx, "fm_fit",
-        topology=rel("acetone_equilibrated.top"), coords=rel("acetone_equilibrated.gro"),
-        fmdata=dataset["fm_dataset"], trajectory=dataset["trajectory"],
-        index=art(sel, "index"), selection=ws.relpath(inputs / "sele.dat"),
-        fm_input=plan.artifacts[0].path, mdp=rel("mimic_fm.mdp"), n_processes=12,
-    )
+    fitting = call(ctx, "stage_prepare", stage="fit")
+    assert fitting.files["fm_input"].endswith("fminput.dat")
+    fit = call(ctx, "stage_run", stage="fit", inputs={"mdp": rel("mimic_fm.mdp")})
     fit_done = wait_job(ctx, fit.job_id)
     assert fit_done.state == "COMPLETED", f"{fit_done.summary}\n{fit_done.log_tail or ''}"
-    res = call(ctx, "fm_results", original_itp=rel("acetone.itp"))
-    assert res.optimizer_success is True
-    assert res.n_snapshots == plan.n_snapshots
-
-    print(f"\nREFERENCE PAIR: {dataset['fm_dataset']}\n                {dataset['trajectory']}")
-
-
-def _write_sele(inputs: Path) -> Path:
-    sele = inputs / "sele.dat"
-    if not sele.exists():
-        sele.write_text("add resname is ACT\n")
-    return sele
+    assert fit_done.optimizer_success is True
+    assert fit_done.n_snapshots == ds.frames
+    print(f"\nREFERENCE PAIR: {[a.path for a in ds.artifacts]}")

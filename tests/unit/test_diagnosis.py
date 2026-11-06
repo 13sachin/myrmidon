@@ -119,13 +119,13 @@ def test_a_completed_run_is_judged_by_its_facts_and_cpmds_error_file(
 ])
 def test_the_mock_fails_the_way_the_real_engine_does(ws_ctx, monkeypatch, mode, words, error):
     """Every mock run stands on this: a mock failure leaves the real engine's words."""
-    from tests.unit.test_mimic import _full_mimic_setup, _wait
+    from tests.unit.test_mimic import _coupled_stage, _wait
 
-    run_inp, tpr = _full_mimic_setup(ws_ctx)
+    stage = _coupled_stage(ws_ctx)
     monkeypatch.setenv("MOCK_CPMD_FAIL", mode)
-    job = REGISTRY.call("mimic_run", ws_ctx, {"cpmd_input": run_inp, "tpr": tpr})
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": stage})
     assert _wait(ws_ctx, job.job_id).state == "FAILED"
-    diag = REGISTRY.call("run_diagnose", ws_ctx, {})
+    diag = REGISTRY.call("run_diagnose", ws_ctx, {"stage": stage})
     assert not diag.ok and words in diag.log_tail
     assert (error or "") in (diag.cpmd_error or "")
 
@@ -134,11 +134,11 @@ def test_a_single_point_at_its_step_cap_is_collected_as_a_run_that_did_not_work(
         ws_ctx, monkeypatch):
     """The job ends with exit 0 and a RESTART; its own facts say the wavefunction did not
     converge, so collection does not call it a success, and the log goes with it."""
-    from tests.unit.test_mimic import _full_mimic_setup, _wait
+    from tests.unit.test_mimic import _coupled_stage, _wait
 
-    run_inp, tpr = _full_mimic_setup(ws_ctx)
+    stage = _coupled_stage(ws_ctx)
     monkeypatch.setenv("MOCK_CPMD_FAIL", "stepcap")
-    job = REGISTRY.call("mimic_run", ws_ctx, {"cpmd_input": run_inp, "tpr": tpr})
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": stage})
     obs = _wait(ws_ctx, job.job_id)
     assert obs.state == "COMPLETED" and not obs.ok
     assert obs.diagnosis and "MAXIMUM NUMBER OF STEP" in obs.log_tail

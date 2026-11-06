@@ -73,23 +73,16 @@ NARRATED = [
 @pytest.mark.parametrize("narrative,output,finding", NARRATED)
 def test_the_report_states_parsed_values_and_prose_around_them(ws_ctx, narrative, output,
                                                                finding):
-    from tests.unit.test_mimic import _full_mimic_setup, _wait
+    from tests.conftest import REGION, coupled_study, wait_for
 
-    run_inp, tpr = _full_mimic_setup(ws_ctx)
-    assert REGISTRY.call("mandate_write", ws_ctx, {
-        "question": "100 ps of QM/MM dynamics of the solute?", "ceiling_core_h": 10.0,
-        "system_files": [{"path": tpr, "kind": "tpr"}],
-        "deliverables": [{"name": "the production run"}]}).ok
-    from tests.unit.test_approvals import _sign
-
-    _sign(ws_ctx)
-    inp = ws_ctx.workspace.root / run_inp  # the run writes the QM dipole beside its log
-    inp.write_text(inp.read_text().replace("&CPMD\n", "&CPMD\n DIPOLE DYNAMICS\n", 1))
-    job = REGISTRY.call("mimic_run", ws_ctx, {"cpmd_input": run_inp, "tpr": tpr,
-                                              "cpmd_ranks": 1, "gromacs_ranks": 1,
+    coupled_study(ws_ctx, [{"name": "production", "kind": "dynamics", "regime": "qmmm",
+                            "ensemble": "NVT", "temperature_k": 300, "steps": 5,
+                            "qm_region": REGION}])  # a thermostatted stage writes its dipole
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "production"}).ok
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": "production", "cores": 2,
                                               "walltime_min": 10})
     assert job.ok, job.summary
-    _wait(ws_ctx, job.job_id)
+    wait_for(ws_ctx, job.job_id)
 
     obs = REGISTRY.call("study_report", ws_ctx, {"narrative": narrative, "output": output})
     if finding:
@@ -98,7 +91,7 @@ def test_the_report_states_parsed_values_and_prose_around_them(ws_ctx, narrative
         return
     assert obs.ok, obs.summary
     ledger = {ev.event_id: ev for ev in ws_ctx.workspace.ledger.events()}
-    assert obs.values and all(ledger[v.event].tool == "mimic_run" for v in obs.values)
+    assert obs.values and all(ledger[v.event].tool == "stage_run" for v in obs.values)
     assert [v.value for v in obs.values if v.label == "finished normally"] == [True]
     assert [v.file.endswith("/DIPOLE") for v in obs.values
             if v.label == "mean magnitude of the QM dipole"] == [True]

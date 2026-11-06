@@ -26,6 +26,7 @@ from myrmidon.engines.mimic.fm import (
     parse_fminput,
     parse_optimization_results,
     parse_validation_force_residuals,
+    rerun_mdp_warnings,
 )
 from myrmidon.engines.mimic.qm_region import mimicpy_bin
 from myrmidon.engines.registry import Layout, StageJob
@@ -60,6 +61,14 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
     return out
 
 
+def fm_dataset_frames(ctx: ToolContext, dataset: Path) -> int | None:
+    """How many configurations a reference dataset holds; None when it cannot be counted."""
+    from myrmidon.engines.mimic.fm import dataset_facts
+
+    fact = dataset_facts(ctx, dataset).get("stride")
+    return int(fact.value.strip("[]").split(",")[1]) if fact else None
+
+
 def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min: int
                  ) -> list[Finding]:
     """What stops a fit: an input it cannot run without, one its input file does not state, a
@@ -72,7 +81,18 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
             suggestion="stage_prepare the fit; dataset_collect the reference run it fits "
             "against; qm_region writes the selection and the index")]
     findings = list(itp_atomtypes_warnings(inputs["topology"]))
+    if "mdp" in inputs:
+        from myrmidon.engines.gromacs.mdp import parse_mdp_file
+
+        findings += rerun_mdp_warnings(parse_mdp_file(inputs["mdp"]))
     keys = parse_fminput(inputs["fm_input"])
+    held = fm_dataset_frames(ctx, inputs["reference_dataset"])
+    stride = str(keys.get("stride", "")).strip("[] ").split(",")
+    if held and len(stride) == 3 and stride[1].strip().isdigit() and int(stride[1]) > held:
+        findings.append(Precondition(
+            id="FM_STRIDE_BEYOND_DATASET",
+            message=f"the fit's stride ends at {stride[1].strip()}, and its dataset holds {held} "
+            "configurations: re-collect, or narrow the stride"))
     for required in ("stride", "qm_total_charge"):
         if required not in keys:
             findings.append(Precondition(
@@ -82,7 +102,7 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
     return findings
 
 
-def layout_facts(_inputs) -> dict:
+def layout_facts(_inputs, _stage=None) -> dict:
     return {}
 
 
@@ -117,7 +137,7 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
     return StageJob(
         spec=JobSpec(argv=argv, cwd=run_dir, stdout="fm.stdout", stderr="fm.stderr",
                      resources=request.resources()),
-        kind="fm_fit", label=f"stage:{stage.name}",
+        kind="parameter_fit", label=f"stage:{stage.name}",
         meta={"topology": str(inputs["topology"].relative_to(root))},
         summary=f"fit of {layout.cpus_per_task} workers in {ctx.workspace.relpath(run_dir)}")
 
@@ -128,7 +148,7 @@ def collect_fit(ctx: ToolContext, stage_dir: Path, original_itp: str | None = No
     train/validation split, validation SDF/cost, optimizer status, wall time, the fitted
     charge deltas against the original .itp, and — given the topology the fit started
     from — the candidate topology with the fitted include(s) swapped in. This is what
-    ``job_status`` returns for an ``fm_fit`` job; ``original_itp`` is inferred from the
+    ``job_status`` returns for a fit's job; ``original_itp`` is inferred from the
     topology's includes when not given."""
     log_path = stage_dir / "fm.log"
     if not log_path.exists():
@@ -220,7 +240,7 @@ def collect_fit(ctx: ToolContext, stage_dir: Path, original_itp: str | None = No
             message=f"{len(rows)} fitted {PARAMETER_FINDINGS[finding]} ({shown})",
             suggestion="do not use this candidate as it stands: add reference snapshots, "
             "or restrict what the fit may change (charges only). Read the parameter "
-            "tables in fm_report — validation scores can look acceptable while the "
+            "tables in the study report — validation scores can look acceptable while the "
             "parameters are not.",
         ))
     bits = []
@@ -304,7 +324,7 @@ def assemble_candidate(ctx: ToolContext, stage: Path, top: Path, replace: dict[s
                        output: str = "candidate.top") -> Observation:
     """The candidate topology: ``top`` copied into ``stage`` with its same-directory
     includes, each include named in ``replace`` swapped for the fitted file. Done by the
-    fit's collection (``job_status`` on an ``fm_fit`` job); the result is a topology a
+    fit's collection (``job_status`` on a fit's job); the result is a topology a
     comparison builds its rerun and minimisations from."""
     import shutil
 
@@ -340,7 +360,7 @@ def assemble_candidate(ctx: ToolContext, stage: Path, top: Path, replace: dict[s
     )
 
 
-@collector("fm_fit")
+@collector("parameter_fit")
 def _collect_fit_job(ctx: ToolContext, record, state, exit_code) -> Observation:
     meta = record.meta
     return collect_fit(

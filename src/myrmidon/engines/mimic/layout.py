@@ -24,7 +24,7 @@ def fft_planes(cell_bohr: float, cutoff_ry: float, primes: list[int] | None = No
         n += 1
 
 
-def layout_facts(inputs: Mapping) -> dict:
+def layout_facts(inputs: Mapping, _stage=None) -> dict:
     """What a coupled run's layout reads from its inputs: the QM cell and cutoff its run input
     states, and the atoms its MM half divides."""
     from myrmidon.engines.gromacs.layout import layout_facts as classical

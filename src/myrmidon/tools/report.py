@@ -69,7 +69,7 @@ class StudyReportParams(BaseModel):
 
 def study_report_gate(ctx: ToolContext, params: StudyReportParams):
     from myrmidon.core.mandate import read_mandate
-    from myrmidon.orchestration.fm_report import find_rounds
+    from myrmidon.orchestration.fit_report import find_rounds
 
     checked = ["mandate_exists"]
     fitted = find_rounds(list(ctx.workspace.ledger.events()))
@@ -132,17 +132,17 @@ def _fit_tables(ctx: ToolContext, params: StudyReportParams) -> dict:
     import json
 
     from myrmidon.core.artifacts import ArtifactRef
-    from myrmidon.orchestration.fm_report import (
-        build_fm_report,
+    from myrmidon.orchestration.fit_report import (
+        build_fit_report,
         find_rounds,
         fmt_num,
-        render_fm_report,
+        render_fit_report,
     )
 
     ws = ctx.workspace
     if not find_rounds(list(ws.ledger.events())):
         return {"text": "", "said": "", "artifacts": [], "rounds": []}
-    data = build_fm_report(ws, compute=ctx.config.compute, backend=ctx.backend)
+    data = build_fit_report(ws, compute=ctx.config.compute, backend=ctx.backend)
     sidecar = ws.root / (params.output.removesuffix(".md") + ".json")
     sidecar.write_text(json.dumps(data, indent=1, sort_keys=True, default=str) + "\n")
     digest, bits = [], []
@@ -156,7 +156,7 @@ def _fit_tables(ctx: ToolContext, params: StudyReportParams) -> dict:
         said = (f"{r['stage']}: {r['fit'].get('n_snapshots')} snapshots, SDF "
                 f"{fmt_num(r['fit'].get('validation_sdf'))}")
         bits.append(said + (f", {terms} UNPHYSICAL terms" if terms else ""))
-    return {"text": "\n\n" + render_fm_report(data, max_rows=params.max_rows),
+    return {"text": "\n\n" + render_fit_report(data, max_rows=params.max_rows),
             "said": f"; {len(digest)} fit round(s) ({'; '.join(bits)}), data in "
             f"{ws.relpath(sidecar)}", "rounds": digest,
             "artifacts": [ArtifactRef.from_path(sidecar, "report", ws.root)]}

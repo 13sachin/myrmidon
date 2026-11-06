@@ -198,6 +198,6 @@ def walltime_diagnosis(log_path: Path, text: str) -> str:
                 "node's cores, more ntasks)")
     return (
         f"killed at its walltime after {reached}{of}{share} — the booking was shorter "
-        "than the run needed. Continue from the checkpoint with checkpoint_continue, or "
-        "book more (gmx_mdrun walltime_min)."
+        "than the run needed. Continue from the checkpoint: stage_run with continue_run, or "
+        "book more (stage_run walltime_min)."
     )

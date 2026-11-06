@@ -3,9 +3,9 @@
 Point MYRMIDON_FM_DATASET at a directory holding an acetone/water reference dataset
 (ours has 2000 QM/MM configurations); the test skips when it is unset, because where
 that data lives is a fact about your machine. dataset_collect validates the dataset (our real
-dataset is known to be trr<->h5 desynced by one frame — mimicpy remaps), fm_plan
-selects 100 snapshots, fm_fit runs DRESP + parameter optimization (through SLURM
-when the machine config says so), fm_results parses the outcome.
+dataset is known to be trr<->h5 desynced by one frame — mimicpy remaps), a parameter_fit stage
+fits it with DRESP + parameter optimization (through SLURM when the machine config says so), and
+its collection parses the outcome.
 """
 
 import os
@@ -94,33 +94,28 @@ def test_force_matching_on_reference_dataset(ctx, approve_mandate):
     # truly match. dataset_collect registers exactly that consistent, aligned subset.
     assert ds.frames is not None and ds.frames >= 20
     assert ds.fmdata_sha256 and ds.trr_sha256
-    dataset = {a.role: str(ws.root / a.path) for a in ds.artifacts}
 
-    plan = call(
-        ctx, "fm_plan",
-        stride=[0, ds.frames, 1], qm_total_charge=0, dataset_frames=ds.frames,
-    )
-    assert plan.n_snapshots == ds.frames
-
-    approve_mandate(ctx, "Fit force-field parameters to the reference dataset", 256.0,
-                    structure=rel("acetone.gro"), topology=rel("acetone.top"))
-    job = call(
-        ctx, "fm_fit",
-        topology=rel("acetone.top"), coords=rel("acetone.gro"),
-        fmdata=dataset["fm_dataset"], trajectory=dataset["trajectory"],
-        index=rel("index.ndx"), selection=rel("sele.dat"),
-        fm_input=plan.artifacts[0].path, mdp=rel("mimic.mdp"), n_processes=12,
-    )
+    approve_mandate(
+        ctx, "Fit force-field parameters to the reference dataset", 256.0,
+        stages=[{"name": "fit", "kind": "parameter_fit",
+                 "qm_region": {"subsystems": ["solute"], "charge": 0}}],
+        subsystems={"solute": {"kind": "ligand", "resnames": ["ACT"]}},
+        structure=rel("acetone.gro"), topology=rel("acetone.top"), index=rel("index.ndx"),
+        qm_selection=rel("sele.dat"))
+    prepared = call(ctx, "stage_prepare", stage="fit")
+    assert prepared.files["fm_input"].endswith("fminput.dat")
+    job = call(ctx, "stage_run", stage="fit", inputs={"mdp": rel("mimic.mdp")})
     done = wait_job(ctx, job.job_id)
     assert done.state == "COMPLETED", f"{done.summary}\n{done.log_tail or ''}"
 
-    res = call(ctx, "fm_results", original_itp=rel("acetone.itp"))
-    assert res.n_snapshots == ds.frames
-    assert res.optimizer_success is True
-    assert res.validation_sdf is not None and res.validation_sdf > 0
-    assert res.n_charges == 10
-    assert res.max_abs_charge_delta is not None and 0 < res.max_abs_charge_delta < 1.0
-    assert {a.role for a in res.artifacts} >= {"fm_log", "fitted_topology"}
+    assert done.n_snapshots == ds.frames
+    assert done.optimizer_success is True
+    assert done.validation_sdf is not None and done.validation_sdf > 0
+    assert done.n_charges == 10
+    assert done.max_abs_charge_delta is not None and 0 < done.max_abs_charge_delta < 1.0
+    assert {a.role for a in done.artifacts} >= {"fm_log", "fitted_topology"}
 
+    report = call(ctx, "study_report")
+    assert report.rounds and report.rounds[0]["clean"]
     tools = {e.tool for e in ws.ledger.events()}
-    assert tools >= {"dataset_collect", "fm_plan", "fm_fit", "fm_results"}
+    assert tools >= {"dataset_collect", "stage_prepare", "stage_run", "study_report"}

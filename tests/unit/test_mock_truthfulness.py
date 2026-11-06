@@ -130,15 +130,16 @@ NET_CHARGE = [("cutoff", True), ("PME", False)]
 
 @pytest.mark.parametrize("coulombtype,writes", NET_CHARGE)
 def test_the_mock_grompp_refuses_a_net_charge_only_under_ewald(ws_ctx, coulombtype, writes):
+    from myrmidon.engines.gromacs.run import grompp
+
     ws = ws_ctx.workspace
     stage = ws.stage("prep")
     (stage / "topol.top").write_text(ANION_TOP)
     (stage / "conf.gro").write_text("x\n    1\n    1ACE     C1    1   1.0   1.0   1.0\n"
                                     "   2.0 2.0 2.0\n")
     (stage / "run.mdp").write_text(f"integrator = steep\ncoulombtype = {coulombtype}\n")
-    obs = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": ws.relpath(stage / "run.mdp"), "structure": ws.relpath(stage / "conf.gro"),
-        "topology": ws.relpath(stage / "topol.top"), "output": "run.tpr"})
+    obs = grompp(ws_ctx, stage / "run.mdp", stage / "conf.gro", stage / "topol.top", None, None,
+                 stage / "run.tpr", stage)
     assert obs.ok is writes, obs.summary
     if not writes:
         assert "gmx_genion" in obs.error.hint
@@ -227,7 +228,7 @@ def test_grompp_errors_are_read_past_the_mpi_builds_footer(ws_ctx):
     """The real 2021.6 MPI build ends every fatal error with troubleshooting boilerplate
     (tests/fixtures/gromacs/grompp_error_mpi_footer.err); what made grompp stop is read
     from before it, from the real output and from the mock's alike."""
-    from myrmidon.engines.gromacs.run import grompp_warnings
+    from myrmidon.engines.gromacs.run import grompp, grompp_warnings
 
     real = (GMX_FIXTURES / "grompp_error_mpi_footer.err").read_text()
     assert [(f.id, f.message) for f in grompp_warnings(real)] == [
@@ -244,8 +245,7 @@ def test_grompp_errors_are_read_past_the_mpi_builds_footer(ws_ctx):
     (stage / "conf.gro").write_text("x\n    1\n    1ACE     C1    1   1.0   1.0   1.0\n"
                                     "   2.0 2.0 2.0\n")
     (stage / "run.mdp").write_text("integrator = md\ntcoupl = v-rescale\nref-t = 300\n")
-    obs = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": ws.relpath(stage / "run.mdp"), "structure": ws.relpath(stage / "conf.gro"),
-        "topology": ws.relpath(stage / "topol.top"), "output": "run.tpr"})
+    obs = grompp(ws_ctx, stage / "run.mdp", stage / "conf.gro", stage / "topol.top", None, None,
+                 stage / "run.tpr", stage)
     assert not obs.ok and "Invalid T coupling input" in obs.error.message
     assert "MPI_Abort" not in obs.error.message

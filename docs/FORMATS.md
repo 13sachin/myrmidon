@@ -24,7 +24,7 @@ A study is a directory:
 | `myrmidon.workspace.json` | the manifest (below) |
 | `myrmidon.ledger.jsonl` | the provenance ledger (below) |
 | `NN_name/` | stages, numbered in the order they were made (`01_input`, `02_em`, ...) |
-| `NN_name/NN_deffnm/` | one coupled run each: `mimic_run` allocates a numbered directory under its stage per submission and never reuses one, since CPMD's output names are fixed |
+| `NN_name/NN_deffnm/` | one coupled run each: `stage_run` allocates a numbered directory under its stage per submission and never reuses one, since CPMD's output names are fixed |
 | `mandate.yaml` | the study's mandate, written by `mandate_write` (below) |
 | `<file>.myrmidon.json` | beside an engine input `inputset_apply` rendered: where each of its values came from (below) |
 | `report.md` | the study's report, written by `study_report` from the mandate and the trace: the harness's sections, the model's prose after each, and any section of the model's own after them |

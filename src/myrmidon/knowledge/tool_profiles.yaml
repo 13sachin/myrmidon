@@ -5,15 +5,11 @@
 core: [study_open, study_create, file_read, file_write, file_check, doctor, skill_lookup,
        tool_lookup, knowledge_search, inputset_lookup, inputset_apply, protocol_lookup,
        protocol_preview, mandate_write, mandate_show, job_status, job_cancel, journal_write,
-       script_run, study_report]
+       script_run, study_report, stage_prepare, stage_run, run_diagnose, observable_measure]
 prep: [fetch_pdb, lookup, structure_select, ligand_parametrize, complex_assemble, gmx_pdb2gmx,
        gmx_editconf, gmx_solvate, gmx_genion, gmx_make_ndx, gmx_genrestr]
 md: [fetch_pdb, structure_select, ligand_parametrize, complex_assemble, gmx_pdb2gmx,
-       gmx_editconf, gmx_solvate, gmx_genion, gmx_make_ndx, gmx_genrestr, gmx_grompp,
-       gmx_mdrun, checkpoint_continue, observable_measure]
-qmmm: [gmx_grompp, gmx_make_ndx, qm_region, mimic_prepare, mimic_run, run_diagnose,
-       observable_measure]
-fm: [snapshot_select, dataset_collect, qm_region, mimic_prepare, mimic_run, run_diagnose,
-       fm_plan, fm_fit, gmx_grompp, gmx_rerun, gmx_minimize_frames, observable_measure,
-       study_report]
-analysis: [observable_measure, snapshot_select, viz_open, viz_command, session_summary]
+     gmx_editconf, gmx_solvate, gmx_genion, gmx_make_ndx, gmx_genrestr, snapshot_select]
+qmmm: [gmx_make_ndx, qm_region, snapshot_select]
+fm: [qm_region, snapshot_select, dataset_collect]
+analysis: [snapshot_select, viz_open, viz_command, session_summary]

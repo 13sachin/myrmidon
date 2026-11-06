@@ -498,7 +498,7 @@ def _locked(lin: Lineage, ws, files: list[tuple[str, str, str]], expect, revise:
                     id="MANDATE_DECISION",
                     message=f"{message}; the researcher's \"{said}\" compiles to "
                     f"{_said(constraint)} there. Render it again from the mandate "
-                    f"(inputset_apply stage={stage or '<name>'}), or: {revise}"))
+                    f"(stage_prepare stage={stage or '<name>'}), or: {revise}"))
         except (OSError, ValueError):
             findings.append(Precondition(id="MANDATE_DECISION",
                                          message=f"{path} cannot be read"))

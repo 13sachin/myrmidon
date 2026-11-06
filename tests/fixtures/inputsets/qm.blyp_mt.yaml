@@ -90,6 +90,6 @@ pitfalls:
 - QM_ELEMENT_NOT_COVERED
 notes: 'A method set supplies how the QM subsystem is computed, never the system: &MIMIC PATHS, BOX
   and OVERLAPS, the QM cell and the whole &ATOMS block are written per system by mimicpy''s prepqm,
-  and &SYSTEM CHARGE is chemistry, which mimic_prepare requires confirmed. Its pseudopotentials are
+  and &SYSTEM CHARGE is chemistry, which stage_prepare requires confirmed. Its pseudopotentials are
   the library''s *_MT_BLYP files; an element without one is refused before a run is submitted (QM_ELEMENT_NOT_COVERED).'
 version: 1

@@ -1,4 +1,4 @@
-"""InputSet store (schema v2, three layers), inputset_lookup, and checkpoint_continue."""
+"""InputSet store (schema v2, three layers), and inputset_lookup."""
 
 from dataclasses import replace
 from pathlib import Path

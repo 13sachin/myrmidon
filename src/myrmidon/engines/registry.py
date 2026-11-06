@@ -112,8 +112,8 @@ class EngineAdapter:
     run_log: Callable[[object], Path | None] | None = None
     #: (cores, system facts) -> the ranks and threads a run takes on them
     resolve_layout: Callable[..., object] | None = None
-    #: (a stage's inputs by kind) -> the facts its layout is resolved from
-    layout_facts: Callable[[Mapping[str, Path]], dict] | None = None
+    #: (a stage's inputs by kind, the stage) -> the facts its layout is resolved from
+    layout_facts: Callable[..., dict] | None = None
     #: (ctx, mandate, stage, the inputs prepared for it, a run asked to continue?) -> what else
     #: its run reads, by kind, from the run it starts from and the system
     stage_inputs: Callable[..., dict] | None = None

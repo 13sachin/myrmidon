@@ -38,32 +38,30 @@ def _event(ws, tool_name):
     return [ev for ev in ws.ledger.events() if ev.tool == tool_name][-1]
 
 
-def test_every_file_a_call_names_is_an_input_and_an_output_is_the_next_calls_input(ws_ctx):
-    """grompp names three study files and the ledger records three inputs, each with the
-    parameter it arrived as and the hash it had when the call started; mdrun's tpr is
-    grompp's tpr, by hash — the edge the study's data flow is made of."""
+def test_every_file_a_call_reads_is_an_input_and_an_output_is_the_next_calls_input(ws_ctx):
+    """A stage's preparation records what it compiled from, each under the kind it is and with
+    the hash it had; its run reads the run input it wrote, by hash — the edge the study's data
+    flow is made of."""
+    from tests.conftest import NVT_STAGE, approved_study
+
     from myrmidon.core.artifacts import sha256_file
 
     ws = ws_ctx.workspace
     _plant(ws)
-    grompp = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": "01_input/nvt.mdp", "structure": "01_input/conf.gro",
-        "topology": "01_input/topol.top", "output": "nvt.tpr", "stage": "nvt",
-    })
-    assert grompp.ok, grompp.summary
-    inputs = {ref.role: ref for ref in _event(ws, "gmx_grompp").inputs}
-    assert {r: i.path for r, i in inputs.items()} == {
-        "mdp": "01_input/nvt.mdp", "structure": "01_input/conf.gro",
-        "topology": "01_input/topol.top"}
+    approved_study(ws_ctx, "01_input/conf.gro", "01_input/topol.top", [NVT_STAGE])
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt"})
+    assert prepared.ok, prepared.summary
+    inputs = {ref.role: ref for ref in _event(ws, "stage_prepare").inputs}
+    assert {r: inputs[r].path for r in ("structure", "topology")} == {
+        "structure": "01_input/conf.gro", "topology": "01_input/topol.top"}
     assert inputs["topology"].sha256 == sha256_file(ws.root / "01_input/topol.top")
+    assert inputs["mdp"].path == prepared.files["mdp"]
 
-    tpr = next(a for a in grompp.artifacts if a.role == "tpr")
-    run = REGISTRY.call("gmx_mdrun", ws_ctx, {
-        "tpr": tpr.path, "deffnm": "nvt", "walltime_min": 5,
-    })
+    tpr = next(a for a in prepared.artifacts if a.role == "tpr")
+    run = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "walltime_min": 5})
     assert run.ok, run.summary
-    consumed = _event(ws, "gmx_mdrun").inputs
-    assert [(r.role, r.path, r.sha256) for r in consumed] == [("tpr", tpr.path, tpr.sha256)]
+    consumed = {r.role: r for r in _event(ws, "stage_run").inputs}
+    assert (consumed["inputs.tpr"].path, consumed["inputs.tpr"].sha256) == (tpr.path, tpr.sha256)
 
 
 @pytest.fixture
@@ -166,17 +164,12 @@ def test_a_refused_call_records_what_it_would_have_consumed(ws_ctx, tmp_path):
 
 
 def _run_a_job(ws_ctx):
+    from tests.conftest import NVT_STAGE, approved_study, prepare_and_run
+
     ws = ws_ctx.workspace
     _plant(ws)
-    grompp = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": "01_input/nvt.mdp", "structure": "01_input/conf.gro",
-        "topology": "01_input/topol.top", "output": "nvt.tpr", "stage": "nvt",
-    })
-    assert grompp.ok, grompp.summary
-    run = REGISTRY.call("gmx_mdrun", ws_ctx, {
-        "tpr": "02_nvt/nvt.tpr", "deffnm": "nvt", "walltime_min": 5,
-    })
-    assert run.ok, run.summary
+    approved_study(ws_ctx, "01_input/conf.gro", "01_input/topol.top", [NVT_STAGE])
+    _, run = prepare_and_run(ws_ctx, "nvt", walltime_min=5)
     for _ in range(200):
         st = REGISTRY.call("job_status", ws_ctx, {"job_id": run.job_id, "wait_seconds": 1})
         if st.state in ("COMPLETED", "FAILED"):

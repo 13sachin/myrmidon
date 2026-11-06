@@ -120,7 +120,7 @@ sensors:
     when: {integrator: mimic, qmmm_grps: null}
     sees: "integrator = mimic with no QMMM-grps"
     means: "the MM side does not know which atoms are quantum"
-    usual_move: "QMMM-grps = the QM atoms' index group (qm_region writes it), and the index passed to gmx_grompp"
+    usual_move: "QMMM-grps = the QM atoms' index group (qm_region writes it), and that index among the system files"
     status: verified
     sources:
       - kind: engine_manual

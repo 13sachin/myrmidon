@@ -92,29 +92,17 @@ def solvated(ws_ctx):
 
 @pytest.fixture
 def planted_run(ws_ctx):
-    """A workspace in which one grompp and one mdrun have gone through the registry on
-    the mock engine and the job has been collected — a run with a ledger and a job store,
-    which is what `watch` follows."""
-    from myrmidon.core.tool import REGISTRY
-
+    """A workspace in which one prepared stage has run on the mock engine under an approved
+    mandate and the job has been collected — a run with a ledger and a job store, which is
+    what `watch` follows."""
     ws = ws_ctx.workspace
     stage = ws.stage("input")
     (stage / "conf.gro").write_text(
         "mock\n 3\n" + "    1ALA     CA    1   0.1   0.2   0.3\n" * 3 + "   2.5 2.5 2.5\n")
     (stage / "topol.top").write_text("[ system ]\nMock\n[ molecules ]\nProtein 1\n")
-    (stage / "nvt.mdp").write_text(
-        "integrator = md\ndt = 0.002\nnsteps = 500\nconstraints = h-bonds\n"
-        "constraint_algorithm = lincs\ntcoupl = v-rescale\ntc-grps = System\n"
-        "tau_t = 0.1\nref_t = 300\ncoulombtype = PME\ngen_vel = yes\ngen_seed = 1\n")
-    grompp = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": "01_input/nvt.mdp", "structure": "01_input/conf.gro",
-        "topology": "01_input/topol.top", "output": "nvt.tpr", "stage": "nvt"})
-    assert grompp.ok, grompp.summary
-    tpr = next(a.path for a in grompp.artifacts if a.path.endswith(".tpr"))
-    run = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": tpr, "deffnm": "nvt",
-                                              "walltime_min": 5})
-    assert run.ok, run.summary
-    REGISTRY.call("job_status", ws_ctx, {"job_id": run.job_id, "wait_seconds": 20})
+    approved_study(ws_ctx, "01_input/conf.gro", "01_input/topol.top", [NVT_STAGE])
+    prepared, run = prepare_and_run(ws_ctx, "nvt", walltime_min=5)
+    _registry().call("job_status", ws_ctx, {"job_id": run.job_id, "wait_seconds": 20})
     return ws_ctx, ws
 
 
@@ -165,3 +153,86 @@ def _never_make_the_checkout_a_project():
 def _model_retries_without_waiting(monkeypatch):
     """A failing scripted model is retried as a real one would be, without the waits."""
     monkeypatch.setattr("myrmidon.agent.loop.MODEL_RETRY_WAITS_S", (0.0, 0.0))
+
+
+def _registry():
+    from myrmidon.core.tool import REGISTRY
+
+    return REGISTRY
+
+
+#: a classical stage any test can run
+NVT_STAGE = {"name": "nvt", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300,
+             "steps": 500}
+
+
+def approved_study(ctx, structure, topology, stages, **extra):
+    """A mandate of these stages over this system, written and approved by the researcher."""
+    from myrmidon.core import mandate as mandates
+
+    written = _registry().call("mandate_write", ctx, {
+        "question": "Run the stages", "ceiling_core_h": 5000.0,
+        "system_files": [{"path": structure, "kind": "structure"},
+                         {"path": topology, "kind": "topology"}],
+        "hamiltonian": {"mm": "amber"}, "stages": stages, **extra})
+    assert written.ok and written.status == "ready", written.summary
+    held = mandates.read_mandate(ctx.workspace)
+    mandates.record_approval(ctx.workspace, held, approver="researcher", via="terminal")
+    return held
+
+
+def prepare_and_run(ctx, stage, prepare=None, **run):
+    """A stage prepared, and its run submitted: (the preparation, the submission)."""
+    prepared = _registry().call("stage_prepare", ctx, {"stage": stage, **(prepare or {})})
+    assert prepared.ok, prepared.summary
+    submitted = _registry().call("stage_run", ctx, {"stage": stage, **run})
+    assert submitted.ok, submitted.summary
+    return prepared, submitted
+
+
+#: a coupled stage's region, on the solute of ``coupled_study``
+REGION = {"subsystems": ["solute"], "charge": 0}
+#: what a coupled study is computed with
+QM_HAMILTONIAN = {"mm": "amber", "qm": {"method": "blyp_mt", "cutoff_ry": 70},
+                  "coupling": {"scheme": "mimic"}}
+
+
+def coupled_study(ws_ctx, stages, **extra):
+    """Acetone in water, its QM region selected, under an approved mandate of these stages."""
+    import shutil
+
+    from myrmidon.core import mandate as mandates
+
+    ws = ws_ctx.workspace
+    stage = ws.stage("input")
+    for name in ("acetone_equilibrated.top", "acetone.itp", "acetone_equilibrated.gro"):
+        (stage / name).write_text((ACETONE / name).read_text())
+    shutil.copytree(ACETONE / "amber03.ff", stage / "amber03.ff")
+    rel = ws.relpath
+    top, gro = rel(stage / "acetone_equilibrated.top"), rel(stage / "acetone_equilibrated.gro")
+    selected = _registry().call("qm_region", ws_ctx, {
+        "topology": top, "coords": gro, "selections": ["add resname is ACT"], "padding_nm": 0.4})
+    assert selected.ok, selected.summary
+    written = _registry().call("mandate_write", ws_ctx, {
+        "question": "Run acetone in water under QM/MM", "ceiling_core_h": 5000.0,
+        "system_files": [{"path": gro, "kind": "structure"}, {"path": top, "kind": "topology"}],
+        "subsystems": {"solute": {"kind": "ligand", "resnames": ["ACT"]},
+                       "solvent": {"kind": "solvent", "molecules": ["SOL"]}},
+        "hamiltonian": QM_HAMILTONIAN, "stages": stages, **extra})
+    assert written.ok and written.status == "ready", written.summary
+    held = mandates.read_mandate(ws)
+    mandates.record_approval(ws, held, approver="researcher", via="terminal")
+    return held
+
+
+def wait_for(ctx, job_id, seconds=15):
+    """A job waited for and collected."""
+    import time
+
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        done = _registry().call("job_status", ctx, {"job_id": job_id})
+        if done.state in ("COMPLETED", "FAILED", "CANCELLED"):
+            return done
+        time.sleep(0.1)
+    raise AssertionError(f"{job_id} never finished")

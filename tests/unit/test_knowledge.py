@@ -143,8 +143,8 @@ def test_a_tool_profile_names_registered_tools_and_narrows_what_a_client_sees(ws
     assert [t for tools in profiles().values() for t in tools if t not in registered] == []
     ws_ctx.config.tool_profile = "md"
     shown = {s.name for s in exposed_tools(ws_ctx)}
-    assert {"mandate_write", "gmx_mdrun", "tool_lookup"} <= shown
-    assert "fm_fit" not in shown and len(shown) < len(registered)
+    assert {"mandate_write", "stage_run", "tool_lookup", "gmx_pdb2gmx"} <= shown
+    assert "dataset_collect" not in shown and len(shown) < len(registered)
     result = _tool_run(ws_ctx)("study_open", {})
     assert result["ok"] and list(ws_ctx.workspace.ledger.events())[-1].tool == "study_open"
     assert "schema" in _tool_run(ws_ctx)("study_open", {"wrong": 1})

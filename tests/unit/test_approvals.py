@@ -191,24 +191,7 @@ def test_a_person_approves_the_mandate_they_read_from_the_command_line(
         signed.output)["event"]
 
 
-def _built(ws_ctx, solvated, ref_t: str, structure: str | None = None, output="nvt"):
-    """An nvt run input built in the session: the input set rendered for the system, then
-    grompp on it."""
-    mdp = f"02_run/{output}.mdp"
-    rendered = REGISTRY.call("inputset_apply", ws_ctx, {
-        "inputset": "gromacs.nvt", "method": "forcefield.amber", "output": mdp,
-        "topology": solvated["topology"], "structure": solvated["structure"],
-        "overrides": {"nsteps": 5000, "ref_t": ref_t}})
-    assert rendered.ok, rendered.summary
-    tpr = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": mdp, "structure": structure or solvated["structure"],
-        "topology": solvated["topology"], "output": f"{output}.tpr", "stage": "run"})
-    assert tpr.ok, tpr.summary
-    return tpr.artifacts[0].path
-
-
-def test_a_job_runs_only_on_the_approved_system_with_the_researchers_values(ws_ctx,
-                                                                           solvated,
+def test_a_job_runs_only_on_the_approved_system_with_the_researchers_values(ws_ctx, solvated,
                                                                            monkeypatch):
     """The honest path submits; a run input built from another structure, or rendered with
     another value of a key the researcher decided, is refused by name, before anything is
@@ -219,30 +202,35 @@ def test_a_job_runs_only_on_the_approved_system_with_the_researchers_values(ws_c
     from myrmidon.execution.jobs import existing_jobstore
 
     ws = ws_ctx.workspace
-    honest = _built(ws_ctx, solvated, "300")
+    stage = {"kind": "dynamics", "ensemble": "NVT", "temperature_k": 300, "steps": 5000}
     written = REGISTRY.call("mandate_write", ws_ctx, {
         "question": "Equilibrate the box at 300 K", "ceiling_core_h": 10.0,
         "system_files": [{"path": solvated["structure"], "kind": "structure"},
                          {"path": solvated["topology"], "kind": "topology"}],
+        "stages": [{"name": "nvt", **stage}, {"name": "nvt_again", **stage, "starts_from": "nvt"}],
         # an empty decision ("no restraint define") is met by a file that sets none
-        "decisions_yours": [{"said": "300 K", "target": "gromacs.nvt",
+        "decisions_yours": [{"said": "300 K", "target": "gromacs.dynamics",
                              "keys": {"ref_t": 300, "define": ""}}]})
     assert written.status == "ready", written.summary
     _sign(ws_ctx)
+    system = {"structure": solvated["structure"]}
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt", **system}).ok
     rendered = [e for e in ws.ledger.events() if e.tool == "inputset_apply"][-1]
-    assert any(r.startswith("inputset:gromacs.nvt@v1#") for r in rendered.knowledge_refs)
+    assert any(r.startswith("inputset:gromacs.dynamics@v") for r in rendered.knowledge_refs)
 
-    preview = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": honest, "preview": True})
+    preview = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "preview": True})
     assert preview.ok and existing_jobstore(ws) is None, preview.summary
     # a preview sees the tool's own checks too, beside the mandate's
-    missing = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": "02_run/none.tpr", "preview": True})
+    missing = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "preview": True,
+                                                  "inputs": {"tpr": "02_run/none.tpr"}})
     assert not missing.ok and existing_jobstore(ws) is None
     assert any(f.id.startswith("INPUT_MISSING") for f in missing.findings)
-    job = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": honest, "deffnm": "nvt"})
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt"})
     assert job.ok, job.summary
     # a run that crashes is a deviation, never the result
     monkeypatch.setenv("MOCK_GMX_FAIL", "lincs")
-    crashed = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": honest, "deffnm": "nvt_again"})
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt_again", **system}).ok
+    crashed = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt_again"})
     assert crashed.ok, crashed.summary
     REGISTRY.call("job_status", ws_ctx, {"job_id": crashed.job_id, "wait_seconds": 30})
     monkeypatch.delenv("MOCK_GMX_FAIL")
@@ -250,45 +238,46 @@ def test_a_job_runs_only_on_the_approved_system_with_the_researchers_values(ws_c
     other = ws.stage("other") / "conf.gro"
     other.write_text((ws.root / solvated["structure"]).read_text().replace(
         "Acetone", "Another", 1) + "\n")
-    wrong_system = _built(ws_ctx, solvated, "300", structure=ws.relpath(other),
-                          output="nvt_other")
-    refused = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": wrong_system, "preview": True})
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt_again",
+                                                   "structure": ws.relpath(other)}).ok
+    refused = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt_again", "preview": True})
     assert not refused.ok and [w.id for w in blocking(refused)] == ["MANDATE_SYSTEM"]
     assert ws.relpath(other) in blocking(refused)[0].message
 
-    hotter = _built(ws_ctx, solvated, "310", output="nvt_hot")
-    refused = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": hotter})
+    hotter = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt_again", **system,
+                                                     "overrides": {"ref_t": 310}})
+    assert hotter.ok, hotter.summary
+    refused = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt_again"})
     assert not refused.ok and [w.id for w in blocking(refused)] == ["MANDATE_DECISION"]
     assert "310" in blocking(refused)[0].message and "300 K" in blocking(refused)[0].message
 
     # a rendered file edited by hand is still the set's: the decision reads it on disk
     import re
 
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt_again", **system})
+    assert prepared.ok, prepared.summary
+    path = prepared.files["mdp"]
     hand = re.sub(r"(?m)^(ref[-_]t\s*=.*)$", lambda m: m.group(1).replace("300", "310"),
-                  (ws.root / "02_run/nvt.mdp").read_text())
+                  ws.resolve(path).read_text())
     assert "310" in hand
-    edited = REGISTRY.call("file_write", ws_ctx, {"path": "02_run/nvt.mdp", "content": hand})
+    edited = REGISTRY.call("file_write", ws_ctx, {"path": path, "content": hand})
     assert edited.ok, edited.summary
-    tpr = REGISTRY.call("gmx_grompp", ws_ctx, {
-        "mdp": "02_run/nvt.mdp", "structure": solvated["structure"],
-        "topology": solvated["topology"], "output": "nvt_edit.tpr", "stage": "run"})
-    assert tpr.ok, tpr.summary
-    refused = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": tpr.artifacts[0].path,
-                                                  "preview": True})
-    assert [w.id for w in blocking(refused)] == ["MANDATE_DECISION"], refused.summary
+    refused = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt_again", "preview": True})
+    assert {w.id for w in blocking(refused)} == {"MANDATE_DECISION"}, refused.summary
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt_again", **system}).ok
 
     # a run input no recorded call built reaches nothing of the system
     foreign = ws.stage("elsewhere") / "foreign.tpr"
-    foreign.write_text((ws.root / honest).read_text())
-    foreign.write_text(foreign.read_text() + "   from another study\n")
-    refused = REGISTRY.call("gmx_mdrun", ws_ctx, {"tpr": ws.relpath(foreign), "preview": True})
+    foreign.write_text(ws.resolve(prepared.files["tpr"]).read_text() + "   from another study\n")
+    refused = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt_again", "preview": True,
+                                                  "inputs": {"tpr": ws.relpath(foreign)}})
     assert [w.id for w in blocking(refused)] == ["MANDATE_SYSTEM"], refused.summary
 
     done = REGISTRY.call("job_status", ws_ctx, {"job_id": job.job_id, "wait_seconds": 30})
     assert done.ok, done.summary
     confout = next(a for a in done.artifacts if a.role == "structure")
-    system = {f.sha256 for f in mandates.holding(ws).system.files}
-    verdict = lineage(ws).fits(confout.path, confout.sha256, "structure", system)
+    held = {f.sha256 for f in mandates.holding(ws).system.files}
+    verdict = lineage(ws).fits(confout.path, confout.sha256, "structure", held)
     assert verdict.ok and verdict.reached
 
     # the report reads the trace: the mandate, the job under it, what the gate refused
@@ -355,25 +344,23 @@ def test_the_walk_is_linear_in_a_chain_of_restarts():
     assert verdict.ok and verdict.reached and len(lin._memo) <= 120
 
 
-def test_a_staged_run_input_is_its_stages_input_set_through_the_template(ws_ctx):
-    """A coupled run input is written by mimic_prepare from prepqm's input, itself built on
-    a rendered template: the decision for that stage reads it, and no other stage's."""
-    from tests.unit.test_sourcing import _select_qm
+def test_a_staged_run_input_is_rendered_from_its_stages_template(ws_ctx):
+    """A coupled run input is compiled from its stage's template onto what the QM selection
+    wrote: the decision for that stage reads it, and no other stage's."""
+    from tests.conftest import REGION, coupled_study
 
+    from myrmidon.core.artifacts import ArtifactRef
     from myrmidon.core.lineage import lineage
 
-    applied = REGISTRY.call("inputset_apply", ws_ctx, {
-        "inputset": "cpmd.fm_singlepoint", "method": "qm.blyp_mt",
-        "output": "01_input/template.inp", "overrides": {"&SYSTEM/CHARGE": "0.0"}})
-    assert applied.ok, applied.summary
-    selected = _select_qm(ws_ctx, template="01_input/template.inp")
-    generated = next(a for a in selected.artifacts if a.role == "cpmd_input")
-    prepared = REGISTRY.call("mimic_prepare", ws_ctx, {
-        "cpmd_input": generated.path, "total_charge": 0, "multiplicity": 1})
+    coupled_study(ws_ctx, [{"name": "reference", "kind": "single_point", "regime": "qmmm",
+                            "qm_region": REGION}])
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "reference"})
     assert prepared.ok, prepared.summary
-    run_input = next(a for a in prepared.artifacts if a.role in ("cpmd_input", "cpmd_inp"))
-    assert lineage(ws_ctx.workspace).rendered_from(
-        run_input.path, run_input.sha256) == "cpmd.fm_singlepoint@v1"
+    ws = ws_ctx.workspace
+    run_input = ArtifactRef.from_path(ws.resolve(prepared.files["cpmd_input"]), "cpmd_input",
+                                      root=ws.root)
+    assert lineage(ws).rendered_from(run_input.path, run_input.sha256).startswith(
+        "cpmd.single_point@v")
 
 
 # (the decision's target and keys, whether the mandate is written). A lock on a key its

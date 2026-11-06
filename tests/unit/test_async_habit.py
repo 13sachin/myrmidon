@@ -17,17 +17,11 @@ from myrmidon.core.tool import REGISTRY
 
 
 def _submit_mdrun(ctx, planted):
-    """A real submission through the registry: grompp, then mdrun on the mock engines."""
-    grompp = REGISTRY.call("gmx_grompp", ctx, {
-        "mdp": "01_input/nvt.mdp", "structure": "01_input/conf.gro",
-        "topology": "01_input/topol.top", "stage": "run", "output": "nvt.tpr",
-    })
-    assert grompp.ok, grompp.summary
-    run = REGISTRY.call("gmx_mdrun", ctx, {
-        "tpr": "02_run/nvt.tpr", "deffnm": "nvt", "walltime_min": 5,
-    })
-    assert run.ok, run.summary
-    return run.job_id
+    """A real submission through the registry: a stage prepared and run on the mock engines."""
+    from tests.conftest import NVT_STAGE, approved_study, prepare_and_run
+
+    approved_study(ctx, "01_input/conf.gro", "01_input/topol.top", [NVT_STAGE])
+    return prepare_and_run(ctx, "nvt", walltime_min=5)[1].job_id
 
 
 @pytest.fixture

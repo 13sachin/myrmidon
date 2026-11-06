@@ -11,7 +11,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "My run stopped — what went wrong, and what do I change before I resubmit?"
-  myrmidon-tools: "study_open study_create file_read job_status run_diagnose file_check knowledge_search checkpoint_continue mimic_run journal_write mandate_write mandate_show"
+  myrmidon-tools: "study_open study_create file_read job_status run_diagnose file_check knowledge_search stage_run journal_write mandate_write mandate_show"
 ---
 
 ## Scope
@@ -45,8 +45,8 @@ or a cause ruled out, in `journal_write`.
 4. Name the cause, quoting the line, and `file_check` the input it lives in. A cause in the
    method changes an input; a cause in the machine changes the resources.
 5. `knowledge_search` for the keyword the cause names, cited for the installed version.
-6. A run cut by the time limit continues, when asked: a GROMACS run with
-   `checkpoint_continue`, a coupled run through `mimic_run` with `restart_from`.
+6. A run cut by the time limit continues, when asked: `stage_run` on its stage with
+   `continue_run: true`, from what that run left.
 
 ## Stop
 

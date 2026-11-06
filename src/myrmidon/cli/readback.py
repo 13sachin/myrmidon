@@ -47,35 +47,6 @@ def report(
                              backend=None if no_usage else ctx.backend))
 
 
-@app.command(name="fm-report", hidden=True)
-def fm_report_cmd(
-    workspace: str = typer.Argument("", help="workspace path (default: the active one)"),
-    stage: str = typer.Option("report", help="stage to write fm_report.md/.json into"),
-    no_usage: bool = typer.Option(False, help="skip backend accounting queries (faster)"),
-    print_md: bool = typer.Option(True, "--print/--no-print", help="echo the markdown"),
-) -> None:
-    """Force-matching campaign report from the ledger: datasets, fit settings and outcome,
-    charge and bonded-parameter tables (original vs fitted), validation MAE, compute."""
-    from myrmidon.core.tool import REGISTRY
-    from myrmidon.server.mcp_server import build_context
-
-    ws = resolve_workspace(workspace)
-    if ws is None:
-        typer.echo("no active study (open one through the tools, or pass a path)")
-        raise typer.Exit(1)
-    ctx = build_context()
-    ctx.workspace = ws
-    if no_usage:
-        ctx.backend = None
-    obs = REGISTRY.call("fm_report", ctx, {"stage": stage})
-    if not obs.ok:
-        typer.echo(obs.summary)
-        raise typer.Exit(1)
-    if print_md:
-        typer.echo((ws.root / obs.report_path).read_text())
-    typer.echo(obs.summary)
-
-
 @app.command(hidden=True)
 def watch(
     workspace: str = typer.Argument("", help="workspace path (default: the active one)"),

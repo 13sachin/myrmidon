@@ -128,7 +128,7 @@ FORCE_UNITS = "Hartree/Bohr"  # mimicpy compares forces in atomic units (kjmolnm
 
 def rerun_mdp_warnings(mdp: dict) -> list[Finding]:
     """What a force-matching / force-comparison rerun mdp must not be: a MiMiC production
-    mdp (FM_RERUN_MDP_IS_MIMIC below), or one that writes no forces. fm_fit's gate."""
+    mdp (FM_RERUN_MDP_IS_MIMIC below), or one that writes no forces. a fit's gate."""
     warnings: list[Finding] = []
     qmmm_keys = [k for k in mdp if k.replace("-", "_") == "qmmm_grps"]
     if mdp.get("integrator", "").lower() == "mimic" or qmmm_keys:
@@ -331,12 +331,6 @@ def gmx_data_flags(ctx: ToolContext) -> list[str]:
 
 
 # -- dataset_collect ---------------------------------------------------------------
-
-
-# -- fm_plan ------------------------------------------------------------------
-
-
-# -- fm_fit -------------------------------------------------------------------
 
 
 _SECTION_RE = re.compile(r"^\s*\[\s*(\w+)\s*\]", re.MULTILINE)

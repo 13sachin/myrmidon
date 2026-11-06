@@ -241,10 +241,10 @@ def file_check(ctx: ToolContext, params: FileCheckParams) -> Observation:
 
         warnings, checked = validate_mdp(parse_mdp_file(real), for_engine(ctx.engines, "gromacs"))
     elif kind == "cpmd":
-        from myrmidon.tools.mimic.run import MimicRunParams, mimic_gate
+        from myrmidon.engines.mimic.collect import coupled_findings
 
-        probe = MimicRunParams(cpmd_input=params.path, tpr=params.tpr or params.path)
-        warnings, checked = mimic_gate(ctx, probe)
+        warnings, checked = coupled_findings(ctx, params.path, params.tpr or params.path, None,
+                                             None)
     origin = file_origin(ctx, params.path)
     known = {w.id for w in warnings}
     warnings += [w for w in origin.findings if w.id not in known]

@@ -9,7 +9,7 @@ from typing import ClassVar
 from pydantic import BaseModel, Field
 
 from myrmidon.core.artifacts import ArtifactRef
-from myrmidon.core.contracts import Contract
+from myrmidon.core.contracts import Contract, includes_of
 from myrmidon.core.lineage import stage_files
 from myrmidon.core.lineage import stage_run as collected_run
 from myrmidon.core.mandate import read_mandate
@@ -90,6 +90,7 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
     index = params.index or system_file(ctx, mandate, "index")
     stage_dir = ctx.workspace.stage(stage.name)
     prepared: dict[str, str] = {}
+    values: dict[str, dict] = {}
     findings: list = []
     for template in templates:
         engine = adapter(template.engine)
@@ -104,9 +105,14 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
             return _refused(rendered.summary, rendered.error.code if rendered.error
                             else "STAGE_RENDER_FAILED", findings,
                             rendered.error.hint if rendered.error else "", files=prepared)
-        prepared[RENDERED_FILES[template.renders][0]] = ctx.workspace.relpath(output)
-    return _with_run_input(ctx, params, stage, stage_dir, templates, prepared, findings,
-                           {"structure": structure, "topology": topology, "index": index}, later)
+        kind = RENDERED_FILES[template.renders][0]
+        prepared[kind] = ctx.workspace.relpath(output)
+        values[kind] = rendered.values
+    obs = _with_run_input(ctx, params, stage, stage_dir, templates, prepared, findings,
+                          {"structure": structure, "topology": topology, "index": index}, later)
+    obs.values = values
+    obs.quiet = {"values"}  # each value and its origin is in the sidecar beside its file
+    return obs
 
 
 def _with_run_input(ctx: ToolContext, params: StagePrepareParams, stage, stage_dir: Path,
@@ -140,6 +146,10 @@ def _with_run_input(ctx: ToolContext, params: StagePrepareParams, stage, stage_d
         prepared |= {a.role: a.path for a in compiled.artifacts}
         inputs += [ArtifactRef.from_path(ctx.workspace.resolve(prepared[kind]), kind, root=root),
                    *(ArtifactRef.from_path(path, k, root=root) for k, path in files.items())]
+        if "topology" in files:  # what the topology includes, the engine reads with it
+            inputs += [ArtifactRef.from_path(path, "topology.include", root=root)
+                       for path in includes_of("topology", files["topology"])
+                       if path.resolve().is_relative_to(root.resolve())]
     return Observation(
         ok=True,
         summary=f"stage {stage.name} prepared: " + ", ".join(sorted(prepared.values())),
@@ -209,7 +219,7 @@ class StageRunParams(BaseModel):
         files = {k: ctx.workspace.resolve(v) for k, v in inputs.items()}
         _, node = ctx.config.compute.billing(self.partition)
         cores = self.cores or node.cores_per_node
-        found = engine.resolve_layout(cores, engine.layout_facts(files))
+        found = engine.resolve_layout(cores, engine.layout_facts(files, stage))
         minutes, why = self.walltime_min, ""
         if minutes is None:
             minutes, why = engine.size_walltime(ctx, stage, files, found, found.cores)
@@ -256,7 +266,28 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
                              message=f"no engine here runs stage {stage.name} ({stage.kind}, "
                              f"{stage.regime})")]
     files = {k: ctx.workspace.resolve(v) for k, v in params.inputs.items()}
-    return engine.job_findings(ctx, stage, files, params.walltime_min or 60)
+    missing = [Precondition(id=f"INPUT_MISSING_{kind.upper()}",
+                            message=f"{kind} not found: {params.inputs[kind]}")
+               for kind, path in files.items() if not path.is_file()]
+    if missing:
+        return missing
+    return [*_source_findings(ctx, params, files),
+            *engine.job_findings(ctx, stage, files, params.walltime_min or 60)]
+
+
+def _source_findings(ctx: ToolContext, params: StageRunParams, files: dict) -> list[Finding]:
+    """Where the parameter files the run reads came from, and what was changed in them since
+    they were rendered: said before the job, so a hand's edit is on the record."""
+    from myrmidon.core.contracts import parameter_kinds
+    from myrmidon.core.sourcing import parameter_source, sourced_finding, unsourced_finding
+    from myrmidon.engines.file_origin import edit_findings
+
+    named = [params.inputs[k] for k in files if k in parameter_kinds()]
+    sources = [parameter_source(ctx.workspace, path) for path in named]
+    found = [f for f in (unsourced_finding(sources), sourced_finding(sources)) if f is not None]
+    for path in named:
+        found += edit_findings(ctx, path)
+    return found
 
 
 @tool(

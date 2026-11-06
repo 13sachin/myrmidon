@@ -31,7 +31,7 @@ sensors:
   means: 'Forbidden: Coupling a small ligand (<100 atoms) to its own separate thermostat bath in tc-grps,
     which causes large kinetic-energy fluctuations and unphysical pocket heating.'
   usual_move: Create a combined solute index group with gmx_make_ndx command '"Protein" | "Other"'
-    (producing Protein_Other alongside Water_and_ions) and pass the index to inputset_apply and gmx_grompp
+    (producing Protein_Other alongside Water_and_ions) and name the index among the system files
     so tc-grps = Protein_Other Water_and_ions.
   status: verified
   sources:
@@ -45,7 +45,7 @@ sensors:
     has_restraints: true
   sees: Position restraints under NPT pressure coupling require refcoord-scaling = com
   means: 'Forbidden: Leaving refcoord-scaling = no under pressure coupling.'
-  usual_move: Restraints hold atoms at the stage's starting structure (gmx_grompp passes it as -r
+  usual_move: Restraints hold atoms at the stage's starting structure (stage_prepare passes it as -r
     unless restraint_reference names another); keep refcoord-scaling = com when pcoupl is active,
     and verify define includes all solute restraint macros (e.g. -DPOSRES -DPOSRES_LIG).
   status: verified

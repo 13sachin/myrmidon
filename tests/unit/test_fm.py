@@ -4,7 +4,6 @@ import time
 from pathlib import Path
 
 import pytest
-from tests.unit.findings_catalog import unapproved
 
 from myrmidon.core.tool import REGISTRY
 from myrmidon.engines.mimic.fm import (
@@ -93,20 +92,6 @@ def test_fm_collect(ws_ctx, monkeypatch):
     assert not any(w.id == "FM_ALIGNED_PAIR_WRITTEN" for w in no_fix.findings)
 
 
-def test_fm_plan_defaults_and_bounds(ws_ctx):
-    obs = REGISTRY.call("fm_plan", ws_ctx, {
-        "stride": [0, 12, 1], "qm_total_charge": 0, "dataset_frames": 12})
-    assert obs.ok, obs.summary
-    assert obs.n_snapshots == 12
-    assert obs.weights == {"wv": 1.0, "we": 0.01, "wh": 0.01, "wq": 100000.0}
-    assert {w.id for w in obs.findings} >= {"FM_WEIGHT_DEFAULT_WV", "FM_FEW_SNAPSHOTS"}
-    text = (ws_ctx.workspace.root / obs.artifacts[0].path).read_text()
-    assert "stride: [0,12,1]" in text and "qm_total_charge: 0" in text
-    beyond = REGISTRY.call("fm_plan", ws_ctx, {
-        "stride": [0, 100, 1], "qm_total_charge": 0, "dataset_frames": 12})
-    assert not beyond.ok and "exceeds the dataset" in beyond.summary
-
-
 def _wait(ctx, job_id, timeout=15):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -117,18 +102,29 @@ def _wait(ctx, job_id, timeout=15):
     raise AssertionError("fm job did not finish")
 
 
-def test_fm_fit_failure_reported(ws_ctx, monkeypatch):
+def test_a_fit_that_fails_is_reported_from_its_log(ws_ctx, monkeypatch):
+    """A fit runs on what the study holds: the dataset a collection registered, the selection
+    and the index the QM region wrote. Its stride past the dataset refuses before it books."""
+    from tests.conftest import REGION, coupled_study
+
+    coupled_study(ws_ctx, [{"name": "fit", "kind": "parameter_fit", "qm_region": REGION}])
     files = _dataset_files(ws_ctx.workspace)
-    plan = REGISTRY.call("fm_plan", ws_ctx, {
-        "stride": [0, 10, 1], "qm_total_charge": 0, "dataset_frames": 12})
+    collected = REGISTRY.call("dataset_collect", ws_ctx, {
+        "fmdata": files["fmdata"], "trajectory": files["trajectory"],
+        "topology": files["topology"], "coords": files["coords"],
+        "selection": files["selection"]})
+    assert collected.ok, collected.summary
+    too_far = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit",
+                                                      "overrides": {"stride": "[0,50,1]"}})
+    assert too_far.ok, too_far.summary
+    refused = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit"})
+    assert not refused.ok and refused.error.code == "FM_STRIDE_BEYOND_DATASET"
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit",
+                                                       "overrides": {"stride": "[0,10,1]"}})
+    assert prepared.ok, prepared.summary
     monkeypatch.setenv("MOCK_FM_FAIL", "1")
-    call = {**files, "fm_input": plan.artifacts[0].path}
-    # a fit books cores like any job, so its cost is a person's to accept
-    ws_ctx.person = None
-    refused = REGISTRY.call("fm_fit", ws_ctx, call)
-    assert [w.id for w in unapproved(refused)] == ["MANDATE_ABSENT"]
-    ws_ctx.person = "researcher"
-    job = REGISTRY.call("fm_fit", ws_ctx, call)
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit", "cores": 2})
+    assert job.ok, job.summary
     assert job.core_h_estimate
     res = _wait(ws_ctx, job.job_id)
     assert res.state == "FAILED"

@@ -1,4 +1,4 @@
-"""Minimise each of a trajectory's frames under one topology: the job gmx_minimize_frames
+"""Minimise each of a trajectory's frames under one topology: the job a minimising stage
 submits, run as ``python -m myrmidon.engines.gromacs.batch PARAMS.json``.
 
 Frames are taken by index, never by time window: a concatenated trajectory's times need

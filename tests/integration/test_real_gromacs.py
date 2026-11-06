@@ -25,19 +25,6 @@ from myrmidon.server.mcp_server import build_backend
 CONFIG = MyrmidonConfig.load()
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "1l2y_model1.pdb"
 
-IONS_MDP = "integrator = steep\nnsteps = 0\ncoulombtype = PME\nrcoulomb = 1.0\nrvdw = 1.0\n"
-EM_MDP = (
-    "integrator = steep\nemtol = 1000\nnsteps = 500\n"
-    "coulombtype = PME\nrcoulomb = 1.0\nrvdw = 1.0\n"
-)
-NVT_MDP = (
-    "integrator = md\ndt = 0.002\nconstraints = h-bonds\nnsteps = 5000\n"
-    "tcoupl = v-rescale\nref_t = 300\ntau_t = 0.1\ntc_grps = System\n"
-    "gen_vel = yes\ngen_temp = 300\n"
-    "coulombtype = PME\nrcoulomb = 1.0\nrvdw = 1.0\n"
-    "nstenergy = 100\nnstxout-compressed = 500\n"
-)
-
 pytestmark = [
     pytest.mark.gromacs,
     pytest.mark.timeout(2400 if CONFIG.backend == "slurm" else 600),
@@ -121,60 +108,29 @@ def test_full_chain_on_trp_cage(real_ctx, approve_mandate):
     )
     assert solv.n_solvent and solv.n_solvent > 400
 
-    # --- neutralize (tpr via grompp, then genion) ---
-    run_stage = ws.stage("run")
-    (run_stage / "ions.mdp").write_text(IONS_MDP)
-    ions_tpr = call(
-        ctx, "gmx_grompp", mdp=ws.relpath(run_stage / "ions.mdp"),
-        structure=art(solv, "structure"), topology=art(prep, "topology"),
-        output="ions.tpr", max_warn=1,
-        # the +1 net charge before genion is the warning max_warn hides: the gate records
-        # it (GROMPP_MAXWARN) with the call
-    )
+    # --- neutralize: genion builds its own run input ---
     ionized = call(
-        ctx, "gmx_genion", tpr=art(ions_tpr, "tpr"),
+        ctx, "gmx_genion", structure=art(solv, "structure"),
         topology=art(prep, "topology"), neutralize=True,
     )
     assert ionized.n_ions_negative == 1  # one Cl- neutralizes the +1
 
-    # --- energy minimization ---
-    (run_stage / "em.mdp").write_text(EM_MDP)
-    em_tpr = call(
-        ctx, "gmx_grompp", mdp=ws.relpath(run_stage / "em.mdp"),
-        structure=art(ionized, "structure"), topology=art(ionized, "topology"),
-        output="em.tpr",
-    )
-    approve_mandate(ctx, "Minimize and run 10 ps of NVT on Trp-cage", 64.0,
-                    structure=art(ionized, "structure"), topology=art(ionized, "topology"))
-    em_job = call(ctx, "gmx_mdrun", tpr=art(em_tpr, "tpr"), deffnm="em")
+    approve_mandate(
+        ctx, "Minimize and run 10 ps of NVT on Trp-cage", 64.0,
+        stages=[{"name": "em", "kind": "minimize", "steps": 200},
+                {"name": "nvt", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300,
+                 "duration_ps": 10, "sampling_ps": 1}],
+        structure=art(ionized, "structure"), topology=art(ionized, "topology"))
+
+    # --- energy minimization, then NVT from the structure it leaves ---
+    call(ctx, "stage_prepare", stage="em")
+    em_job = call(ctx, "stage_run", stage="em")
     em_done = wait_job(ctx, em_job.job_id)
     assert em_done.state == "COMPLETED", em_done.summary
-    em_res = call(ctx, "job_status", job_id=em_job.job_id)
 
-    # --- NVT with the gate exercised: an NVE input runs with the finding on record ---
-    nve_text = NVT_MDP.replace("tcoupl = v-rescale\nref_t = 300\ntau_t = 0.1\ntc_grps = System\n",
-                               "")
-    (run_stage / "nve.mdp").write_text(nve_text)
-    refused = REGISTRY.call(
-        "gmx_grompp",
-        ctx,
-        {
-            "mdp": ws.relpath(run_stage / "nve.mdp"),
-            "structure": art(em_res, "structure"),
-            "topology": art(ionized, "topology"),
-            "output": "nve.tpr",
-        },
-    )
-    assert refused.ok, refused.summary
-    assert any(w.id == "MDP_NO_THERMOSTAT" for w in refused.findings)
-
-    (run_stage / "nvt.mdp").write_text(NVT_MDP)
-    nvt_tpr = call(
-        ctx, "gmx_grompp", mdp=ws.relpath(run_stage / "nvt.mdp"),
-        structure=art(em_res, "structure"), topology=art(ionized, "topology"),
-        output="nvt.tpr",
-    )
-    nvt_job = call(ctx, "gmx_mdrun", tpr=art(nvt_tpr, "tpr"), deffnm="nvt")
+    prepared = call(ctx, "stage_prepare", stage="nvt")
+    assert "tpr" in prepared.files
+    nvt_job = call(ctx, "stage_run", stage="nvt")
     nvt_done = wait_job(ctx, nvt_job.job_id)
     assert nvt_done.state == "COMPLETED", nvt_done.summary
     results = call(ctx, "job_status", job_id=nvt_job.job_id)

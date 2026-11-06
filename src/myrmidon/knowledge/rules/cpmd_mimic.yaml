@@ -38,7 +38,7 @@ sensors:
     when: {has_mimic_section: true, has_mimic_box: false}
     sees: "&MIMIC has no BOX line"
     means: "the whole system's box is how MiMiC places the QM cell in the MM box"
-    usual_move: "let mimic_prepare write &MIMIC from the system"
+    usual_move: "let stage_prepare merge &MIMIC from the system qm_region wrote"
     status: verified
     sources:
       - kind: engine_manual
@@ -106,7 +106,7 @@ sensors:
     sees: "&CPMD has no MAXSTEP, and the run is dynamics"
     means: "CPMD runs its compiled default number of MD steps: the stage's length is not on record"
     assumption: "CPMD's compiled default number of MD steps"
-    usual_move: "maxsteps in mimic_prepare: the number of MD steps this stage runs"
+    usual_move: "state the stage's steps or duration_ps in the mandate, and stage_prepare it again"
     status: verified
     sources:
       - kind: engine_manual
