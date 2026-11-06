@@ -73,10 +73,10 @@ class PlausibleStep(BaseModel):
     """What one coupled QM/MM step plausibly takes on this machine, for a QM region of a stated
     size at a stated cutoff on a stated number of cores: the reference a first coupled run is
     booked from, scaled to its own region (the catalog's ``qm_step_scaling``), before any step
-    has been measured here. The default is a measurement: about 2.7 s per step of a 10-atom QM
+    has been measured here. The default is a measurement: a median 3.2 s per step of a 10-atom QM
     region at 70 Ry on 5 cores (tests/fixtures/cpmd/acetone_coupled.ENERGIES)."""
 
-    s_per_step: float = Field(default=2.7, gt=0)
+    s_per_step: float = Field(default=3.2, gt=0)
     qm_atoms: int = Field(default=10, gt=0)
     cutoff_ry: float = Field(default=70.0, gt=0)
     cores: int = Field(default=5, gt=0)

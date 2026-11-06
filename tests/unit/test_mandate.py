@@ -547,10 +547,10 @@ def test_a_coupled_stage_is_priced_from_the_seconds_a_qmmm_step_took_here():
                           paces=paces, compute=ComputeDefaults(cores_per_node=48,
                                                                node_exclusive=True))
               for paces in ([], [Pace(engine="cpmd", atoms=10, cores=48, s_per_step=seconds)])]
-    # unmeasured, the machine's reference step of this region, 2.7 s on 5 cores, scaled to the
+    # unmeasured, the machine's reference step of this region, 3.2 s on 5 cores, scaled to the
     # node's 48; measured, 1000 steps × 15.27 s × 1.5; both in the scheduler's 5-min steps
     assert [(p.core_h is None, p.measured) for p in priced] == [(False, False), (False, True)]
-    assert [p.walltime_min for p in priced] == [25, 385]
+    assert [p.walltime_min for p in priced] == [30, 385]
 
 
 def test_a_file_the_topology_includes_is_the_system_and_an_input(ws_ctx, complex_system):
