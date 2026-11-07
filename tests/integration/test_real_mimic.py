@@ -24,6 +24,9 @@ CONFIG = MyrmidonConfig.load()
 ENGINES = discover(CONFIG)
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "acetone"
 MAXSTEPS = 20
+# a dynamics stage stopped by its walltime (minutes) after a restart point (STORE, steps), then
+# taken a few femtoseconds further by its continuation (ps): two segments of one stage
+KILL_MIN, STORE, EXTEND_PS = 3, 10, 0.01
 # Unpatched CPMD 4.3 traps (propcal MOD(nfi, 0)) on every non-I/O rank after the first MD
 # step; the st26_fm_gcc build carries the propin broadcast fix. Set to 1 on unpatched builds.
 CPMD_RANKS = int(os.environ.get("MYRMIDON_TEST_CPMD_RANKS", "4"))
@@ -70,7 +73,7 @@ def wait_job(ctx, job_id, timeout=2400):
     deadline = time.time() + timeout
     while time.time() < deadline:
         st = REGISTRY.call("job_status", ctx, {"job_id": job_id, "wait_seconds": 30})
-        if st.state in ("COMPLETED", "FAILED", "CANCELLED"):
+        if st.state in ("COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"):
             return st
     raise AssertionError(f"{job_id} did not finish within {timeout}s")
 
@@ -103,7 +106,10 @@ def test_acetone_qmmm_chain(ctx, approve_mandate):
     approve_mandate(
         ctx, "Run 20 coupled QM/MM steps of acetone in water", 128.0,
         stages=[{"name": "cool", "kind": "minimize", "regime": "qmmm", "steps": MAXSTEPS,
-                 "temperature_k": 300, "qm_region": {"subsystems": ["solute"], "charge": 0}}],
+                 "temperature_k": 300, "qm_region": {"subsystems": ["solute"], "charge": 0}},
+                {"name": "hot", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVT",
+                 "temperature_k": 300, "steps": 5000, "starts_from": "cool",
+                 "qm_region": {"subsystems": ["solute"], "charge": 0}}],
         hamiltonian={"mm": "amber", "qm": {"method": "blyp_mt", "cutoff_ry": 70},
                      "coupling": {"scheme": "mimic"}},
         subsystems={"solute": {"kind": "ligand", "resnames": ["ACT"]},
@@ -134,6 +140,39 @@ def test_acetone_qmmm_chain(ctx, approve_mandate):
     snapshot = call(ctx, "snapshot_select", stage="cool", n_frames=1)
     assert {"geometry", "structure"} <= {a.role for a in snapshot.artifacts}
 
+    _stopped_and_continued(ctx)
+
     events = list(ws.ledger.events())
     tools = {e.tool for e in events}
     assert tools >= {"qm_region", "stage_prepare", "stage_run"}
+
+
+def _stopped_and_continued(ctx):
+    """A coupled stage the scheduler stops at its walltime, continued from its last restart
+    point, is one stage over two segments: the ledger attributes both to it, the trajectory a
+    measurement reads joins them (a recorded call, each segment its input), the steps are
+    summed over both logs, and the harness's rewrites of each run's input read as no edit."""
+    from myrmidon.core.lineage import lineage, stage_segments
+    from myrmidon.engines.file_origin import edit_findings
+
+    ws = ctx.workspace
+    call(ctx, "stage_prepare", stage="hot", overrides={"&CPMD/STORE": str(STORE)})
+    killed = call(ctx, "stage_run", stage="hot", cores=CPMD_RANKS + 1, walltime_min=KILL_MIN)
+    assert wait_job(ctx, killed.job_id).state == "TIMEOUT"
+    goes_on = call(ctx, "stage_run", stage="hot", cores=CPMD_RANKS + 1, continue_run=True,
+                   extend_ps=EXTEND_PS)
+    done = wait_job(ctx, goes_on.job_id)
+    assert done.state == "COMPLETED", f"{done.summary}\n{done.log_tail or ''}"
+
+    segments = stage_segments(ws, "hot")
+    assert len(segments) == 2
+    for submission, _, _ in segments:
+        run_input = next(a.path for a in submission.outputs if a.role == "cpmd_input")
+        assert edit_findings(ctx, run_input) == [], run_input
+    diagnosed = call(ctx, "run_diagnose", stage="hot")
+    assert diagnosed.segments == 2 and diagnosed.stage_md_steps > diagnosed.md_steps_completed
+    measured = call(ctx, "observable_measure", stage="hot", property="rmsd",
+                    selection="resname ACT")
+    join = [e for e in ws.ledger.events() if e.tool == "trajectory_join"][-1]
+    assert len(join.inputs) == 2 and measured.n_frames > 1
+    assert lineage(ws).stages_behind(join.outputs[0].sha256) == {"hot"}
