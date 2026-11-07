@@ -103,7 +103,8 @@ def _region_findings(ctx: ToolContext, mandate, stage, structure: str | None) ->
             id="QM_SELECTION_NOT_APPROVED",
             message=f"the QM selection this stage reads ({wrote.path}) is none the approved "
             f"mandate holds ({', '.join(approved)}): which atoms are quantum is the researcher's",
-            suggestion="select the approved atoms, or revise the mandate with the reason"))
+            suggestion="select the approved atoms, or revise the mandate with the reason, "
+            "stating system_files with this selection: a revision keeps the files it held"))
     begins = mandate.method.starts_from(stage)
     coupled_before = begins is not None and begins.regime != "mm" and begins.name != stage.name
     coords = next((i for i in selected.inputs if i.role == "coords"), None)

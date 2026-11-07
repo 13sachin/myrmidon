@@ -45,14 +45,15 @@ FITTED_PREFIXES = ("opt_", "resp_")
 def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: bool) -> dict:
     """What a fit reads besides its input: the system's files, the selection, and the latest
     reference dataset with the trajectory collected beside it."""
-    from myrmidon.core.lineage import latest_dataset, latest_outputs
+    from myrmidon.core.lineage import latest_dataset, system_file
 
     begins = mandate.method.starts_from(stage)
 
     out: dict[str, str] = {}
-    selected = latest_outputs(ctx.workspace, "qm_region")
+    # the selection of the run the fit reads, whose dataset holds those atoms
+    reads = begins.name if begins is not None else stage.name
     for kind in ("topology", "structure", "index", "qm_selection"):
-        named = next((f.path for f in mandate.system.files if f.kind == kind), selected.get(kind))
+        named = system_file(ctx.workspace, mandate, kind, reads)
         if named and kind not in prepared:
             out[kind] = named
     # the bonded target's classical rerun: the input of a classical single point of the method

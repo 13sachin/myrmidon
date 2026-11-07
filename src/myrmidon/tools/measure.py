@@ -198,10 +198,12 @@ def _on_run(ctx: ToolContext, params: MeasureParams, extractor: str, over: str, 
             return _refused(params, f"the run of stage {over} wrote no forces to compare")
         mandate = read_mandate(ctx.workspace)
         ran_on = next((a.path for a in inputs if a.role.split(".")[-1] == "topology"), None)
-        update["topology"] = params.topology or ran_on or system_file(ctx, mandate, "topology")
-        update["structure"] = params.structure or system_file(ctx, mandate, "structure")
+        update["topology"] = (params.topology or ran_on
+                              or system_file(ctx, mandate, "topology", over))
+        update["structure"] = params.structure or system_file(ctx, mandate, "structure", over)
         update["fmdata"] = params.fmdata or latest_dataset(ctx.workspace)
-        update["qm_selection"] = params.qm_selection or system_file(ctx, mandate, "qm_selection")
+        update["qm_selection"] = (params.qm_selection
+                                  or system_file(ctx, mandate, "qm_selection", over))
     out = params.model_copy(update=update)
     out._read = read
     if runs > 1:

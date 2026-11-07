@@ -522,18 +522,10 @@ def _from_run_keys(template, store) -> set[str]:
 
 
 def system_file(ctx: ToolContext, mandate, kind: str, stage: str | None = None) -> str | None:
-    """The study's file of a system kind, for a stage if named: the mandate's, unless a QM
-    selection wrote that one, when the latest selection for the stage replaces it."""
-    from myrmidon.core.lineage import latest_outputs
+    """The study's file of a system kind (``core.lineage.system_file``)."""
+    from myrmidon.core.lineage import system_file as study_file
 
-    named = next((f.path for f in mandate.system.files if f.kind == kind), None)
-    selected = latest_outputs(ctx.workspace, "qm_region", stage).get(kind)
-    if named is None or selected is None:
-        return named or selected
-    from_selection = any(ev.tool == "qm_region" and ev.ok and any(a.path == named
-                                                                  for a in ev.outputs)
-                         for ev in ctx.workspace.ledger.events())
-    return selected if from_selection else named
+    return study_file(ctx.workspace, mandate, kind, stage)
 
 
 def _starting_facts(ctx: ToolContext, mandate, stage, template) -> dict:
@@ -547,7 +539,8 @@ def _starting_facts(ctx: ToolContext, mandate, stage, template) -> dict:
     begins = mandate.method.starts_from(stage)
     run = stage_run(ctx.workspace, begins.name) if begins is not None else None
     facts: dict = {}
-    if run is not None and not any(a.role == "restart" for a in run[0]):
+    own_first = run is None and begins is not None and begins.name == stage.name
+    if own_first or (run is not None and not any(a.role == "restart" for a in run[0])):
         facts[FRESH_START] = SystemFact(key=FRESH_START, value="yes", rule="starting_run")
     engine = adapter(template.engine)
     if engine.input_facts is not None:

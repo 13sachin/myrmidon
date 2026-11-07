@@ -61,7 +61,7 @@ def _dataset_files(ws, stage="prep"):
         "coords": "conf.gro", "selection": "sele.dat", "index": "index.ndx"}.items()}
 
 
-def test_fm_collect(ws_ctx, monkeypatch):
+def test_a_dataset_is_collected_from_a_run(ws_ctx, monkeypatch):
     files = _dataset_files(ws_ctx.workspace)
     obs = REGISTRY.call("dataset_collect", ws_ctx, {
         "fmdata": files["fmdata"], "trajectory": files["trajectory"],
@@ -163,7 +163,7 @@ def test_parse_cpmd_series_real_nose_log():
     assert s2["t_qm"] is None  # this build prints 0.00 → treated as absent
 
 
-def test_fm_frame_report(ws_ctx):
+def test_a_dataset_reports_its_frames(ws_ctx):
     from myrmidon.engines.mimic.fm_dataset import DatasetRequest, frame_report
 
     h5py = pytest.importorskip("h5py")
@@ -279,7 +279,7 @@ def test_displace_plan_moves_mobile_atom(ws_ctx):
         assert xyz(text[4]) == xyz(MINI_GRO.splitlines()[4])  # others untouched
 
 
-def test_fm_merge_h5_sources(ws_ctx):
+def test_a_dataset_merges_its_h5_sources(ws_ctx):
     from myrmidon.engines.mimic.fm_dataset import DatasetRequest, joined_trajectory, merge_sources
 
     h5py = pytest.importorskip("h5py")
@@ -313,7 +313,7 @@ def test_fm_merge_h5_sources(ws_ctx):
     assert text.index("TRRa.h5") < text.index("TRRb.h5")
 
 
-def test_fm_displace_plan_rigid_group(ws_ctx):
+def test_a_displacement_moves_its_rigid_group(ws_ctx):
     from myrmidon.core.tool import REGISTRY
     ws = ws_ctx.workspace
     gro = ws.root / "rigid.gro"
@@ -492,7 +492,7 @@ def test_snapshots_are_picked_evenly_spaced_or_by_index(ws_ctx):
     assert not explicit.ok and "out of range [9]" in explicit.summary
 
 
-def test_fm_collect_checks_across_the_dataset_and_its_tail(ws_ctx):
+def test_a_dataset_is_checked_across_its_length_and_tail(ws_ctx):
     ws = ws_ctx.workspace
     prep = ws.stage("prep")
     for name in ("d.h5", "t.trr", "t.top", "c.gro", "s.dat"):

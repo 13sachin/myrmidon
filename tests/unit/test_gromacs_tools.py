@@ -49,7 +49,7 @@ EM_MDP = (
 )
 
 
-def test_gmx_energy_stats(ws_ctx):
+def test_energy_statistics_are_read_from_the_edr(ws_ctx):
     ws = ws_ctx.workspace
     run_stage = ws.stage("run")
     (run_stage / "md.edr").write_text("MOCKEDR\n")

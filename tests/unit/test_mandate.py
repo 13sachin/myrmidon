@@ -536,7 +536,15 @@ def test_a_coupled_stage_is_priced_from_the_seconds_a_qmmm_step_took_here():
     from myrmidon.config import ComputeDefaults
     from myrmidon.core.mandate import Mandate
     from myrmidon.engines.mimic.diagnostics import seconds_per_step
-    from myrmidon.knowledge.stage import MethodStore, Pace, TemplateStore, methods_for, price_stage
+    from myrmidon.knowledge.stage import (
+        MethodStore,
+        Pace,
+        TemplateStore,
+        booked_minutes,
+        methods_for,
+        price_stage,
+        qm_walltime,
+    )
 
     log = Path(__file__).parents[1] / "fixtures" / "cpmd" / "nose_steps.out"
     seconds = seconds_per_step(log.read_text())  # the real step lines: 15.27 s and 14.46 s
@@ -548,12 +556,18 @@ def test_a_coupled_stage_is_priced_from_the_seconds_a_qmmm_step_took_here():
                                                                             node_exclusive=True))
               for paces in ([], [Pace(engine="cpmd", atoms=10, cores=48, s_per_step=seconds,
                                       cutoff_ry=70.0)],
-                            [Pace(engine="cpmd", atoms=3, cores=48, s_per_step=0.05)])]
+                            [Pace(engine="cpmd", atoms=3, cores=48, s_per_step=0.05)],
+                            [Pace(engine="cpmd", atoms=10, cores=12, s_per_step=seconds,
+                                  cutoff_ry=70.0)])]
     # unmeasured, the machine's reference step of this region, 3.2 s on 5 cores, scaled to the
-    # node's 48; measured, 1000 steps × 15.27 s × 1.5; another region's pace prices nothing;
-    # all in the scheduler's 5-min steps
-    assert [p.measured for p in priced] == [False, True, False]
-    assert [p.walltime_min for p in priced] == [30, 385, 30]
+    # node's 48; measured, 1000 steps × 15.27 s × 1.5; another region's pace prices nothing; a
+    # pace on 12 cores scales to 48 by the catalog's exponent, half the seconds, and books the
+    # same; all in the scheduler's 5-min steps
+    assert [p.measured for p in priced] == [False, True, False, True]
+    assert [p.walltime_min for p in priced] == [30, 385, 30, 195]
+    booked, _ = qm_walltime(steps=1000, qm_atoms=10, cutoff_ry=70.0, cores=48, paces=[
+        Pace(engine="cpmd", atoms=10, cores=12, s_per_step=seconds, cutoff_ry=70.0)])
+    assert booked_minutes(booked) == 195
 
 
 def test_a_file_the_topology_includes_is_the_system_and_an_input(ws_ctx, complex_system):

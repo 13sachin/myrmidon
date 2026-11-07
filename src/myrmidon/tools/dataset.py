@@ -50,7 +50,8 @@ class DatasetCollectParams(BaseModel):
             return [a.path for outputs, _ in runs for a in outputs if a.role == role]
 
         def system(kind: str, given: str | None) -> str | None:
-            return given or (system_file(ctx, mandate, kind) if mandate is not None else None)
+            return given or (system_file(ctx, mandate, kind, self.stage or None)
+                             if mandate is not None else None)
 
         return self.model_copy(update={
             "fmdata": self.fmdata or of_runs("fm_reference"),

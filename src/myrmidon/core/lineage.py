@@ -361,6 +361,19 @@ def latest_outputs(ws, tool: str, stage: str | None = None) -> dict[str, str]:
     return {a.role: a.path for a in (own or found)[-1].outputs} if found else {}
 
 
+def system_file(ws, mandate, kind: str, stage: str | None = None) -> str | None:
+    """The study's file of a system kind, for a stage if named: the mandate's, unless a QM
+    selection wrote that one, when the latest selection for the stage replaces it."""
+    named = next((f.path for f in mandate.system.files if f.kind == kind), None)
+    selected = latest_outputs(ws, "qm_region", stage).get(kind)
+    if named is None or selected is None:
+        return named or selected
+    from_selection = any(ev.tool == "qm_region" and ev.ok and any(a.path == named
+                                                                  for a in ev.outputs)
+                         for ev in ws.ledger.events())
+    return selected if from_selection else named
+
+
 def latest_dataset(ws, stage: str | None = None) -> str | None:
     """The path of the reference dataset a parameter fit reads: the latest collected from the
     stage it starts from, else the latest in the study."""

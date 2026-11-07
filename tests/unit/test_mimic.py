@@ -565,12 +565,14 @@ def test_a_classical_stage_after_a_coupled_one_compiles_on_what_that_left(ws_ctx
     assert _left(ws_ctx, "hot") in {i.path for i in event.inputs}
 
 
-def test_a_stage_that_starts_from_itself_runs_afresh_until_it_has_a_run(ws_ctx):
+@pytest.mark.parametrize("own", [MD, _qmmm("md")], ids=["classical", "coupled"])
+def test_a_stage_that_starts_from_itself_runs_afresh_until_it_has_a_run(ws_ctx, own):
     from tests.conftest import coupled_study
 
-    coupled_study(ws_ctx, [{**MD, "starts_from": "md"}])
+    coupled_study(ws_ctx, [{**own, "starts_from": "md"}])
     _ran(ws_ctx, "md")
-    goes_on = REGISTRY.call("stage_run", ws_ctx, {"stage": "md", "preview": True})
+    goes_on = REGISTRY.call("stage_run", ws_ctx, {"stage": "md", "extend_ps": 1.0,
+                                                  "preview": True})
     assert goes_on.ok, goes_on.summary
     event = [e for e in ws_ctx.workspace.ledger.events() if e.tool == "stage_run"][-1]
     assert event.params["continue_run"] is True
@@ -579,6 +581,7 @@ def test_a_stage_that_starts_from_itself_runs_afresh_until_it_has_a_run(ws_ctx):
 def test_a_stage_reads_the_region_selected_for_it(ws_ctx):
     """Two selections a mandate holds, each read by the stage it was made for."""
     from myrmidon.core.mandate import read_mandate
+    from myrmidon.tools.dataset import DatasetCollectParams
     from myrmidon.tools.inputsets import system_file
 
     call, mandates = _study_before_selecting(ws_ctx, [_qmmm("one"), _qmmm("two", starts_from="")])
@@ -598,6 +601,8 @@ def test_a_stage_reads_the_region_selected_for_it(ws_ctx):
         prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": name})
         assert prepared.ok, prepared.summary
         assert system_file(ws_ctx, held, "cpmd_input", name) == picks[name]["cpmd_input"]
+        collecting = DatasetCollectParams(stage=name).sized(ws_ctx)
+        assert collecting.selection == picks[name]["qm_selection"]
 
 
 def test_a_mandates_own_input_is_not_replaced_by_a_selection(ws_ctx):
@@ -661,7 +666,8 @@ def test_a_continued_ramp_climbs_on_from_where_the_run_reached(ws_ctx):
     _ran(ws_ctx, "hot")
     log = next(a.path for a in stage_left(ws_ctx.workspace, "hot") if a.role == "qm_log")
     reached = cpmd_facts(ws_ctx.workspace.resolve(log).read_text())["final_temperature_k"]
-    goes_on = REGISTRY.call("stage_run", ws_ctx, {"stage": "hot", "continue_run": True})
+    goes_on = REGISTRY.call("stage_run", ws_ctx, {"stage": "hot", "continue_run": True,
+                                                  "extend_ps": 1.0})
     assert goes_on.ok, goes_on.summary
     sections = parse_cpmd(Path(goes_on.command[1]).read_text())
     assert float(keyword_value(sections, "&CPMD/TEMPERATURE RAMP").split()[0]) == reached
@@ -669,14 +675,9 @@ def test_a_continued_ramp_climbs_on_from_where_the_run_reached(ws_ctx):
     assert float(keyword_value(sections, "&CPMD/BERENDSEN IONS").split()[0]) == reached
 
 
-# (the call's extension in ps, or none: the steps the run has left)
-CONTINUED = [None, 1.0]
-
-
-@pytest.mark.parametrize("extend_ps", CONTINUED)
-def test_a_coupled_stage_continues_from_its_restart(ws_ctx, extend_ps):
-    """A fresh stage continues from the restart it left, reads it, and runs only what is asked:
-    a stated length at the input's time step, else what its last run did not reach."""
+def test_a_coupled_stage_continues_from_its_restart(ws_ctx):
+    """A fresh stage continues from the restart it left, reads it, and runs a stated length at
+    the input's time step. With no length, a stage that reached every step has nothing left."""
     from tests.conftest import coupled_study, wait_for
 
     from myrmidon.engines.mimic.cpmd_input import has_keyword, keyword_value
@@ -684,16 +685,17 @@ def test_a_coupled_stage_continues_from_its_restart(ws_ctx, extend_ps):
 
     coupled_study(ws_ctx, [_qmmm("a")])
     _ran(ws_ctx, "a")
-    call = {"stage": "a", "continue_run": True} | ({"extend_ps": extend_ps} if extend_ps else {})
-    submitted = REGISTRY.call("stage_run", ws_ctx, call)
+    finished = REGISTRY.call("stage_run", ws_ctx, {"stage": "a", "continue_run": True})
+    assert finished.error.code == "STAGE_NOTHING_TO_CONTINUE"
+    submitted = REGISTRY.call("stage_run", ws_ctx, {"stage": "a", "continue_run": True,
+                                                    "extend_ps": 1.0})
     assert submitted.ok, submitted.summary
     run_input = Path(submitted.command[1])
     sections = parse_cpmd(run_input.read_text())
     assert has_keyword(sections["CPMD"], "RESTART")
     assert (run_input.parent / "RESTART").is_file()
     step_au = float(keyword_value(sections, "&CPMD/TIMESTEP"))
-    assert int(keyword_value(sections, "&CPMD/MAXSTEP")) == (
-        round(extend_ps / (step_au * PS_PER["au"])) if extend_ps else 1)
+    assert int(keyword_value(sections, "&CPMD/MAXSTEP")) == round(1.0 / (step_au * PS_PER["au"]))
     wait_for(ws_ctx, submitted.job_id)
 
 

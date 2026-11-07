@@ -854,23 +854,32 @@ def plausible_s_per_step(compute, qm_atoms: int | None, cutoff_ry: float | None,
                      f"{cutoff:g} Ry and {cores} cores; re-priced once a step is measured")
 
 
+def measured_s_per_step(paces: list[Pace], qm_atoms: int | None, cutoff_ry: float | None,
+                        cores: int) -> tuple[Pace | None, float]:
+    """(the measurement, the seconds per step it means on ``cores``), on the same QM region size
+    and cutoff — a step's cost grows steeply with both, so no other measurement stands in — and
+    scaled to these cores by the exponent the engine's catalog states."""
+    same = [p for p in paces if p.atoms == qm_atoms and p.cutoff_ry == cutoff_ry]
+    pace, _ = pace_for(same, "s_per_step", cores)
+    if pace is None:
+        return None, 0.0
+    exponent = load("cpmd").decomposition.get("qm_step_scaling", {}).get("cores", -0.5)
+    return pace, pace.s_per_step * (cores / (pace.cores or cores)) ** exponent
+
+
 def qm_walltime(*, steps: int, qm_atoms: int | None, cutoff_ry: float | None, cores: int,
                 paces: list[Pace], compute=None) -> tuple[float | None, str]:
     """(minutes, why) a coupled run of ``steps`` needs here, at the seconds per step measured
-    on the same QM region size and cutoff — a step's cost grows steeply with both, so no other
-    measurement stands in; with none, at the machine's reference step scaled to this region,
-    so the first coupled run survives to measure the real pace. (None, why) when given no
-    machine to scale from."""
-    same = [p for p in paces if p.s_per_step and p.atoms == qm_atoms
-            and p.cutoff_ry == cutoff_ry]
-    pace, factor = pace_for(same, "s_per_step", cores, booking=True)
+    on this region (``measured_s_per_step``); with none, at the machine's reference step scaled
+    to this region, so the first coupled run survives to measure the real pace. (None, why) when
+    given no machine to scale from."""
+    pace, seconds = measured_s_per_step(paces, qm_atoms, cutoff_ry, cores)
     if pace is None:
         if compute is None:
             return None, (f"no coupled step measured here on {qm_atoms} QM atoms at "
                           f"{cutoff_ry} Ry")
         seconds, why = plausible_s_per_step(compute, qm_atoms, cutoff_ry, cores)
         return steps * seconds / 60 * MARGIN, f"{steps} steps; {why}"
-    seconds = pace.s_per_step / factor
     return (steps * seconds / 60 * MARGIN,
             f"{steps} steps at {seconds:.3g} s/step, measured on {qm_atoms} QM atoms at "
             f"{cutoff_ry} Ry ({pace.where})")
@@ -918,9 +927,7 @@ def price_stage(mandate: Mandate, stage: Stage, *, templates: TemplateStore,
     elif pricing.get("throughput") == "s_per_step":
         cutoff = methods.values.get("qm", {}).get("cutoff_ry")
         cutoff_ry = float(cutoff[0]) if cutoff else None
-        # a step's cost grows steeply with the region and the cutoff: no other measurement serves
-        same = [p for p in paces if p.atoms == qm_atoms and p.cutoff_ry == cutoff_ry]
-        pace, factor = pace_for(same, "s_per_step", billing.cores_per_node)
+        pace, seconds = measured_s_per_step(paces, qm_atoms, cutoff_ry, billing.cores_per_node)
         if not steps:
             price.basis = "unpriced: no length"
             return price
@@ -930,8 +937,8 @@ def price_stage(mandate: Mandate, stage: Stage, *, templates: TemplateStore,
             minutes = max(steps * seconds / 60 * margin, compute.unmeasured_walltime_min)
             price.basis = f"{steps} steps; {why}"
         else:
-            minutes = steps * pace.s_per_step / factor / 60 * margin
-            price.basis = f"{steps} steps at {pace.s_per_step / factor:.3g} s/step ({pace.where})"
+            minutes = steps * seconds / 60 * margin
+            price.basis = f"{steps} steps at {seconds:.3g} s/step ({pace.where})"
             price.measured = True
     else:
         price.basis = "unpriced: no template prices this stage"
