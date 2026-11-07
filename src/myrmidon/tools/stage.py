@@ -98,8 +98,9 @@ def _partition(ctx: ToolContext, mandate, stage, structure: str | None,
     the padding the stage states, if it states one."""
     region = stage.qm_region
     engine = adapter_with("partition_qm")
-    if region is None or stage.regime == "mm" or not structure or engine is None:
-        return None
+    if (region is None or region.charge is None or stage.regime == "mm" or not structure
+            or engine is None):
+        return None  # a region with no charge is refused before anything is partitioned
     begins = mandate.method.starts_from(stage)
     if begins is not None and begins.regime != "mm" and begins.name != stage.name:
         return None

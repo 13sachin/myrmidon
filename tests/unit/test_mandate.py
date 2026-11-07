@@ -814,7 +814,8 @@ def test_a_fit_stage_is_compiled_to_its_input_over_the_collected_dataset(ws_ctx)
 
     coupled_study(ws_ctx, [
         {"name": "reference", "kind": "single_point", "regime": "qmmm", "qm_region": REGION},
-        {"name": "fit", "kind": "parameter_fit", "qm_region": {**REGION, "charge": -1}}])
+        {"name": "fit", "kind": "parameter_fit", "qm_region": {**REGION, "charge": -1}}],
+        decisions_yours=[{"said": "the anion", "locks": {"fit.qm_region.charge": -1}}])
     ws = ws_ctx.workspace
     no_data = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit"})
     assert not no_data.ok and "stride" in no_data.error.message

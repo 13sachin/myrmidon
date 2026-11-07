@@ -265,14 +265,15 @@ def _region_charges(mandate: mandates.Mandate, parts: dict[str, dict]) -> list[s
     topology = next((f.path for f in mandate.system.files if f.kind == "topology"), "")
 
     def one(sub) -> float | None:
-        if sub.charge is not None:
-            return sub.charge
+        """The subsystem's charge in the topology as it is now, else the one it states."""
         laid = [p for p in parts.values()
                 if set(p.get("molecules") or ()) & set(sub.molecules)
                 or set(p.get("resnames") or ()) & set(sub.resnames)]
-        if not laid or sub.resid or sub.chains or any(p.get("charge") is None for p in laid):
-            return None
-        return sum(p["charge"] for p in laid)
+        if sub.resid or sub.chains:
+            return None  # some copies of its residues: the topology's sum is not theirs
+        if laid and all(p.get("charge") is not None for p in laid):
+            return sum(p["charge"] for p in laid)
+        return sub.charge
 
     def charge(names: list[str]) -> float | None:
         """The charge of the subsystems a region names, each once: a subsystem by its name, or
@@ -294,15 +295,16 @@ def _region_charges(mandate: mandates.Mandate, parts: dict[str, dict]) -> list[s
         path = f"{stage.name}.qm_region.charge"
         if region is None:
             continue
-        if region.charge is not None and path in proposed and path not in locked \
-                and proposed[path] == region.charge:
-            region.charge = None
+        if path in proposed:
+            # a proposal is read again when the stage still holds it, and gone when the stage
+            # states a charge of its own or the researcher decides one
+            if proposed[path] == region.charge or path in locked:
+                region.charge = None
             mandate.decisions.proposed = [p for p in mandate.decisions.proposed
                                           if path not in p.locks]
-        if region.charge is not None:
-            continue
-        if isinstance(locked.get(path), int):
+        if region.charge is None and isinstance(locked.get(path), int):
             region.charge = locked[path]  # the researcher's
+        if region.charge is not None:
             continue
         total = charge(list(region.subsystems))
         if total is None or abs(total - round(total)) > 1e-3:
@@ -596,16 +598,20 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
 
     ws = ctx.workspace
     existing = mandates.read_mandate(ws)
+    named_protocol = "protocol" in params.model_fields_set
     if params.revise and existing is not None:
         params = _carried(params, existing)
     stated = params
     params = _from_protocol(ctx, params)
+    if params is None and not named_protocol:
+        params = stated  # a held mandate's protocol this machine lacks: its stages stand
     if params is None:
         from myrmidon.knowledge.protocols import ProtocolStore
 
         known = ", ".join(sorted(p.id for p in (ctx.protocols or ProtocolStore.default()).all()))
-        return Observation(ok=False, summary=f"no protocol {stated.protocol!r} on this machine; "
-                           f"published: {known}")
+        why = f"no protocol {stated.protocol!r} on this machine; published: {known}"
+        return Observation(ok=False, summary=why, error=ToolError(
+            code="PROTOCOL_UNKNOWN", message=why, hint="name one of them, or none"))
     if not params.question.strip():
         return Observation(ok=False, summary="a mandate states the researcher's question, "
                            "verbatim: give `question`")

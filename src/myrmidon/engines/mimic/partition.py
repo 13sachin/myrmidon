@@ -102,8 +102,10 @@ def open_chemistry(ws, stages: list, decisions: list, selected_for: str | None =
     except (OSError, ValueError):
         return []
     questions = []
-    decided = any("qm_region.charge" in path or path.endswith("qm_region")
-                  for d in decisions for path in d.locks)
+    # a lock settles the charge of the stage it names, and no other stage's
+    named = ({selected_for} if selected_for else {s.name for s in stages}) | {"*"}
+    decided = any(path in (f"{n}.qm_region.charge", f"{n}.qm_region")
+                  for d in decisions for path in d.locks for n in named)
     if left.get("charge") is None and not decided:
         questions.append("What is the QM region's net charge? (the selected atoms' topology "
                          "charges sum to no integer: say what the selection cuts)")

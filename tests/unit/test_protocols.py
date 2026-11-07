@@ -74,11 +74,16 @@ def test_a_mandate_is_written_from_a_protocol(ws_ctx, solvated):
     rows[at] = " ".join(cols)
     itp.write_text("\n".join(rows) + "\n")
     revised = REGISTRY.call("mandate_write", ws_ctx, {
-        "question": "acetone under QM/MM", "revise": True, "reason": "the ligand reprotonated",
-        "system_files": [{"path": solvated["structure"], "kind": "structure"},
-                         {"path": solvated["topology"], "kind": "topology"}]})
+        "question": "acetone under QM/MM", "revise": True, "reason": "the ligand reprotonated"})
     assert revised.ok, revised.summary
     assert read_mandate(ws_ctx.workspace).method.stage("production").qm_region.charge == -1
+    # a charge the researcher locks stands against the topology's: a state it does not hold
+    oxidised = {"said": "the radical cation", "locks": {"production.qm_region.charge": 0}}
+    locked = REGISTRY.call("mandate_write", ws_ctx, {
+        "question": "acetone under QM/MM", "revise": True, "reason": "the oxidised state",
+        "decisions_yours": [oxidised]})
+    assert locked.ok, locked.summary
+    assert read_mandate(ws_ctx.workspace).method.stage("production").qm_region.charge == 0
 
 
 # --- what the schema refuses -------------------------------------------------------

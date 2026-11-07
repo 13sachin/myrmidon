@@ -202,8 +202,11 @@ def prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) ->
     if selected is None:
         return found
     declared = _sidecar_charge(ws, selected)
-    if (declared is not None and selected.params.get("subsystems")
-            and declared != stage.qm_region.charge):
+    # a charge the researcher decided is theirs to differ from the topology's (an oxidised
+    # state, a radical cation of a neutral ligand); any other is the atoms' own
+    decided = any(path in (f"{stage.name}.qm_region.charge", f"{stage.name}.qm_region")
+                  for d in mandate.decisions.yours for path in d.locks)
+    if declared is not None and not decided and declared != stage.qm_region.charge:
         found.append(Precondition(
             id="QM_CHARGE_DISAGREES",
             message=f"the atoms of stage {stage.name}'s QM region sum to charge {declared} in "
@@ -211,7 +214,8 @@ def prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) ->
             f"{stage.qm_region.charge}: CPMD would run the region at a charge its atoms do not "
             "carry",
             suggestion="write the mandate again so the charge is read from the topology as it "
-            "is, or state the charge the researcher means in a decision"))
+            "is, or, for a charge the researcher means otherwise, a decision of theirs locking "
+            f"{stage.name}.qm_region.charge"))
     approved = [f.path for f in mandate.system.files if f.kind == "qm_selection"
                 and ws.resolve(f.path).is_file()]
     wrote = next((a for a in selected.outputs if a.role == "qm_selection"), None)

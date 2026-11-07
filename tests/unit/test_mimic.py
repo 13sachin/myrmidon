@@ -146,7 +146,10 @@ def test_a_stage_writes_the_charge_and_the_spin_cpmd_will_accept(ws_ctx, charge,
     coupled_study(ws_ctx, [{"name": "run", "kind": "dynamics", "regime": "qmmm",
                             "ensemble": "NVE", "steps": 50, "qm_region": {
                                 "subsystems": ["solute"], "charge": charge,
-                                "multiplicity": multiplicity}}])
+                                "multiplicity": multiplicity}}],
+                  # a charge the neutral acetone does not carry is the researcher's decision
+                  decisions_yours=[{"said": f"charge {charge}",
+                                    "locks": {"run.qm_region.charge": charge}}])
     obs = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "run"})
     assert obs.ok, obs.summary
     out = obs.files["cpmd_input"]
