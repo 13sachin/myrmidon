@@ -98,9 +98,10 @@ def test_generate_reference_pair(ctx, approve_mandate):
     region = {"subsystems": ["solute"], "charge": sel.declared_charge}
     # a frame each step, so each reference record pairs with a GROMACS frame
     approve_mandate(
-        ctx, "Generate a force-matching reference pair, and fit it", 256.0,
+        ctx, "Generate a force-matching reference pair, and fit it", 320.0,
         stages=[{"name": "reference", "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE",
                  "steps": STEPS, "sampling_ps": 2.418884326585747e-4, "qm_region": region},
+                {"name": "rerun", "kind": "single_point", "regime": "mm"},
                 {"name": "fit", "kind": "parameter_fit", "qm_region": region}],
         hamiltonian={"mm": "amber", "qm": {"method": "blyp_mt", "cutoff_ry": 70},
                      "coupling": {"scheme": "mimic"}},
@@ -127,7 +128,9 @@ def test_generate_reference_pair(ctx, approve_mandate):
 
     fitting = call(ctx, "stage_prepare", stage="fit")
     assert fitting.files["fm_input"].endswith("fminput.dat")
-    fit = call(ctx, "stage_run", stage="fit", inputs={"mdp": rel("mimic_fm.mdp")})
+    # the bonded target's classical rerun: an mdp of its own, never the coupled run's
+    rerun = call(ctx, "stage_prepare", stage="rerun", structure=rel("acetone_equilibrated.gro"))
+    fit = call(ctx, "stage_run", stage="fit", inputs={"mdp": rerun.files["mdp"]})
     fit_done = wait_job(ctx, fit.job_id)
     assert fit_done.state == "COMPLETED", f"{fit_done.summary}\n{fit_done.log_tail or ''}"
     assert fit_done.optimizer_success is True
