@@ -253,19 +253,22 @@ def test_tutorial_mdp_stages_pass_the_harness_mdp_audit(reference):
 def test_invariants_hold_on_the_protocols_own_values():
     """Each template's own rules, and the protocol's rule about two different steps."""
     protocol = ProtocolStore.builtin().get("mimic_qmmm_solvated_solute")
+    regime = {s.stage.name: s.stage.regime for s in protocol.steps if s.stage}
     seen, rendered = [], {}
     for step in protocol.steps:
         if not step.cites:
             continue
-        stage, _, renders = step.cites.removeprefix("stage:").partition("/")
+        stage = step.cited()[0]
         ramp = ({"&CPMD/TEMPERATURE RAMP": "1.8 300 20", "&CPMD/BERENDSEN IONS": "1.8 5000"}
                 if stage == "heat" else {})
-        template, resolution = compiled(stage, "gromacs" if renders == "mdp" else "cpmd",
-                                        **ramp)
-        results = evaluate_invariants(template.invariants, {"": resolution.values})
-        assert all(r.status == "satisfied" for r in results), [(r.id, r.detail) for r in results]
-        seen += results
-        rendered[step.name] = resolution.values
+        coupled = (("cpmd", "cpmd_inp"),) if regime[stage] != "mm" else ()
+        for engine, renders in (("gromacs", "mdp"), *coupled):
+            template, resolution = compiled(stage, engine, **(ramp if coupled else {}))
+            results = evaluate_invariants(template.invariants, {"": resolution.values})
+            assert all(r.status == "satisfied" for r in results), [
+                (r.id, r.detail) for r in results]
+            seen += results
+            rendered[f"stage:{stage}/{renders}"] = resolution.values
     across = protocol.check_invariants(rendered)
     assert across and all(r.status == "satisfied" for r in across)
     assert {r.id for r in seen} >= {"MIMIC_MDP_MUST_NOT_THERMOSTAT"}

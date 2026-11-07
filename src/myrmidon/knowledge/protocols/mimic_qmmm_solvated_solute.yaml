@@ -1,6 +1,6 @@
 id: mimic_qmmm_solvated_solute
 system_class: a solute treated quantum-mechanically in a classical water box, closed-shell, light elements;
-  the estimates were measured on a box of about 1500 atoms with a 10-atom QM region and scale with both
+  distilled from a box of about 1500 atoms with a 10-atom QM region
 aliases:
 - mimic_qmmm_acetone
 title: MiMiC QM/MM of a small solute in water — the MiMiC project's pipeline
@@ -26,8 +26,6 @@ steps:
   - structure_boxed
   values:
     structure: structure
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
 - name: solvate
   tool: gmx_solvate
   needs:
@@ -39,39 +37,31 @@ steps:
     structure: structure_boxed
     topology: topology
   note: writes the solvent count back into the topology, so the topology role carries on from here
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
 - name: minimise_prep
   tool: stage_prepare
-  cites: stage:minimise/mdp
+  cites: stage:minimise
   needs:
   - structure_solvated
   - topology
   produces:
   - tpr_minimise
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
 - name: minimise_run
   tool: stage_run
   needs:
   - tpr_minimise
   produces:
   - structure_minimised
-  estimate_core_h: 8.0
-  estimate_basis: 10 min walltime on a 48-core node, as booked for a box of about 1500 atoms
   stage:
     name: minimise
     kind: minimize
 - name: heat_prep
   tool: stage_prepare
-  cites: stage:equilibrate/mdp
+  cites: stage:equilibrate
   needs:
   - structure_minimised
   - topology
   produces:
   - tpr_heat
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
 - name: heat_run
   tool: stage_run
   needs:
@@ -81,10 +71,6 @@ steps:
   - checkpoint_equilibrated
   note: NPT, for as long as the researcher asks; this is the classical equilibration every later step
     depends on
-  measured_ps: 200
-  estimate_core_h: 16.0
-  estimate_basis: 20 min walltime on a 48-core node, as booked for 200 ps of a box of about 1500 atoms;
-    scales with the length asked for and the system's size
   stage:
     name: equilibrate
     kind: dynamics
@@ -106,24 +92,9 @@ steps:
     topology: topology
   note: which atoms are quantum is the researcher's; for a solute in water it is the whole solute and
     cuts no bond, which is the only case this sequence was measured on
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
-- name: anneal_mm
-  tool: stage_prepare
-  cites: stage:anneal/mdp
-  needs:
-  - structure_equilibrated
-  - topology
-  - index_qm
-  produces:
-  - mdp_anneal_mm
-  note: the same call as anneal_prepare; named so the rule between the two engines' files has both to
-    read
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
 - name: anneal_prepare
   tool: stage_prepare
-  cites: stage:anneal/cpmd_inp
+  cites: stage:anneal
   needs:
   - cpmd_input_qm
   - index_qm
@@ -136,8 +107,6 @@ steps:
   - mdp_anneal
   note: its complete run input, merged onto the system the QM selection made once, and its compiled MM
     half; charge and spin are the stage's
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
 - name: annealing
   tool: stage_run
   needs:
@@ -145,9 +114,6 @@ steps:
   - tpr_anneal
   produces:
   - cpmd_restart_annealed
-  estimate_core_h: 54.0
-  estimate_basis: one of four coupled runs that booked 216.0 core-h together for a 10-atom QM region in
-    a box of about 1500 atoms; scales with the QM atom count and the cutoff
   stage:
     name: anneal
     kind: minimize
@@ -161,7 +127,7 @@ steps:
       multiplicity: 1
 - name: nve_check_prepare
   tool: stage_prepare
-  cites: stage:nve_check/cpmd_inp
+  cites: stage:nve_check
   needs:
   - cpmd_input_qm
   - index_qm
@@ -174,8 +140,6 @@ steps:
   - mdp_nve_check
   note: its complete run input, merged onto the system the QM selection made once, and its compiled MM
     half; charge and spin are the stage's
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
 - name: nve_test
   tool: stage_run
   needs:
@@ -184,9 +148,6 @@ steps:
   - cpmd_restart_annealed
   produces:
   - cpmd_restart_nve
-  estimate_core_h: 54.0
-  estimate_basis: one of four coupled runs that booked 216.0 core-h together for a 10-atom QM region in
-    a box of about 1500 atoms; scales with the QM atom count and the cutoff
   stage:
     name: nve_check
     kind: dynamics
@@ -201,7 +162,7 @@ steps:
       multiplicity: 1
 - name: heat_prepare
   tool: stage_prepare
-  cites: stage:heat/cpmd_inp
+  cites: stage:heat
   needs:
   - cpmd_input_qm
   - index_qm
@@ -214,8 +175,6 @@ steps:
   - mdp_heat
   note: its complete run input, merged onto the system the QM selection made once, and its compiled MM
     half; charge and spin are the stage's
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
 - name: heating
   tool: stage_run
   needs:
@@ -225,9 +184,6 @@ steps:
   produces:
   - cpmd_restart_heated
   - trajectory_heating
-  estimate_core_h: 54.0
-  estimate_basis: one of four coupled runs that booked 216.0 core-h together for a 10-atom QM region in
-    a box of about 1500 atoms; scales with the QM atom count and the cutoff
   stage:
     name: heat
     kind: dynamics
@@ -244,7 +200,7 @@ steps:
       multiplicity: 1
 - name: production_prepare
   tool: stage_prepare
-  cites: stage:production/cpmd_inp
+  cites: stage:production
   needs:
   - cpmd_input_qm
   - index_qm
@@ -257,8 +213,6 @@ steps:
   - mdp_production
   note: its complete run input, merged onto the system the QM selection made once, and its compiled MM
     half; charge and spin are the stage's
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
 - name: production
   tool: stage_run
   needs:
@@ -268,9 +222,6 @@ steps:
   produces:
   - trajectory_qmmm
   - dipole_series
-  estimate_core_h: 54.0
-  estimate_basis: one of four coupled runs that booked 216.0 core-h together for a 10-atom QM region in
-    a box of about 1500 atoms; scales with the QM atom count and the cutoff
   stage:
     name: production
     kind: dynamics
@@ -286,7 +237,7 @@ steps:
 invariants:
 - id: DYNAMICS_TIMESTEP_IS_THE_CPMD_ONE
   not_equal:
-  - $anneal_mm.dt
+  - $anneal_prepare.dt
   - $production_prepare.&CPMD/TIMESTEP
   message: the GROMACS dt and the CPMD TIMESTEP are in different units and are not the same number; the
     mdp dt is inert in a MiMiC run and the CPMD one is what advances time
@@ -309,12 +260,11 @@ pitfalls: []
 validated_by:
 - src/myrmidon/knowledge/protocols.py (a protocol that cannot run in its own order is refused at load)
 notes: 'Distilled from the eight stages of the MiMiC project''s acetone-in-water tutorial: the sequence
-  is knowledge, one study''s instance of it is not. The estimates are what one CPU cluster booked for
-  the tutorial''s own runs — a default for a machine like it, not a promise about yours. The box''s cell
+  is knowledge, one study''s instance of it is not. The box''s cell
   type and its solute-to-box clearance are gmx_editconf''s parameters, and which atoms are quantum is
   qm_region''s and the researcher''s. Each step that renders a file cites the stage it renders: its values
   are compiled from that stage''s physical terms, its template and the methods this protocol''s hamiltonian
   names. Each coupled stage is two steps: stage_prepare compiles its complete CPMD input onto the system
   the selection made once, with its compiled MM half, and stage_run continues from the restart of the
   stage it starts from.'
-version: 7
+version: 8

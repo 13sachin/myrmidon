@@ -965,6 +965,7 @@ class MandateCompiled(BaseModel):
     notes: list[str] = Field(default_factory=list)  # what the researcher should know
     lines: dict[str, list[str]] = Field(default_factory=dict)  # stage -> what it sets
     priced: dict[str, str] = Field(default_factory=dict)  # stage -> its price and basis
+    prices: dict[str, Price] = Field(default_factory=dict)  # stage -> its price
     unpriced: list[str] = Field(default_factory=list)
     measured: dict[str, str] = Field(default_factory=dict)  # deliverable -> its call
     estimate_core_h: float = 0.0
@@ -1010,6 +1011,7 @@ def compile_mandate(mandate: Mandate, *, templates: TemplateStore, methods: Meth
         price = price_stage(mandate, stage, templates=templates, methods=methods, atoms=atoms,
                             paces=paces, compute=compute,
                             qm_atoms=int(qm_atoms.value) if qm_atoms else None)
+        out.prices[stage.name] = price
         out.priced[stage.name] = (f"{price.core_h:g} core-h ({price.walltime_min} min): "
                                   if price.core_h is not None else "") + price.basis
         if price.core_h is None:

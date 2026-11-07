@@ -24,12 +24,10 @@ steps:
   - system_input
   - index_qm
   - qm_selection
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
   note: which atoms are quantum is the researcher's; run on the first frame, the probe
-- name: cpmd_input
+- name: reference_prepare
   tool: stage_prepare
-  cites: stage:reference/cpmd_inp
+  cites: stage:reference
   needs:
   - structure
   - topology
@@ -37,21 +35,8 @@ steps:
   - index_qm
   produces:
   - cpmd_input
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
-  note: the frame's complete run input
-- name: mm_mdp
-  tool: stage_prepare
-  cites: stage:reference/mdp
-  needs:
-  - structure
-  - topology
-  - index_qm
-  produces:
   - tpr_fm
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
-  note: the same call as cpmd_input; named so the rule between the two files has both to read
+  note: the frame's complete run input and its compiled MM half, in one call
 - name: reference_run
   tool: stage_run
   needs:
@@ -78,14 +63,12 @@ steps:
   - qm_selection
   produces:
   - reference_dataset
-  estimate_core_h: 0.0
-  estimate_basis: runs in the session, not on the scheduler
   note: every frame's run merged, aligned and summarised, from the stage's runs in the ledger
 invariants:
 - id: FM_PACE_MATCHES_NSTXOUT
   equal:
-  - $mm_mdp.nstxout
-  - $cpmd_input.&CPMD/FORCE_MATCHING
+  - $reference_prepare.nstxout
+  - $reference_prepare.&CPMD/FORCE_MATCHING
   message: 'the GROMACS output pace must equal the CPMD FORCE_MATCHING pace: CPMD writes one reference-force
     record per pace step and the fit pairs it with the GROMACS frame of the same index, so a mismatch
     silently pairs QM forces with the wrong geometry'
@@ -111,4 +94,4 @@ validated_by:
 - src/myrmidon/knowledge/protocols.py (a protocol that cannot run in its own order is refused at load)
 notes: The sequence is knowledge; a study's mandate names it as its method. The classical rerun the fit
   subtracts is a different mdp — a classical single-point stage, rendered with gromacs.single_point.
-version: 3
+version: 4

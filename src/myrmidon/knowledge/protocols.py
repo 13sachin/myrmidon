@@ -52,26 +52,27 @@ class ProtocolStep(BaseModel):
     physical terms, its templates and the methods. What it may carry is
     its wiring — which of the roles it needs feeds which of its tool's parameters
     (``method: cpmd_method_heating``) — because that is part of the published sequence, not
-    a choice. Its estimate is a default for a machine like the one the protocol was measured
-    on — the study's own estimate, in its mandate, is what it is approved against.
+    a choice. It carries no price: a stage is priced on the machine that runs it
+    (:meth:`Protocol.priced`, and a study's mandate).
     """
 
     name: str
     tool: str  # the registered tool this step calls
-    # where this step's values come from: "stage:<name>/<renders>", the file a stage some
-    # step of the protocol carries is rendered as (mdp, cpmd_inp)
+    # where this step's values come from: "stage:<name>", every file a stage some step of the
+    # protocol carries is rendered as (a coupled stage's mdp and CPMD input both), or
+    # "stage:<name>/<renders>", one of them (mdp, cpmd_inp)
     cites: str | None = None
     needs: list[str] = Field(default_factory=list)  # artifact roles consumed
     produces: list[str] = Field(default_factory=list)  # artifact roles produced
     values: dict[str, str] = Field(default_factory=dict)  # parameter -> a role it needs
-    estimate_core_h: float | None = None
-    estimate_basis: str | None = None
-    # the simulated length the estimate was measured for: a preview prices the length a
-    # study sets against it
-    measured_ps: float | None = None
     # the physical stage a run step carries out, as a mandate's method states it
     stage: Stage | None = None
     note: str = ""
+
+    def cited(self) -> tuple[str, str]:
+        """(the stage it cites, the file it is rendered as; "" for every file of it)."""
+        name, _, renders = (self.cites or "").removeprefix("stage:").partition("/")
+        return name, renders
 
 
 class Protocol(BaseModel):
@@ -107,9 +108,34 @@ class Protocol(BaseModel):
 
         A protocol holds them because they are constraints between steps, which no single
         template can see; a study whose mandate names the protocol, and its stages by the
-        protocol's names, is checked against them as each step renders.
+        protocol's names, is checked against them as each step renders. ``rendered`` is
+        each render's values by ``stage:<name>/<renders>``; a step citing a whole stage
+        reads all of that stage's at once.
         """
-        return evaluate_invariants(self.invariants, rendered)
+        by_step = {}
+        for step in self.steps:
+            name, renders = step.cited()
+            found = [values for key, values in rendered.items()
+                     if key == step.cites or (not renders and key.startswith(f"stage:{name}/"))]
+            if found:
+                by_step[step.name] = {k: v for values in found for k, v in values.items()}
+        return evaluate_invariants(self.invariants, by_step)
+
+    def priced(self, compute, paces: list) -> dict[str, object]:
+        """Each stage its steps carry, priced on this machine (``knowledge.stage.Price``) for
+        a system the protocol does not hold: its price wherever a length and a template
+        price it, at the machine's measured paces or its unmeasured floor."""
+        from myrmidon.core.mandate import Mandate, Method, System
+        from myrmidon.knowledge.stage import MethodStore, TemplateStore, methods_for, price_stage
+
+        stages = [s.stage for s in self.steps if s.stage is not None]
+        mandate = Mandate(question=self.title, system=System(
+            hamiltonian=self.hamiltonian or Hamiltonian()), method=Method(
+            protocol=f"{self.id}@v{self.version}", stages=stages))
+        methods = methods_for(mandate, MethodStore.default(), None)
+        return {stage.name: price_stage(mandate, stage, templates=TemplateStore.default(),
+                                        methods=methods, atoms=None, paces=paces,
+                                        compute=compute) for stage in stages}
 
     @model_validator(mode="after")
     def _is_runnable_in_order(self) -> Protocol:
@@ -135,14 +161,14 @@ class Protocol(BaseModel):
         for step in self.steps:
             if not step.cites:
                 continue
-            name, _, renders = step.cites.removeprefix("stage:").partition("/")
+            name, renders = step.cited()
             if (not step.cites.startswith("stage:") or name not in stages
-                    or renders not in RENDERED_FILES):
+                    or (renders and renders not in RENDERED_FILES)):
                 raise ValueError(
                     f"{self.id}: step {step.name} cites {step.cites!r}; a step cites the "
-                    f"stage it renders as stage:<name>/<renders>, a stage among "
-                    f"{sorted(stages)} and renders among {sorted(RENDERED_FILES)} (an "
-                    "inputset:<id> cite is a stage's now)")
+                    f"stage it renders as stage:<name>, or stage:<name>/<renders> for one of "
+                    f"its files, a stage among {sorted(stages)} and renders among "
+                    f"{sorted(RENDERED_FILES)} (an inputset:<id> cite is a stage's now)")
         for invariant in self.invariants:
             unknown = sorted(invariant.scopes - {""} - set(names))
             if unknown:

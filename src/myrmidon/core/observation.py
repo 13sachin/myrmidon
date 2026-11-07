@@ -234,7 +234,7 @@ class ProtocolHit(BaseModel):
     # the QM method and coupling its QM/MM stages were measured with, as a mandate's
     # hamiltonian states them
     hamiltonian: dict | None = None
-    total_core_h: float = 0.0  # where it was measured, not a promise about here
+    total_core_h: float = 0.0  # its stages priced on this machine, for no system in particular
     citations: list[str] = Field(default_factory=list)
     pitfalls: list[str] = Field(default_factory=list)
     notes: str = ""

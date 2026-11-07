@@ -668,9 +668,7 @@ def _check_invariants(ctx: ToolContext, inputset, resolution, method=None,
         rendered = _sidecar_values(ctx)
         if stage:  # the one about to be written
             rendered[f"stage:{stage}/{inputset.renders}"] = resolution.values
-        by_step = {step.name: rendered[step.cites] for step in protocol.steps
-                   if step.cites in rendered}
-        results += protocol.check_invariants(by_step)
+        results += protocol.check_invariants(rendered)
     return results
 
 

@@ -5,10 +5,12 @@ records none of it, a mandate is written from the protocol's stages over the stu
 structure, topology and index, and each step that cites a stage is rendered from it and
 its tool called on the rendered file — for a run input, the engine's own preprocessor. A
 step that reads what only an earlier stage makes (a QM region's index, a restart) is tried
-once that exists. A stage that runs is priced from the protocol's measurement, scaled by
-the length its rendered input states (the kind's ``run_length``) against the measured
-length (``measured_ps``) or the stage's own. What a stage could not render or build is said
-with it; a value only the researcher can state is asked for.
+once that exists. A stage that runs is priced as that mandate prices it on this machine, for
+the system it is written over; a stage it cannot be written for, or a preview with no system,
+as the protocol's stages price here for no system in particular (``Protocol.priced``). A
+length the study sets differently scales its price by the steps it adds or takes away. What a
+stage could not render or build is said with it; a value only the researcher can state is
+asked for.
 """
 
 from __future__ import annotations
@@ -66,19 +68,23 @@ def stages(ctx: ToolContext, protocol, system: dict[str, str],
 
 
 def _stages(ctx, trial, protocol, system, overrides) -> list[Stage]:
+    from myrmidon.execution.pace import read_paces
+
     files = {k: str(ctx.workspace.resolve(v)) for k, v in system.items() if v} if trial else {}
-    unwritten = _mandate(trial, protocol, files) if trial else {}
+    prices = {name: price.model_dump() for name, price in protocol.priced(
+        ctx.config.compute, read_paces(ctx.config.studies_root)).items()}
+    unwritten = _mandate(trial, protocol, files, prices) if trial else {}
     out: list[Stage] = []
     length: dict[str, tuple] = {}  # a role a tried stage makes -> (ps, steps, set's steps)
     for step in protocol.steps:
-        stage = Stage(step.name, step.tool, step.estimate_core_h or None,
-                      step.estimate_basis or "")
+        price = prices.get(step.stage.name, {}) if step.stage is not None else {}
+        stage = Stage(step.name, step.tool, price.get("core_h"), price.get("basis", ""))
         out.append(stage)
         if trial is not None and step.cites:
             later = [r for r in step.needs if not _stands_in(r, files)]
             made_earlier = {r for s in protocol.steps[:protocol.steps.index(step)]
                             for r in s.produces}
-            cited = _cited(step)[0]
+            cited = step.cited()[0]
             if later:
                 stage.said.append("tried once " + ", ".join(later) + " exist(s): "
                                   + ("an earlier stage makes it" if set(later) <= made_earlier
@@ -92,27 +98,19 @@ def _stages(ctx, trial, protocol, system, overrides) -> list[Stage]:
                 made = _try(trial, step, files, overrides.get(step.name, {}), stage)
                 length.update({role: made for role in step.produces})
         if stage.core_h:
-            _price(step, stage, next((length[r] for r in step.needs if r in length), None))
+            _scaled(stage, next((length[r] for r in step.needs if r in length), None))
     unknown = sorted(set(overrides) - {s.name for s in protocol.steps})
     if unknown and out:
         out[0].said.append(f"no stage {', '.join(unknown)}: their overrides were not used")
     return out
 
 
-def _price(step, stage: Stage, made) -> None:
-    """The protocol's estimate, scaled by the length the stage's input states."""
-    ps, steps, own = made or (None, None, None)
-    if ps and step.measured_ps:
-        ratio, what = ps / step.measured_ps, f"for {step.measured_ps:g} ps, × "
-        what += f"{ps / step.measured_ps:.3g} for the {ps:g} ps set here"
-    elif steps and own and not step.measured_ps:
-        ratio = steps / own
-        what = f"for the stage's own length, × {ratio:.3g} for the length set here"
-    else:
-        return
-    if ratio > 0 and ratio != 1.0:
-        stage.core_h = round(stage.core_h * ratio, 3)
-        stage.basis = f"the protocol's {step.estimate_core_h:g} core-h {what}"
+def _scaled(stage: Stage, made) -> None:
+    """The stage's price for the length its input is set to, against the stage's own."""
+    _, steps, own = made or (None, None, None)
+    if steps and own and steps != own:
+        stage.core_h = round(stage.core_h * steps / own, 3)
+        stage.basis += f"; × {steps / own:.3g} for the length set here"
 
 
 def _stands_in(role: str, files: dict[str, str]) -> bool:
@@ -122,16 +120,12 @@ def _stands_in(role: str, files: dict[str, str]) -> bool:
             or (role in ("topology", "index") and role in files))
 
 
-def _cited(step) -> tuple[str, str]:
-    """(the stage a step cites, the file it is rendered as)."""
-    name, _, renders = (step.cites or "").removeprefix("stage:").partition("/")
-    return name, renders
-
-
-def _mandate(trial, protocol, files: dict[str, str]) -> dict[str, str]:
-    """Write the protocol's stages as the trial study's mandate over the study's files;
-    stage name -> why it is not in it. Stages a QM/MM Hamiltonian or a QM region cannot be
-    written for on this system are left out, so the classical ones are still tried."""
+def _mandate(trial, protocol, files: dict[str, str], prices: dict[str, dict]
+             ) -> dict[str, str]:
+    """Write the protocol's stages as the trial study's mandate over the study's files, its
+    price of each stage taking the place of ``prices``'; stage name -> why it is not in it.
+    Stages a QM/MM Hamiltonian or a QM region cannot be written for on this system are left
+    out, so the classical ones are still tried."""
     stages = [s.stage.model_dump(mode="json", exclude_none=True)
               for s in protocol.steps if s.stage is not None]
     call = {"question": f"preview of {protocol.id}", "ceiling_core_h": 1e9,
@@ -142,12 +136,15 @@ def _mandate(trial, protocol, files: dict[str, str]) -> dict[str, str]:
                if protocol.hamiltonian is not None else {})}
     written = REGISTRY.call("mandate_write", trial, {**call, "stages": stages})
     if written.ok:
+        prices.update(getattr(written, "stage_prices", None) or {})
         return {}
     why = written.error.message if written.error else written.summary
     classical = [s for s in stages if s.get("regime", "mm") == "mm"]
     if classical and len(classical) < len(stages):
         call.pop("hamiltonian", None)
-        if REGISTRY.call("mandate_write", trial, {**call, "stages": classical}).ok:
+        written = REGISTRY.call("mandate_write", trial, {**call, "stages": classical})
+        if written.ok:
+            prices.update(getattr(written, "stage_prices", None) or {})
             return {s["name"]: why for s in stages if s not in classical}
     return {s["name"]: why for s in stages}
 
@@ -155,9 +152,11 @@ def _mandate(trial, protocol, files: dict[str, str]) -> dict[str, str]:
 def _try(trial, step, files, overrides, stage: Stage) -> tuple:
     """Render the stage the step cites and call the step's tool on it: (the rendered run's
     ps and steps, the stage's own steps before any override), each None when unknown."""
-    name, renders = _cited(step)
+    name, renders = step.cited()
     kind, suffix = RENDERED_FILES.get(renders or "", (None, ""))
     common = {k: files[k] for k in ("structure", "topology", "index") if k in files}
+    if not renders:
+        return _prepared(trial, name, common, overrides, stage)
     rendered = REGISTRY.call("inputset_apply", trial, {
         "stage": name, "overrides": overrides, **common,
         **({"output": f"01_preview/{step.name}{suffix}"} if kind else {})})
@@ -194,13 +193,43 @@ def _try(trial, step, files, overrides, stage: Stage) -> tuple:
     return ps, steps, own
 
 
+def _prepared(trial, name: str, common: dict, overrides: dict, stage: Stage) -> tuple:
+    """A step citing a whole stage, prepared as stage_prepare compiles every file of it: (the
+    run's ps and steps, the stage's own steps before any override), each None when unknown."""
+    def length(obs) -> tuple:
+        for kind, values in (getattr(obs, "values", None) or {}).items():
+            ps, steps = run_length(kind, values)
+            if ps or steps:
+                return ps, steps
+        return None, None
+
+    own = (length(REGISTRY.call("stage_prepare", trial, {"stage": name, **common}))[1]
+           if overrides else None)
+    prepared = REGISTRY.call("stage_prepare", trial, {
+        "stage": name, **common, **({"overrides": overrides} if overrides else {})})
+    asked = [f for f in prepared.findings if f.id == "INPUTSET_REQUIRED_PARAM_MISSING"]
+    if asked:  # the researcher's value, not a broken stage: tried once given
+        stage.said += [f"needs, from the researcher: {f.message}" for f in asked]
+        return None, None, None
+    stage.rendered = prepared.ok or bool(getattr(prepared, "files", None))
+    stage.built = prepared.ok if stage.rendered else None
+    stage.said += [f.message for f in prepared.findings if f.severity != "info"][:4]
+    if not prepared.ok:
+        stage.said.append(prepared.error.message if prepared.error else prepared.summary)
+        stage.said += [line for line in (prepared.log_tail or "").splitlines()
+                       if line.strip()][-8:]
+        return None, None, None
+    ps, steps = length(prepared)
+    return ps, steps, own if overrides else steps
+
+
 def _call_tool(trial, step, files, kind, path, stage: Stage):
     """The stage's tool on the rendered file and the built system, by the parameters the
     step wires to roles and the one its contract takes the rendered kind in; None when the
     tool takes no such file or needs a parameter nothing here supplies."""
     if step.tool == "stage_prepare":
         return REGISTRY.call("stage_prepare", trial, {
-            "stage": _cited(step)[0], **{k: files[k] for k in ("structure", "topology", "index")
+            "stage": step.cited()[0], **{k: files[k] for k in ("structure", "topology", "index")
                                          if k in files}})
     try:
         spec = REGISTRY.get(step.tool)

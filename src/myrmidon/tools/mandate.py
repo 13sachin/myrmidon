@@ -388,6 +388,7 @@ def _observe(ctx: ToolContext, mandate: mandates.Mandate, summary: str) -> Obser
         ok=True, summary=summary, path=mandates.MANDATE_FILE, status=mandate.status,
         digest=mandate.digest, revision=mandate.revision, questions=mandate.questions,
         estimate_core_h=mandate.cost.estimate_core_h,
+        stage_prices={name: p.model_dump() for name, p in comp.prices.items()},
         ceiling_core_h=mandate.cost.ceiling_core_h, spent_core_h=spent,
         approved=held is not None and held.digest == mandate.digest,
         why_not=mandates.why_not_holding(ws),
@@ -672,9 +673,10 @@ def protocol_preview(ctx: ToolContext, params: ProtocolPreviewParams) -> Observa
     return Observation(
         ok=not broken, estimate_core_h=total, broken=broken,
         summary=f"{protocol.id}@v{protocol.version}: {len(priced)} stage(s) book jobs, "
-        f"{total:g} core-h as measured on {protocol.system_class or 'its own system'}"
+        f"{total:g} core-h on this machine"
+        + ("" if params.structure and params.topology else " for no system in particular")
         + (f"; {len(built)} stage(s) render and build on this system" if built else "")
         + (f"; {', '.join(broken)} do NOT: read `text`" if broken else "")
-        + f". Scale by your system, then mandate_write with "
-        f"protocol={protocol.id}@v{protocol.version}.",
+        + f". mandate_write with protocol={protocol.id}@v{protocol.version} prices them "
+        "for the study's own system.",
         text="\n".join(s.line() for s in tried if s.core_h or s.rendered is not None or s.said))

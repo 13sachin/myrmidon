@@ -40,13 +40,14 @@ def _wf(tmp_path, **over):
 # --- the shipped store ------------------------------------------------------------
 
 
-def test_the_acetone_protocol_prices_itself_from_what_the_machine_booked():
-    """A cost column of dashes is decoration; this one carries measured numbers, and
-    every estimate names its basis — a price with no source is a number like any other."""
-    protocol = ProtocolStore.builtin().get("mimic_qmmm_solvated_solute")
-    assert all(s.estimate_core_h is not None for s in protocol.steps)
-    assert all(s.estimate_basis for s in protocol.steps)
-    assert sum(s.estimate_core_h for s in protocol.steps) == 240.0
+@pytest.mark.parametrize("name", SHIPPED)
+def test_each_stage_of_a_shipped_protocol_is_prepared_by_one_step(name):
+    """A coupled stage's mdp and CPMD input are one stage_prepare call that cites the whole
+    stage, so a rule between the two files reads one step, and no step names the same call
+    twice."""
+    protocol = ProtocolStore.builtin().get(name)
+    prepared = [s.cited() for s in protocol.steps if s.tool == "stage_prepare"]
+    assert sorted(prepared) == sorted({(s.stage.name, "") for s in protocol.steps if s.stage})
 
 
 # --- what the schema refuses -------------------------------------------------------
@@ -113,10 +114,24 @@ def test_a_protocol_wires_roles_and_states_no_values(tmp_path):
         _wf(tmp_path / "x", steps=[dict(step, values={"maxwarn": "3"})]).get("toy")
 
 
-def test_a_protocol_is_priced_for_the_mandate_from_where_it_was_measured(ctx):
-    obs = REGISTRY.call("protocol_preview", ctx, {"protocol": "mimic_qmmm_solvated_solute"})
-    assert obs.ok, obs.summary
-    assert obs.estimate_core_h == 240.0 and "mandate_write" in obs.summary
+def test_a_protocol_is_priced_on_the_machine_that_looks_it_up(ctx):
+    """A protocol holds no core-hour: its stages are priced on this machine's billing, so a
+    node billed at twice the rate prices them at twice the core-hours, in a lookup as in a
+    preview."""
+    from myrmidon.config import PartitionCompute
+
+    def priced(billed: float):
+        ctx.config.compute.partitions = {"p": PartitionCompute(
+            cores_per_node=128, billed_per_node_h=billed, node_exclusive=True)}
+        ctx.config.compute.default_partition = "p"
+        found = REGISTRY.call("protocol_lookup", ctx, {"query": "mimic_qmmm_solvated_solute"})
+        preview = REGISTRY.call("protocol_preview", ctx,
+                                {"protocol": "mimic_qmmm_solvated_solute"})
+        assert preview.ok, preview.summary
+        assert found.protocols[0].total_core_h == preview.estimate_core_h > 0
+        return preview.estimate_core_h
+
+    assert priced(256.0) == pytest.approx(2 * priced(128.0), rel=1e-3)
     assert not REGISTRY.call("protocol_preview", ctx, {"protocol": "no_such"}).ok
 
 

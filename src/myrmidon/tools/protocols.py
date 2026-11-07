@@ -1,5 +1,6 @@
 """The published pipelines a study may start from: a sequence, the stage each step's
-values come from, the methods its stages were measured with, and what it cost there."""
+values come from, the methods its stages were measured with, and what its stages cost on
+this machine."""
 
 from __future__ import annotations
 
@@ -17,22 +18,20 @@ class ProtocolLookupParams(BaseModel):
     )
 
 
-def _protocol_hit(w, *, full: bool = False) -> ProtocolHit:
-    steps = (
-        [s.model_dump(mode="json", exclude_none=True,
-                      exclude={"values", "needs", "produces", "stage"})
-         for s in w.steps]
-        if full
-        else [
-            {
-                "name": s.name,
-                "tool": s.tool,
-                **({"cites": s.cites} if s.cites else {}),
-                **({"estimate_core_h": s.estimate_core_h} if s.estimate_core_h else {}),
-            }
-            for s in w.steps
-        ]
-    )
+def _protocol_hit(ctx: ToolContext, w, *, full: bool = False) -> ProtocolHit:
+    from myrmidon.execution.pace import read_paces
+
+    prices = w.priced(ctx.config.compute, read_paces(ctx.config.studies_root))
+
+    def core_h(step) -> float | None:
+        return prices[step.stage.name].core_h if step.stage is not None else None
+
+    steps = [
+        {**(s.model_dump(mode="json", exclude_none=True,
+                         exclude={"values", "needs", "produces", "stage"}) if full
+            else {"name": s.name, "tool": s.tool, **({"cites": s.cites} if s.cites else {})}),
+         **({"core_h": core_h(s)} if core_h(s) else {})}
+        for s in w.steps]
     return ProtocolHit(
         id=w.id,
         title=w.title,
@@ -46,7 +45,7 @@ def _protocol_hit(w, *, full: bool = False) -> ProtocolHit:
         stages=[s.stage.model_dump(mode="json", exclude_none=True) for s in w.steps if s.stage],
         hamiltonian=(w.hamiltonian.model_dump(mode="json", exclude_none=True, exclude={"mm"})
                      if w.hamiltonian is not None else None),
-        total_core_h=round(sum(s.estimate_core_h or 0.0 for s in w.steps), 3),
+        total_core_h=round(sum(p.core_h or 0.0 for p in prices.values()), 3),
         citations=[s.text for s in w.sources] if full else [],
         pitfalls=w.pitfalls,
         notes=w.notes if full else "",
@@ -57,8 +56,8 @@ def _protocol_hit(w, *, full: bool = False) -> ProtocolHit:
     "protocol_lookup",
     navigation=True,
     description="Published pipelines to start a study from: the sequence, the stage each "
-    "step renders and the methods it was measured with, what you bring, what it cost where "
-    "measured. A STARTING POINT, never a rule: price one on the built system with "
+    "step renders and the methods it was measured with, what you bring, what its stages "
+    "cost here. A STARTING POINT, never a rule: price one on the built system with "
     "`protocol_preview`, or run stages of your own and cite none.",
     tags={"knowledge"},
     needs_workspace=False,
@@ -76,7 +75,7 @@ def protocol_lookup(ctx: ToolContext, params: ProtocolLookupParams) -> Observati
                 summary=f"1 published pipeline matched: {exact.id}@v{exact.version}. "
                 f"To price its stages for the mandate: protocol_preview "
                 f"protocol={exact.id}.",
-                protocols=[_protocol_hit(exact, full=True)],
+                protocols=[_protocol_hit(ctx, exact, full=True)],
             )
         except KeyError:
             pass
@@ -84,7 +83,7 @@ def protocol_lookup(ctx: ToolContext, params: ProtocolLookupParams) -> Observati
         store.all(), key=lambda w: w.id
     )
     full = len(found) == 1
-    hits = [_protocol_hit(w, full=full) for w in found]
+    hits = [_protocol_hit(ctx, w, full=full) for w in found]
     what = f"matching {q!r}" if q else "the whole store"
     first = hits[0].id if hits else "<id>"
     return Observation(
