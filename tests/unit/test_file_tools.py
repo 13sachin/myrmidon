@@ -10,11 +10,11 @@ def test_a_look_at_a_file_is_checked_and_is_not_a_step(ws_ctx):
     REGISTRY.call(
         "file_write",
         ws_ctx,
-        {"path": "01_run/bad.mdp", "content": "integrator = md\ndt = 0.002\nnsteps = 10\n"},
+        {"path": "01_run/bad.mdp", "content": "integrator = md\nnsteps = 10\ngen_vel = yes\n"},
     )
     report = REGISTRY.call("file_check", ws_ctx, {"path": "01_run/bad.mdp"})
     assert report.ok and not blocking(report)  # what it sees informs, never refuses
-    assert any(w.id == "MDP_DT_LARGE_NO_CONSTRAINTS" for w in report.findings)
+    assert any(w.id == "MDP_RANDOM_SEED" for w in report.findings)
     assert report.file_kind == "mdp" and "MDP check" in report.summary
     looks = [ev for ev in ws_ctx.workspace.ledger.events() if ev.tool == "file_check"]
     assert looks and {ev.kind for ev in looks} == {"observe"}

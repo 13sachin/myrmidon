@@ -12,11 +12,11 @@ from myrmidon.engines.mimic import (
     diagnostics,
     layout,
     partition,
+    qm_region,
     system,
     trajectory,
 )
 from myrmidon.engines.registry import EngineAdapter, InputCheck, StageRender, StageText
-from myrmidon.knowledge.sensors import evaluate
 
 
 def _system_facts(files: Mapping[str, Path], _data_dir: Path | None,
@@ -64,10 +64,7 @@ def _stage_text(request: StageRender) -> StageText:
     sections = cpmd_input.set_spin(sections, charge, multiplicity)
     bound = _boundary_atoms(system_input)
     electrons = None if bound else system.electron_count(sections, charge)
-    findings = evaluate("qm_region", {
-        "electrons": electrons, "multiplicity": multiplicity,
-        "spin_parity_matches": None if electrons is None
-        else electrons % 2 == (multiplicity - 1) % 2})
+    findings = qm_region.region_findings(electrons, multiplicity)
     text = cpmd_input.render_cpmd(sections)
     held = {" ".join(k.upper().split()) for k in request.values}
     return StageText(text, findings=findings, sidecar={
@@ -105,4 +102,5 @@ ADAPTER = EngineAdapter(
     region_questions=partition.open_chemistry,
     prepare_findings=collect.prepare_findings,
     input_findings=_input_findings,
+    checks=(*cpmd_input.CHECKS, *qm_region.CHECKS),
 )

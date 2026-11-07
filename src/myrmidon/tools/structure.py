@@ -63,7 +63,7 @@ def fetch_pdb(ctx: ToolContext, params: FetchPdbParams) -> Observation:
     stage = ctx.workspace.stage("fetch")
     path = stage / f"{pdb_id}.pdb"
     path.write_bytes(resp.content)
-    from myrmidon.knowledge.rules import inspect_pdb_atoms
+    from myrmidon.engines.structure import inspect_pdb_atoms
 
     atoms, _, _ = parse_pdb_atoms(resp.text)
     profile, _ = inspect_pdb_atoms(atoms)
@@ -87,8 +87,7 @@ def fetch_pdb(ctx: ToolContext, params: FetchPdbParams) -> Observation:
         n_atoms=n_atoms,
         chains=sorted(chains),
         het_residues=sorted(hets),
-        system_profile=profile.model_dump(exclude_defaults=True, exclude={"triggered_rules"}),
-        modeling_rules=[r.model_dump(exclude={"when", "sources"}) for r in profile.triggered_rules],
+        system_profile=profile.model_dump(exclude_defaults=True),
     )
 
 
@@ -293,7 +292,7 @@ def structure_select(ctx: ToolContext,
             "is kept for each", suggestion="name another in altloc to keep it instead",
         ))
     lig = ligand_atoms[0] if ligand_atoms else None
-    from myrmidon.knowledge.rules import inspect_pdb_atoms, save_residue_map
+    from myrmidon.engines.structure import inspect_pdb_atoms, save_residue_map
 
     profile, res_map = inspect_pdb_atoms(
         atoms,
@@ -338,6 +337,5 @@ def structure_select(ctx: ToolContext,
         missing_atoms=lacking_atoms,
         models=models,
         residue_map=res_map,
-        system_profile=profile.model_dump(exclude_defaults=True, exclude={"triggered_rules"}),
-        modeling_rules=[r.model_dump(exclude={"when", "sources"}) for r in profile.triggered_rules],
+        system_profile=profile.model_dump(exclude_defaults=True),
     )

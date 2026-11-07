@@ -173,7 +173,7 @@ def test_frames_written_as_one_trajectory_keep_the_order_asked(rigid):
 
 
 def test_mindist_reports_minimum_and_contacts_maps_deposited_residues(ws_ctx):
-    from myrmidon.knowledge.rules import save_residue_map
+    from myrmidon.engines.structure import save_residue_map
 
     stage = ws_ctx.workspace.stage("input")
     (stage / "pair.pdb").write_text(PAIR_PDB)
@@ -223,8 +223,8 @@ ATOM      4  H2  LIG A   2       4.400   1.000   1.000  1.00  0.00           H
 END
 """
 
-# (the two selections, a finding that they treat hydrogens differently): a distance from
-# every atom of one side to the heavy atoms of the other is said; alike on both is not
+# (the two selections, whether they treat hydrogens differently): a distance from every atom
+# of one side to the heavy atoms of the other reads in the hydrogens each side holds
 SELECTION_PAIRS = [
     ("resname MOL", "resname LIG and not name H*", True),
     ("resname LIG and not name H*", "resname MOL", True),
@@ -234,7 +234,7 @@ SELECTION_PAIRS = [
 
 
 @pytest.mark.parametrize("first,second,mixed", SELECTION_PAIRS)
-def test_a_distance_between_unlike_selections_is_said(ws_ctx, first, second, mixed):
+def test_a_distance_states_the_hydrogens_each_selection_holds(ws_ctx, first, second, mixed):
     stage = ws_ctx.workspace.stage("input")
     (stage / "trio.pdb").write_text(TRIO_PDB)
     frame = mda.Universe(str(stage / "trio.pdb")).atoms.positions.copy()
@@ -244,7 +244,9 @@ def test_a_distance_between_unlike_selections_is_said(ws_ctx, first, second, mix
         "metric": "mindist", "selection": first, "selection2": second})
     assert obs.ok, obs.summary
     assert repr(second) in obs.summary  # both selections are named
-    assert ("SELECTIONS_TREAT_HYDROGENS_DIFFERENTLY" in {f.id for f in obs.findings}) is mixed
+    held, carried = obs.selection_hydrogens, obs.residue_hydrogens
+    assert carried == [1, 1]
+    assert (0 in held and max(held) > 0) is mixed
 
 
 CHAIN_PDB = """\

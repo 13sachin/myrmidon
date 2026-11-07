@@ -1,7 +1,10 @@
-"""MDP parsing, and the facts the sensor records read of an mdp.
+"""MDP parsing, and what GROMACS does silently with an mdp as it is on disk.
 
-The records (knowledge/rules/) make findings with stable ids of what they see; anything
-GROMACS would silently default is surfaced as an explicit assumption.
+The checks here are what the engine gets wrong without saying so, each with where it was
+learned (``Check``): a MiMiC run's GROMACS half that thermostats, constrains or names no QM
+group, new velocities on a continuation, a seed nobody recorded. A key the version's catalog
+does not read as written is said as the catalog sees it. What grompp itself refuses is
+grompp's to say; general MD physics (a time step, a thermostat, a cut-off) is the agent's.
 """
 
 from __future__ import annotations
@@ -9,9 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from myrmidon.core.contracts import Property, define_kind
-from myrmidon.core.validation import Finding
-from myrmidon.knowledge.catalog import Catalog, canonical, load
-from myrmidon.knowledge.sensors import evaluate
+from myrmidon.core.validation import Check, Finding
+from myrmidon.knowledge.catalog import Catalog, canonical, catalog_findings, load
 
 
 def parse_mdp(text: str) -> dict[str, str]:
@@ -82,8 +84,8 @@ def _same(a: str, b: str) -> bool:
 
 def key_status(params: dict[str, str], catalog: Catalog) -> list[dict]:
     """Each key as the version's catalog sees it — obsolete, renamed, unknown, decided by
-    nothing the harness reasons about (out_of_scope), or known — the subject the
-    per-key sensor records read."""
+    nothing the harness reasons about (out_of_scope), or known — what
+    ``catalog_findings`` reads."""
     from myrmidon.knowledge.stage import decided_keys
 
     decided = decided_keys("gromacs")
@@ -97,21 +99,85 @@ def key_status(params: dict[str, str], catalog: Catalog) -> list[dict]:
                   else "out_of_scope" if canonical(entry.name) not in decided
                   and not (entry.default is not None and _same(value, entry.default))
                   else "known")
-        out.append({"key": key, "value": value, "status": status,
+        out.append({"key": key, "label": key, "name": key, "value": value, "status": status,
                     "renamed_to": catalog.renamed.get(name, ""), "version": catalog.version,
                     "default": (entry.default if entry is not None
                                 and entry.default not in (None, "") else "unset")})
     return out
 
 
+_MDP_OPTIONS = "https://manual.gromacs.org/2021.6/user-guide/mdp-options.html"
+_MIMIC_MANUAL = "https://manual.gromacs.org/2021.6/reference-manual/special/mimic-qmmm.html"
+#: a key's status in the version's catalog, as the finding it raises
+KEY_CHECKS = {
+    "obsolete": Check(id="MDP_KEY_OBSOLETE", sources=(_MDP_OPTIONS,)),
+    "renamed": Check(id="MDP_KEY_RENAMED", sources=(_MDP_OPTIONS,)),
+    "out_of_scope": Check(id="MDP_KEY_OUT_OF_SCOPE", sources=(_MDP_OPTIONS,)),
+    "unknown": Check(id="MDP_KEY_UNKNOWN", sources=(_MDP_OPTIONS,)),
+}
+MIMIC_NO_QMMM_GRPS = Check(id="MDP_MIMIC_NO_QMMM_GRPS", sources=(_MIMIC_MANUAL,))
+# a thermostat or constraints on the GROMACS half of a coupled run is physics the engine gets
+# wrong without a word: the render, an override and a researcher's own mdp all stop on it
+MIMIC_THERMOSTAT = Check(id="MDP_MIMIC_THERMOSTAT", sources=(_MIMIC_MANUAL,), stops=True)
+MIMIC_CONSTRAINTS = Check(id="MDP_MIMIC_CONSTRAINTS", sources=(_MIMIC_MANUAL,), stops=True)
+RANDOM_SEED = Check(id="MDP_RANDOM_SEED", sources=(f"{_MDP_OPTIONS}#mdp-gen-seed",))
+GEN_VEL_ON_CONTINUATION = Check(id="MDP_GEN_VEL_ON_CONTINUATION",
+                                sources=(f"{_MDP_OPTIONS}#mdp-continuation",))
+CHECKS = (*KEY_CHECKS.values(), MIMIC_NO_QMMM_GRPS, MIMIC_THERMOSTAT, MIMIC_CONSTRAINTS,
+          RANDOM_SEED, GEN_VEL_ON_CONTINUATION)
+
+
+def _says(params: dict[str, str], key: str, *words: str) -> bool:
+    """Whether the mdp sets ``key`` to one of ``words`` (case aside); unset is none."""
+    return str(params.get(key, "")).strip().lower() in words
+
+
+def mdp_findings(params: dict[str, str]) -> list[Finding]:
+    """What GROMACS does silently with this mdp as it is."""
+    out: list[Finding] = []
+    yes = ("yes", "true", "on")
+    if _says(params, "integrator", "mimic"):
+        if not params.get("qmmm_grps", "").strip():
+            out.append(MIMIC_NO_QMMM_GRPS.finding(
+                "integrator = mimic with no QMMM-grps",
+                means="the MM side does not know which atoms are quantum",
+                suggestion="QMMM-grps = the QM atoms' index group (qm_region writes it), and "
+                "that index among the system files"))
+        if params.get("tcoupl", "").strip() and not _says(params, "tcoupl", "no"):
+            out.append(MIMIC_THERMOSTAT.finding(
+                f"tcoupl = {params['tcoupl']} in a MiMiC run",
+                means="CPMD integrates and thermostats the whole system; a GROMACS thermostat "
+                "double-counts", suggestion="tcoupl = no, and the temperature in &CPMD"))
+        if params.get("constraints", "").strip() and not _says(params, "constraints", "none"):
+            out.append(MIMIC_CONSTRAINTS.finding(
+                f"constraints = {params['constraints']} in a MiMiC run",
+                means="constraints on the QM atoms fight the QM forces; the quantum solute has "
+                "to be flexible", suggestion="constraints = none"))
+    if _says(params, "gen_vel", *yes):
+        if not params.get("gen_seed", "").strip() or _says(params, "gen_seed", "-1"):
+            out.append(RANDOM_SEED.finding(
+                f"gen_vel = yes with gen_seed = {params.get('gen_seed') or 'unset'}",
+                means="grompp draws a fresh seed: the starting velocities are not on record, "
+                "and a second grompp of the same inputs starts elsewhere",
+                assumption="gen_seed = -1 (random)", suggestion="gen_seed = an integer"))
+        if _says(params, "continuation", *yes):
+            out.append(GEN_VEL_ON_CONTINUATION.finding(
+                "gen_vel = yes with continuation = yes",
+                means="new velocities on a continuation discard the state the run continues "
+                "from", suggestion="gen_vel = no on a continuation"))
+    return out
+
+
 def validate_mdp(params: dict[str, str], catalog: Catalog | None = None,
                  ) -> tuple[list[Finding], list[str]]:
-    """What the sensor records make of an mdp (knowledge/rules/), read against the GROMACS
-    version's key catalog (the newest shipped when none is given), and the checks that
-    ran."""
+    """What GROMACS does silently with an mdp, and its keys as the version's catalog (the
+    newest shipped when none is given) reads them; and the checks that ran."""
     catalog = catalog or load("gromacs")
-    return (evaluate("mdp", params, version=catalog.version,
-                     keys=key_status(params, catalog)), ["sensors"])
+    keys = catalog_findings(
+        key_status(params, catalog), catalog, KEY_CHECKS, noun="key",
+        unknown_means="grompp stops on an unknown key, unless max_warn hides the warning and "
+        "the value is silently dropped")
+    return [*mdp_findings(params), *keys], ["engine_checks", "key_catalog"]
 
 
 def format_mdp_value(value: object) -> str:

@@ -271,7 +271,6 @@ def test_invariants_hold_on_the_protocols_own_values():
             rendered[f"stage:{stage}/{renders}"] = resolution.values
     across = protocol.check_invariants(rendered)
     assert across and all(r.status == "satisfied" for r in across)
-    assert {r.id for r in seen} >= {"MIMIC_MDP_MUST_NOT_THERMOSTAT"}
 
 
 # --- the stages rendered in a study ---------------------------------------------------
@@ -301,15 +300,13 @@ def _qm_study(ws_ctx, protocol: str, stages: list[dict] | None = None) -> dict:
     return files
 
 
-def test_a_violated_invariant_blocks_the_render(ws_ctx):
-    """Turning a thermostat on in the MiMiC mdp is a physics error the template knows."""
+def test_a_thermostat_on_the_gromacs_half_of_a_coupled_stage_stops_its_compile(ws_ctx):
+    """Turning a thermostat on in the MiMiC mdp is physics GROMACS gets wrong without a word:
+    the engine's check of the mdp refuses the run input, whoever set it."""
     files = _qm_study(ws_ctx, "mimic_qmmm_solvated_solute")
-    refused = REGISTRY.call("inputset_apply", ws_ctx, {
-        "stage": "anneal", **files, "output": "01_input/mimic.mdp",
-        "overrides": {"tcoupl": "v-rescale"}})
-    assert not refused.ok
-    assert [w.id for w in blocking(refused)] == ["MIMIC_MDP_MUST_NOT_THERMOSTAT"]
-    assert not (ws_ctx.workspace.root / "01_input/mimic.mdp").exists()
+    refused = REGISTRY.call("stage_prepare", ws_ctx, {
+        "stage": "anneal", **files, "overrides": {"tcoupl": "v-rescale"}})
+    assert not refused.ok and refused.error.code == "MDP_MIMIC_THERMOSTAT"
 
 
 def test_rendering_a_cpmd_stage_writes_its_input_and_sidecar(ws_ctx):

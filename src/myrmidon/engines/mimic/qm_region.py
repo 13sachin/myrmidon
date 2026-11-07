@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 from myrmidon.core.tool import ToolContext
-from myrmidon.core.validation import Finding
+from myrmidon.core.validation import Check, Finding
 from myrmidon.engines.mimic.system import (
     electron_count,
     heavy_species_all_s,
@@ -16,7 +16,6 @@ from myrmidon.engines.mimic.system import (
     valence_electrons,
 )
 from myrmidon.errors import EngineNotFoundError
-from myrmidon.knowledge.sensors import evaluate
 
 #: the selection commands a run and a parameter fit read back, written beside the input
 SELECTION_FILE = "sele.dat"
@@ -113,8 +112,8 @@ def guessed_elements(output: str) -> dict[str, str]:
 def region_chemistry(sections: dict[str, list[str]], charge: int | None,
                      selections: list[str], guessed: dict[str, str]
                      ) -> tuple[dict, list[Finding]]:
-    """What the selection decides of the region's chemistry, for its sidecar, and what the
-    sensor records make of it. ``charge`` is the integer the selected atoms' topology charges
+    """What the selection decides of the region's chemistry, for its sidecar, and what CPMD
+    would run silently on it. ``charge`` is the integer the selected atoms' topology charges
     sum to, None when they sum to no integer. A region with boundary atoms has an electron
     count their pseudopotentials' valence decides, so neither count nor spin is derived here."""
     bound = any(cmd.strip().lower().startswith("add-bound") for cmd in selections)
@@ -130,8 +129,40 @@ def region_chemistry(sections: dict[str, list[str]], charge: int | None,
     chemistry = {"charge": charge, "multiplicity": multiplicity, "spin_why": why,
                  "boundary_atoms": bound,
                  "electrons": electrons, "electrons_all": total, "guessed_elements": guessed}
-    heavy = heavy_species_all_s(sections)
-    findings = evaluate("qm_region", {
-        "electrons": total, "multiplicity": multiplicity,
-        "heavy_lmax_s": ", ".join(heavy) or None})
-    return chemistry, findings
+    return chemistry, region_findings(total, multiplicity, heavy_species_all_s(sections))
+
+
+# real prepqm on a topology with no -pp writes every species LMAX=S
+PP_LMAX_ALL_S = Check(id="PP_LMAX_ALL_S_ON_HEAVY_ATOMS",
+                      sources=("tests/fixtures/mimicpy/prepqm_acetone.inp",),
+                      sha256="e5855dfe71e058a84a07e23b2bbac4415c14930a1e634392aedcb6d74dad15af")
+MULTIPLICITY_PARITY = Check(id="QM_MULTIPLICITY_PARITY", sources=(
+    "https://gitlab.com/mimic-project/cpmd/-/tree/72922c3/doc/manual/manual.tex"
+    "#system-multiplicity",))
+CHECKS = (PP_LMAX_ALL_S, MULTIPLICITY_PARITY)
+
+
+def region_findings(electrons: int | None, multiplicity: int | None,
+                    heavy_lmax_s: list[str] = ()) -> list[Finding]:
+    """What CPMD would run silently on this region: a spin its electrons cannot have, heavy
+    atoms whose pseudopotentials prepqm wrote with no p channel."""
+    out: list[Finding] = []
+    if heavy_lmax_s:
+        out.append(PP_LMAX_ALL_S.finding(
+            f"the QM region's {', '.join(heavy_lmax_s)} carry LMAX=S",
+            means="prepqm gives every species LMAX=S when no pseudopotential table names its "
+            "channels; a non-hydrogen atom needs its p channel (a norm-conserving "
+            "Troullier-Martins C, N or O is LMAX=P), or CPMD computes its nonlocal term with too "
+            "few projectors and says nothing",
+            suggestion="pp_info naming each element's file and LMAX, and select the region "
+            "again"))
+    if (electrons is not None and multiplicity is not None
+            and electrons % 2 != (multiplicity - 1) % 2):
+        out.append(MULTIPLICITY_PARITY.finding(
+            f"multiplicity {multiplicity} for {electrons} electrons (all-electron count)",
+            means="a multiplicity of 2S+1 needs 2S unpaired electrons: an even count cannot be "
+            "a doublet, an odd one cannot be a singlet; CPMD would run a state the region "
+            "cannot have",
+            suggestion="check the QM region's charge and the multiplicity against its "
+            "electrons"))
+    return out

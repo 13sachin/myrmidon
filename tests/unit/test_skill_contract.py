@@ -3,7 +3,7 @@
 A `SKILL.md` is prose with no schema, no source field, no store and no parser, so a box
 clearance, a QM padding, a convergence criterion, a finding's rule or an instruction to read
 `cpmd.out` by hand would be invisible there: unsourced, unversioned and untested. A physical
-rule is a sensor record in `knowledge/rules/`, read at the moment a call acts; a value is an
+rule is an engine's check or a template's invariant, run at the moment a call acts; a value is an
 input set's. These tests walk the shipped skills, collect offenders, one assert per rule,
 and each docstring says why the rule exists. The number lint catches the value that leaked,
 not the science that did: that is what review is for.
@@ -71,12 +71,10 @@ def skills():
 
 @pytest.fixture(scope="module")
 def finding_ids() -> set[str]:
-    """Every id a finding can carry: those the code raises and the sensor records'."""
+    """Every id a finding can carry: those the code raises."""
     from tests.unit.findings_catalog import known_finding_ids
 
-    from myrmidon.knowledge.sensors import load_sensors
-
-    return known_finding_ids() | {record.id for record in load_sensors()}
+    return known_finding_ids()
 
 
 def test_a_skill_has_the_five_sections_and_names_registered_tools(skills):

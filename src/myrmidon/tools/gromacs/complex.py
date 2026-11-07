@@ -177,7 +177,7 @@ def complex_assemble(ctx: ToolContext, params: ComplexParams) -> Observation:
     charge = (f"{net:g}" if net is not None
               else f"not read (unresolved includes: {', '.join(unresolved)})")
     from myrmidon.engines.gromacs.system import coupling_groups, forcefield, restraint_defines
-    from myrmidon.knowledge.rules import SystemProfile, evaluate_rules
+    from myrmidon.engines.structure import SystemProfile
 
     ff_fact = forcefield(top)
     defines_fact = restraint_defines(top, list(search))
@@ -191,7 +191,6 @@ def complex_assemble(ctx: ToolContext, params: ComplexParams) -> Observation:
         restraint_defines=defines_list,
         tc_grps=tc_fact.value,
     )
-    profile.triggered_rules = evaluate_rules(profile)
     root = ctx.workspace.root
     return Observation(
         ok=True,
@@ -213,6 +212,5 @@ def complex_assemble(ctx: ToolContext, params: ComplexParams) -> Observation:
         ligand_atoms=len(ligand_lines),
         restrained_atoms=len(restrained),
         restraints_define=params.restraints_define if restrained else None,
-        system_profile=profile.model_dump(exclude_defaults=True, exclude={"triggered_rules"}),
-        modeling_rules=[r.model_dump(exclude={"when", "sources"}) for r in profile.triggered_rules],
+        system_profile=profile.model_dump(exclude_defaults=True),
     )

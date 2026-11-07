@@ -189,9 +189,9 @@ def grompp(ctx: ToolContext, mdp: Path, structure: Path, topology: Path, index: 
 
 def compile_stage_run_input(ctx: ToolContext, mdp: Path, files: dict[str, Path], stage_dir: Path,
                             name: str, max_warn: int = 0) -> Observation | None:
-    """A stage's .tpr, one per stage since the output stride is the stage's own. The mdp's
-    sensors judge it first, and a blocking one refuses as grompp's own error does. None while
-    the stage's structure or topology is not yet there."""
+    """A stage's .tpr, one per stage since the output stride is the stage's own. The engine's
+    checks of the mdp judge it first, and a blocking one refuses as grompp's own error does.
+    None while the stage's structure or topology is not yet there."""
     from myrmidon.engines.gromacs.mdp import parse_mdp_file, validate_mdp
     from myrmidon.knowledge.catalog import for_engine
 

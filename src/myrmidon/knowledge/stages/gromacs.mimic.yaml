@@ -38,12 +38,4 @@ sources:
 - kind: url
   text: MiMiC documentation, the GROMACS side of a coupled run (integrator mimic, QMMM-grps).
   locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
-invariants:
-- id: MIMIC_MDP_MUST_NOT_THERMOSTAT
-  equal: [$tcoupl, 'no']
-  message: 'the GROMACS side of a MiMiC run must not thermostat: CPMD integrates and thermostats
-    the whole system, so a GROMACS thermostat double-counts'
-- id: MIMIC_MDP_MUST_NOT_CONSTRAIN
-  equal: [$constraints, none]
-  message: constraints on the QM molecule fight the QM forces; the quantum solute has to be flexible
-version: 1
+version: 2

@@ -6,7 +6,7 @@ earlier one, the agent in a session or a wake. A plain failure is rerun identica
 the mandate's `recovery.reruns` allow; a cancelled job is left as it was cancelled; anything
 else, a rerun budget spent, every job ended with the study going on, or a newly approved
 mandate wakes the agent: the same tools, the same gate, the same mandate, a few turns, with
-the study, the log tail of what failed and the sensors' findings on its text inputs. The
+the study, the log tail of what failed and what its engine says of its text inputs. The
 wake is the model's turn exactly as in a session; nothing here interprets the study. Each
 wake is written to `.myrmidon/wakes/index.jsonl` before it starts and again, with its
 transcript's hash, when it ends. What a wake could not do because the gate refused it — the
@@ -44,7 +44,7 @@ WAKES_DIR = "wakes"
 WAKE_TURNS = 40
 #: the study's last calls a wake is shown, so it need not look them up
 RECENT_CALLS = 15
-#: an input larger than this is not read for the wake's sensors (trajectories, checkpoints)
+#: an input larger than this is not checked for the wake (trajectories, checkpoints)
 SENSED_BYTES = 1_000_000
 
 #: what the gate refuses that only the researcher can grant
@@ -294,7 +294,7 @@ def _wake(ctx, mandate, state, report, wake, registry, waking, unseen, inbox) ->
 def compose(ctx, mandate, waking: list[Failure], unseen: list[str],
             registry=REGISTRY) -> str:
     """The wake's prompt, from the study alone: the mandate, what ended since the last
-    turn, and for a failure its log's last lines and the sensors' findings on its text
+    turn, and for a failure its log's last lines and what its engine says of its text
     inputs."""
     from myrmidon.execution.jobs import booked_under_mandates
 
@@ -330,7 +330,8 @@ def compose(ctx, mandate, waking: list[Failure], unseen: list[str],
             check = registry.call("file_check", ctx, {"path": art.path})
             seen = [f.message for f in check.findings]
             if seen:
-                lines += [f"The sensors on {art.path}:", *(f"  - {m}" for m in seen[:8])]
+                lines += [f"What its engine says of {art.path}:",
+                          *(f"  - {m}" for m in seen[:8])]
     lines += ["", "Carry the study on toward the deliverables — the next stage, or a fix to "
               "what failed and its run — within the ceiling. When every deliverable is in "
               "hand, call study_report."]

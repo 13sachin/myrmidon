@@ -34,7 +34,7 @@ class Observation(BaseModel):
     ok: bool
     summary: str  # 1-3 lines, model-facing
     error: ToolError | None = None  # set when the call was refused or could not run
-    # what the harness's sensors and the engine noticed, each with what it means: read,
+    # what the engines' checks and the harness noticed, each with what it means: read,
     # decide, and record the reason; a refusal carries its stopping finding first
     findings: list[Finding] = Field(default_factory=list)
     # values the harness derived from the system's files instead of asking for them

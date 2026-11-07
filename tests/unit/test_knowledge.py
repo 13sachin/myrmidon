@@ -114,22 +114,23 @@ def test_pdb_search(ctx, monkeypatch):
     assert "1L2Y" in obs.summary
 
 
-def test_every_sensor_record_is_sourced_unique_and_readable():
-    """A sensor is knowledge a reviewer audits: one id each, a verified one says where it
-    comes from, and every condition is one the evaluator reads."""
-    import pytest
+def test_every_engine_check_carries_a_source():
+    """A check of what an engine does silently is knowledge a reviewer audits: one id each,
+    each says where it was learned, and one learned from a run names a fixture that exists
+    with the hash it states."""
+    import hashlib
+    from pathlib import Path
 
-    from myrmidon.knowledge.sensors import SensorRecord, evaluate, load_sensors
+    from myrmidon.engines.registry import adapters
 
-    records = load_sensors()  # a condition the evaluator cannot read fails to load
-    ids = [r.id for r in records]
-    assert records and len(ids) == len(set(ids))
-    assert [r.id for r in records if r.status == "verified" and not r.sources] == []
-    for kind in {r.subject for r in records}:
-        evaluate(kind, {}, keys=[{}])
-    for when in ({"dt": {"bogus": 1}}, {"dt": {"gt": "0.1"}}, {"x": {"differs_from": 1}}):
-        with pytest.raises(ValueError):
-            SensorRecord(id="X", subject="mdp", sees="x", when=when)
+    checks = [c for a in adapters() for c in a.checks]
+    ids = [c.id for c in checks]
+    assert checks and len(ids) == len(set(ids))
+    assert [c.id for c in checks if not c.sources] == []
+    root = Path(__file__).parents[2]
+    for check in (c for c in checks if c.sha256):
+        fixture = root / check.sources[0]
+        assert hashlib.sha256(fixture.read_bytes()).hexdigest() == check.sha256, check.id
 
 
 def test_a_tool_profile_names_registered_tools_and_narrows_what_a_client_sees(ws_ctx):

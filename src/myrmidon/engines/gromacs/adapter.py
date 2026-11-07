@@ -75,5 +75,6 @@ ADAPTER = EngineAdapter(
     energy_series=extract_energy_terms,
     forcefield=system.forcefield,
     input_findings=_input_findings,
+    checks=mdp.CHECKS,
     run_reads=("mdp", "tpr", "checkpoint", "structure", "topology", "index", "trajectory"),
 )

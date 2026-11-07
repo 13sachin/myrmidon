@@ -16,6 +16,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, PrivateAttr
 
+from myrmidon.core.validation import Check, Finding
 from myrmidon.knowledge.sources import Source
 
 CATALOG_DIR = Path(__file__).parent / "catalog"
@@ -67,6 +68,45 @@ class Catalog(BaseModel):
                 if need <= words and len(need) > size:
                     best, size = key, len(need)
         return best
+
+
+def catalog_findings(keys: list[dict], catalog: Catalog, checks: dict[str, Check], *,
+                     noun: str, unknown_means: str) -> list[Finding]:
+    """Each key of an engine's input that its version's catalog does not read as written:
+    one it does not have (``unknown``, which the engine's ``unknown_means`` says what it does
+    with), an ``obsolete`` one, one ``renamed`` since, one no stage template or input set
+    states (``out_of_scope``). ``keys`` holds each as the file writes it (``label``, ``name``,
+    ``value``) with its ``status`` and, renamed, what it is now (``renamed_to``) or, out of
+    scope, the engine's ``default``; ``checks`` is the engine's finding for each status."""
+    engine = f"{catalog.engine.upper()} {catalog.version}"
+    out = []
+    for key in keys:
+        check, label = checks.get(key["status"]), key["label"]
+        if check is None:
+            continue
+        if key["status"] == "unknown":
+            out.append(check.finding(f"{label}: {engine} reads no such {noun}",
+                                     means=unknown_means,
+                                     suggestion=f"check the spelling of {label} in the manual"))
+        elif key["status"] == "obsolete":
+            out.append(check.finding(f"{label}: an obsolete {noun}; {engine} ignores it",
+                                     means="the value written there has no effect on the run",
+                                     suggestion=f"remove {label}"))
+        elif key["status"] == "renamed":
+            out.append(check.finding(
+                f"{label}: {engine} reads it as {key['renamed_to']}",
+                means="the run takes the value under the current name; a reader of the file "
+                "may not", suggestion=f"spell it {key['renamed_to']}"))
+        elif key["status"] == "out_of_scope":
+            default = key.get("default")
+            out.append(check.finding(
+                f"{label}: no stage template or input set states this {noun}"
+                + (f" (the engine default is {default})" if default else ""),
+                means="nothing the harness ships reasons about it, so its effect is the "
+                "file's alone",
+                suggestion=f"leave {key['name'] or label} at the engine default unless the "
+                "study is about it"))
+    return out
 
 
 class SystemFact(BaseModel):

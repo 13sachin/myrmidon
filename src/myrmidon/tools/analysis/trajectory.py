@@ -20,7 +20,6 @@ from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext
 from myrmidon.engines.inputs import resolve_in_ws
-from myrmidon.knowledge.sensors import evaluate
 
 #: what each metric is a function of
 _AXIS = {"rmsd": "time_ps", "rmsf": "atom_index", "rg": "time_ps", "rdf": "r_angstrom",
@@ -73,15 +72,13 @@ class TrajParams(BaseModel):
     stop_ps: float | None = Field(default=None, description="analyse frames up to this time")
 
 
-def _pair(metric: str, params, atoms, g2) -> dict:
-    """The selection pair as the sensors read it: the side with hydrogens and the side
-    without, and how many hydrogens the latter's own residues carry."""
-    sides = [(params.selection, atoms), (params.selection2, g2)]
-    sides.sort(key=lambda side: -_hydrogens(side[1]))
-    (with_sel, with_g), (without_sel, without_g) = sides
-    return {"metric": metric, "with_hydrogens": with_sel, "without_hydrogens": without_sel,
-            "hydrogens_with": _hydrogens(with_g), "hydrogens_without": _hydrogens(without_g),
-            "residue_hydrogens_without": _hydrogens(without_g.residues.atoms)}
+def _hydrogen_facts(atoms, g2) -> dict:
+    """How many hydrogens each selection holds, and how many its own residues carry: a
+    distance from every atom of one side to the heavy atoms of the other is neither a
+    heavy-atom distance nor an all-atom one, which the agent reads from these."""
+    return {"selection_hydrogens": [_hydrogens(atoms), _hydrogens(g2)],
+            "residue_hydrogens": [_hydrogens(atoms.residues.atoms),
+                                  _hydrogens(g2.residues.atoms)]}
 
 
 def _molecules(u, group):
@@ -149,9 +146,8 @@ def _analyze(ctx: ToolContext, params: TrajParams) -> Observation:
             return refuse(_selection_error(params.selection2, exc))
         if len(g2) == 0:
             return refuse(f"selection2 matched no atoms ({params.selection2!r})")
-    # what a careful researcher notices about the selections before reading the number
-    noticed = evaluate("selection_pair", _pair(metric, params, atoms, g2)) \
-        if g2 is not None else []
+    # what each side of a pair holds, for reading the number
+    facts = _hydrogen_facts(atoms, g2) if g2 is not None else {}
     n_total = len(u.trajectory)
     if params.reference_frame >= n_total:
         return refuse(f"reference_frame {params.reference_frame} is past the trajectory's "
@@ -225,7 +221,8 @@ def _analyze(ctx: ToolContext, params: TrajParams) -> Observation:
     if metric == "contacts":
         obs = _contacts(ctx, params, u, atoms, g2, times, start, stop, stage, trajectory,
                         transformations)
-        obs.findings = [*noticed, *obs.findings]
+        for key, value in facts.items():
+            setattr(obs, key, value)
         return obs
 
     x: np.ndarray
@@ -328,7 +325,7 @@ def _analyze(ctx: ToolContext, params: TrajParams) -> Observation:
         fit_selection=fit_selection,
         reference=reference,
         transformations=transformations,
-        findings=noticed,
+        **facts,
     )
 
 
@@ -339,7 +336,7 @@ def _contacts(ctx: ToolContext, params: TrajParams, u, atoms, g2, times: np.ndar
     from MDAnalysis.lib import distances as libdist
 
     from myrmidon.core.artifacts import fresh_path
-    from myrmidon.knowledge.rules import load_residue_map
+    from myrmidon.engines.structure import load_residue_map
 
     res_map = load_residue_map(ctx.workspace.root if ctx.workspace else None)
     n_frames = stop - start

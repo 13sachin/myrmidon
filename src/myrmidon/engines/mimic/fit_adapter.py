@@ -3,17 +3,25 @@ sees it."""
 
 from __future__ import annotations
 
+from myrmidon.core.validation import Check
 from myrmidon.engines.gromacs.itp import BONDED_N_ATOMS, parse_itp_atoms, parse_itp_bonded
 from myrmidon.engines.mimic import fit_collect, fm, fm_dataset
 from myrmidon.engines.registry import EngineAdapter, FitReaders, StageRender, StageText
-from myrmidon.knowledge.sensors import evaluate
+
+FEW_SNAPSHOTS = Check(id="FM_FEW_SNAPSHOTS", sources=(
+    "https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html",))
 
 
 def _stage_text(request: StageRender) -> StageText:
-    """A fit's input, and what the sensor records make of how many snapshots it fits."""
-    return StageText(
-        fm.render_fminput(request.values, request.origin, request.header),
-        findings=evaluate("fm_input", {"n_snapshots": fm.stride_count(request.values)}))
+    """A fit's input, and whether its stride leaves it too few snapshots to fit."""
+    n = fm.stride_count(request.values)
+    findings = [FEW_SNAPSHOTS.finding(
+        f"the fit's stride selects only {n} snapshot(s)",
+        means="a parameter fit on fewer than 100 snapshots overfits them and validates poorly",
+        suggestion="widen the stride, or collect more reference frames")] if (
+        n is not None and n < 100) else []
+    return StageText(fm.render_fminput(request.values, request.origin, request.header),
+                     findings=findings)
 
 
 ADAPTER = EngineAdapter(
@@ -37,6 +45,7 @@ ADAPTER = EngineAdapter(
     diagnose=fit_collect.diagnose_log,
     force_comparison=fit_collect.force_comparison,
     run_reads=fit_collect.FIT_INPUTS,
+    checks=(FEW_SNAPSHOTS,),
     fit_readers=FitReaders(
         parse_fm_log=fm.parse_fm_log, parse_fmcheck_report=fm.parse_fmcheck_report,
         parse_optimization_results=fm.parse_optimization_results,

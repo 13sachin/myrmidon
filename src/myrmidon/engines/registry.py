@@ -193,6 +193,8 @@ class EngineAdapter:
     forcefield: Callable[[Path], object] | None = None
     #: how the files of a fit it ran read
     fit_readers: FitReaders | None = None
+    #: every finding its checks of an input as it is on disk can raise, with its sources
+    checks: tuple = ()
     #: the file kinds a stage's run of this engine reads
     run_reads: tuple[str, ...] = ()
     #: (ctx, the partition call's parameters) -> the system split into its QM region and the

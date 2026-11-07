@@ -2,9 +2,9 @@
 
 A finding is one of three kinds, by its class:
 
-- ``Finding``: information — what a sensor noticed, what the harness assumed, what it did,
-  what the model decided on its own knowledge. Recorded on the observation and in the ledger,
-  shown in the report and the approval view; the call runs.
+- ``Finding``: information — what an engine's check noticed, what the harness assumed, what
+  it did, what the model decided on its own knowledge. Recorded on the observation and in the
+  ledger, shown in the report and the approval view; the call runs.
 - ``Precondition``: the call cannot run as made — a missing input, a value it cannot read,
   the rare physics a silent engine would get wrong. It says what is missing or wrong and
   ``needs`` names the parameters any one of which resolves it; it is the call's error.
@@ -30,7 +30,7 @@ class Finding(BaseModel):
     #: the kind, by class; `severity` names it in a record
     kind: ClassVar[Severity] = "info"
 
-    id: str  # stable, SCREAMING_SNAKE, e.g. "MDP_DT_LARGE_NO_CONSTRAINTS"
+    id: str  # stable, SCREAMING_SNAKE, e.g. "QM_CELL_NO_VACUUM"
     message: str  # what it sees, with the values
     means: str | None = None  # what that means for the physics or the run
     assumption: str | None = None  # what would be silently assumed, spelled out
@@ -64,6 +64,25 @@ class Theirs(Finding):
     """A person's to accept."""
 
     kind: ClassVar[Severity] = "warn"
+
+
+class Check(BaseModel):
+    """One finding a check can raise, as knowledge a reviewer audits: its id, where it was
+    learned (a fixture of what an engine did, or the manual that says so), the fixture's
+    SHA-256 when its first source is one, and whether the call stops on it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    sources: tuple[str, ...]
+    sha256: str = ""
+    stops: bool = False
+
+    def finding(self, message: str, *, means: str = "", suggestion: str = "",
+                assumption: str = "") -> Finding:
+        return (Precondition if self.stops else Finding)(
+            id=self.id, message=message, means=means or None, suggestion=suggestion or None,
+            assumption=assumption or None, sources=list(self.sources))
 
 
 class GateDecision(BaseModel):

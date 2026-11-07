@@ -421,9 +421,10 @@ def test_a_ligand_is_parametrised_and_placed_where_grompp_reads_it(
     gro = (ws.root / next(a.path for a in obs.artifacts if a.role == "structure"))
     assert gro.read_text().splitlines()[-2][5:15].split() == ["JZ4", "H11"]
     assert sel.residue_map == {1: "A:MET1", 2: "A:ASN2", 3: "A:THR21"}
-    assert "LIGAND_PROTONATION_BEFORE_ACPYPE" in {r["id"] for r in sel.modeling_rules}
-    assert "TOPOLOGY_RESIDUE_RENUMBERING" in {r["id"] for r in sel.modeling_rules}
-    assert "SMALL_LIGAND_MERGED_THERMOSTAT_BATH" in {r["id"] for r in obs.modeling_rules}
+    # the facts the agent reasons over: a ligand with no hydrogens, a renumbered topology
+    assert (sel.system_profile["ligand_hydrogens"], sel.system_profile["has_residue_offset"]) \
+        == (0, True)
+    assert obs.system_profile["ligand_atoms"] == 22
 
 
 def _ar1(phi, n, seed, transient=0.0, tau_ps=0.0, dt_ps=2.0):

@@ -8,9 +8,8 @@ from __future__ import annotations
 import re
 
 from myrmidon.core.contracts import Property, declare_alias, declare_identity, define_kind
-from myrmidon.core.validation import Finding
-from myrmidon.knowledge.catalog import Catalog
-from myrmidon.knowledge.sensors import evaluate
+from myrmidon.core.validation import Check, Finding
+from myrmidon.knowledge.catalog import Catalog, catalog_findings
 
 _SECTION_RE = re.compile(r"^\s*&(\w+)", re.IGNORECASE)
 _END_RE = re.compile(r"^\s*&END", re.IGNORECASE)
@@ -262,8 +261,8 @@ CHECKED_SECTIONS = ("CPMD", "SYSTEM", "DFT", "MIMIC")
 
 def keyword_status(sections: dict[str, list[str]], catalog: Catalog) -> list[dict]:
     """Each keyword line as the CPMD version's catalog sees it — unknown, decided by
-    nothing the harness reasons about (out_of_scope), or known — the subject the per-key
-    sensor records read."""
+    nothing the harness reasons about (out_of_scope), or known — what ``catalog_findings``
+    reads."""
     out = []
     for section in CHECKED_SECTIONS:
         for line in sections.get(section, []):
@@ -271,6 +270,7 @@ def keyword_status(sections: dict[str, list[str]], catalog: Catalog) -> list[dic
                 continue
             key = catalog.keyword(section, line)
             out.append({"section": section, "line": line.strip(), "version": catalog.version,
+                        "label": f"&{section} {line.strip()}",
                         "name": key.name if key is not None else "",
                         "status": "unknown" if key is None
                         else "known" if _decided(key) else "out_of_scope"})
@@ -286,31 +286,92 @@ def _decided(key) -> bool:
     return name in PREPQM_KEYWORDS or name in decided_keys("cpmd")
 
 
-def cpmd_subject(sections: dict[str, list[str]], restart_from: str | None = None) -> dict:
-    """The facts of a CPMD input the sensor records read: the &MIMIC box, the QM cell's
-    vacuum around the QM atoms, RESTART and restraints, MAXSTEP and whether the run
-    optimises a wavefunction, and the restart a call names."""
-    cpmd = sections.get("CPMD", [])
-    geom = qm_geometry(sections) or {}
-    maxstep = get_keyword(cpmd, "MAXSTEP")
-    return {
-        "has_mimic_section": "MIMIC" in sections,
-        "has_mimic_box": get_keyword(sections.get("MIMIC", []), "BOX") is not None,
-        "min_vacuum_bohr": geom.get("min_vacuum_bohr"),
-        "cell_bohr": "x".join(str(v) for v in geom.get("cell_bohr", [])) or None,
-        "wants_restart": any(line.strip().upper().startswith("RESTART") for line in cpmd),
-        "restart_from": restart_from,
-        "has_restraints": has_keyword(sections.get("ATOMS", []), "RESTRAINTS"),
-        "maxstep": maxstep.strip() if maxstep is not None else None,
-        "optimising": has_keyword(cpmd, "WAVEFUNCTION OPTIMIZATION"),
-    }
+_MANUAL = "https://gitlab.com/mimic-project/cpmd/-/tree/72922c3/doc/manual/manual.tex"
+#: a keyword's status in the version's catalog, as the finding it raises
+KEY_CHECKS = {
+    "unknown": Check(id="CPMD_KEYWORD_UNKNOWN", sources=(_MANUAL,)),
+    "out_of_scope": Check(id="CPMD_KEYWORD_OUT_OF_SCOPE", sources=(_MANUAL,)),
+}
+MIMIC_BOX_MISSING = Check(id="MIMIC_BOX_MISSING", sources=(
+    "https://manual.gromacs.org/2021.6/reference-manual/special/mimic-qmmm.html",))
+# a coupled run whose QM cell was the QM atoms' bounding box, segfaulting in the short-range
+# potential with nothing that names the cause
+QM_CELL_NO_VACUUM = Check(
+    id="QM_CELL_NO_VACUUM", sources=("tests/fixtures/cpmd/segfault_tight_cell.err",),
+    sha256="036585f9a7d207fd68797a274712f1272efc8fd2b1a206bcb6b4dc0ff5228283", stops=True)
+QM_CELL_TIGHT = Check(id="QM_CELL_TIGHT", sources=(f"{_MANUAL}#system-poisson-solver",))
+RESTART_FILE_UNUSED = Check(id="CPMD_RESTART_FILE_UNUSED", sources=(f"{_MANUAL}#cpmd-restart",))
+RESTRAINTS_UNDER_MIMIC = Check(id="CPMD_RESTRAINTS_UNDER_MIMIC", sources=(_MANUAL,))
+MAXSTEP_UNSET = Check(id="CPMD_MAXSTEP_UNSET", sources=(f"{_MANUAL}#cpmd-maxstep",))
+SCF_LIMIT_TOO_LOW = Check(id="CPMD_SCF_LIMIT_TOO_LOW", sources=(f"{_MANUAL}#cpmd-maxstep",))
+CHECKS = (*KEY_CHECKS.values(), MIMIC_BOX_MISSING, QM_CELL_NO_VACUUM, QM_CELL_TIGHT,
+          RESTART_FILE_UNUSED, RESTRAINTS_UNDER_MIMIC, MAXSTEP_UNSET, SCF_LIMIT_TOO_LOW)
 
 
 def cpmd_findings(sections: dict[str, list[str]], catalog: Catalog,
                   restart_from: str | None = None) -> list[Finding]:
-    """What the sensor records make of a CPMD input (knowledge/rules/)."""
-    return evaluate("cpmd_input", cpmd_subject(sections, restart_from),
-                    version=catalog.version, keys=keyword_status(sections, catalog))
+    """What CPMD does silently with this input as it is (the restart a call names among it),
+    and its keywords as the version's catalog reads them."""
+    cpmd = sections.get("CPMD", [])
+    geom = qm_geometry(sections) or {}
+    vacuum, cell = geom.get("min_vacuum_bohr"), "x".join(str(v) for v in geom.get("cell_bohr", []))
+    maxstep = (get_keyword(cpmd, "MAXSTEP") or "").strip()
+    optimising = has_keyword(cpmd, "WAVEFUNCTION OPTIMIZATION")
+    out: list[Finding] = []
+    if "MIMIC" in sections and get_keyword(sections["MIMIC"], "BOX") is None:
+        out.append(MIMIC_BOX_MISSING.finding(
+            "&MIMIC has no BOX line",
+            means="the whole system's box is how MiMiC places the QM cell in the MM box",
+            suggestion="let stage_prepare merge &MIMIC from the system qm_region wrote"))
+    if vacuum is not None and vacuum < 1.0:
+        out.append(QM_CELL_NO_VACUUM.finding(
+            f"QM cell {cell} bohr leaves {vacuum} bohr around the QM atoms",
+            means="with no vacuum around the QM region CPMD/MiMiC segfaults in the short-range "
+            "potential, and says nothing that names the cause",
+            suggestion="qm_region with padding_nm >= 0.3"))
+    elif vacuum is not None and vacuum < 5.0:
+        out.append(QM_CELL_TIGHT.finding(
+            f"only {vacuum} bohr between the QM atoms and the cell wall (cell {cell} bohr)",
+            means="the electron density touches the wall; the isolated-molecule Poisson solver "
+            "needs several bohr of vacuum", suggestion="padding_nm >= 0.3 in qm_region"))
+    if restart_from and not any(line.strip().upper().startswith("RESTART") for line in cpmd):
+        out.append(RESTART_FILE_UNUSED.finding(
+            f"restart_from names {restart_from}, and the input has no RESTART line",
+            means="CPMD starts from scratch and ignores the file: the run is not the "
+            "continuation it looks like",
+            suggestion="render the input with RESTART (the continuation stages carry it), or "
+            "drop restart_from"))
+    if has_keyword(sections.get("ATOMS", []), "RESTRAINTS"):
+        out.append(RESTRAINTS_UNDER_MIMIC.finding(
+            "&ATOMS carries a CONSTRAINTS/RESTRAINTS block",
+            means="in MiMiC coupled runs CPMD's native restraints have segfaulted when the "
+            "restraint force is first applied, in builds without PLUMED hooks (a candidate: "
+            "not yet seen again on a run here)",
+            suggestion="displaced single points for geometries at chosen distances, unless the "
+            "build is known to support restraints under MiMiC"))
+    if not maxstep and not optimising:
+        out.append(MAXSTEP_UNSET.finding(
+            "&CPMD has no MAXSTEP, and the run is dynamics",
+            means="CPMD runs its compiled default number of MD steps: the stage's length is not "
+            "on record", assumption="CPMD's compiled default number of MD steps",
+            suggestion="state the stage's steps or duration_ps in the mandate, and "
+            "stage_prepare it again"))
+    if optimising and maxstep and _first_number(maxstep) < 20:
+        out.append(SCF_LIMIT_TOO_LOW.finding(
+            f"a WAVEFUNCTION OPTIMIZATION run with MAXSTEP {maxstep}",
+            means="MAXSTEP bounds SCF iterations here; an unconverged single point still exits "
+            "0, and its forces are unusable as reference data",
+            suggestion="leave maxsteps unset so CPMD uses its own SCF limit"))
+    return [*out, *catalog_findings(
+        keyword_status(sections, catalog), catalog, KEY_CHECKS, noun="keyword",
+        unknown_means="CPMD lists it among the unknown keywords and runs without it")]
+
+
+def _first_number(text: str) -> float:
+    try:
+        return float(text.split()[0])
+    except (ValueError, IndexError):
+        return float("inf")
 
 
 #: the keywords mimicpy's prepqm writes from the system and the researcher's charge: the QM

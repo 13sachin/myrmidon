@@ -209,7 +209,7 @@ class FileCheckParams(BaseModel):
 
 @tool(
     "file_check",
-    description="Check one engine input file without running it: what the sensors notice, where "
+    description="Check one engine input file without running it: what its engine says, where "
                 "every value came from, and what changed by hand since it was rendered. Use before"
                 " running an edited file, or to answer 'where did this number come from'. A look, "
                 "not a step.",

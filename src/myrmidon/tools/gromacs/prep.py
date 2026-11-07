@@ -90,7 +90,7 @@ def gmx_pdb2gmx(ctx: ToolContext, params: Pdb2gmxParams) -> Observation:
     if m:
         charge = float(m.group(1))
     from myrmidon.engines.gromacs.system import coupling_groups, restraint_defines
-    from myrmidon.knowledge.rules import SystemProfile, evaluate_rules
+    from myrmidon.engines.structure import SystemProfile
 
     gmx_info = ctx.engines.get("gromacs")
     search = [Path(gmx_info.data_dir)] if gmx_info and gmx_info.data_dir else []
@@ -103,7 +103,6 @@ def gmx_pdb2gmx(ctx: ToolContext, params: Pdb2gmxParams) -> Observation:
         restraint_defines=defines_list,
         tc_grps=tc_fact.value,
     )
-    profile.triggered_rules = evaluate_rules(profile)
     return Observation(
         ok=True,
         summary=(
@@ -121,8 +120,7 @@ def gmx_pdb2gmx(ctx: ToolContext, params: Pdb2gmxParams) -> Observation:
         net_charge=charge,
         forcefield=params.forcefield,
         water_model=params.water,
-        system_profile=profile.model_dump(exclude_defaults=True, exclude={"triggered_rules"}),
-        modeling_rules=[r.model_dump(exclude={"when", "sources"}) for r in profile.triggered_rules],
+        system_profile=profile.model_dump(exclude_defaults=True),
     )
 
 
