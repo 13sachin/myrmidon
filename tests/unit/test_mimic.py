@@ -727,9 +727,10 @@ def _measured_over_both_segments(ctx, stage):
         ctx.workspace, stage)]
     assert len(set(segments)) == 2
     measured = REGISTRY.call("observable_measure", ctx, {
-        "stage": stage, "property": "rmsd", "structure": "01_input/acetone_equilibrated.gro",
-        "selection": "resname ACT"})
+        "stage": stage, "property": "rmsd", "selection": "resname ACT"})
     assert measured.ok, measured.summary
+    # a run input the reader cannot take is measured on the structure the stage was prepared on
+    assert "DELIVERABLE_STRUCTURE_FOR_TPR" in {f.id for f in measured.findings}
     join = [e for e in ctx.workspace.ledger.events() if e.tool == "trajectory_join"][-1]
     assert [i.path for i in join.inputs] == segments
     joined = join.outputs[0]

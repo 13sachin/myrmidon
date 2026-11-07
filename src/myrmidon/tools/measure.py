@@ -208,6 +208,15 @@ def _on_run(ctx: ToolContext, params: MeasureParams, extractor: str, over: str, 
         tpr = next((a for a in inputs if a.role.split(".")[-1] == "tpr"), None)
         if tpr is not None and not params.structure:
             update["structure"] = tpr.path
+            if not _reads_as_topology(ctx.workspace.resolve(tpr.path)):
+                started = _prepared_on(ctx, over)
+                if started:
+                    update["structure"] = started
+                    said.append(Finding(id="DELIVERABLE_STRUCTURE_FOR_TPR", message=(
+                        f"{tpr.path} cannot be read as a topology here (a run input newer than "
+                        f"the reader knows, say), so {what} is measured with the atoms of "
+                        f"{started}, the structure stage {over} was prepared on: no bonds, so "
+                        "no molecule is made whole across the box")))
     elif extractor == "energy":
         if not take("energy", "edr"):
             return _refused(params, f"the run of stage {over} wrote no energy file")
@@ -235,6 +244,26 @@ def _on_run(ctx: ToolContext, params: MeasureParams, extractor: str, over: str, 
             "Measure another by naming its files"))
     out._said = said
     return out
+
+
+def _reads_as_topology(path) -> bool:
+    """Whether MDAnalysis reads this run input as a topology."""
+    import MDAnalysis as mda
+
+    try:
+        mda.Universe(str(path))
+    except Exception:  # noqa: BLE001 — any reader failure is a file it cannot take
+        return False
+    return True
+
+
+def _prepared_on(ctx: ToolContext, stage: str) -> str | None:
+    """The structure the latest preparation of ``stage`` compiled its run input against."""
+    for ev in reversed(list(ctx.workspace.ledger.events())):
+        if (ev.tool == "stage_prepare" and ev.ok and ev.kind == "call"
+                and f"stage:{stage}" in ev.knowledge_refs):
+            return next((i.path for i in ev.inputs if i.role == "structure"), None)
+    return None
 
 
 def _measure_forces(ctx: ToolContext, params: MeasureParams) -> Observation:
