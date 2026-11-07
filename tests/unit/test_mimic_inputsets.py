@@ -98,8 +98,8 @@ def protocol_mandate(protocol: str) -> Mandate:
         "subsystems": SUBSYSTEMS,
         "hamiltonian": {"mm": "amber",
                         **shipped.hamiltonian.model_dump(exclude_none=True, exclude={"mm"})}},
-        "method": {"stages": [s.stage.model_dump(mode="json", exclude_none=True)
-                              for s in shipped.steps if s.stage is not None]}})
+        "method": {"stages": [s.model_dump(mode="json", exclude_none=True)
+                              for s in shipped.stages]}})
 
 
 def compiled(stage: str, engine: str, protocol: str = "mimic_qmmm_solvated_solute",
@@ -253,22 +253,18 @@ def test_tutorial_mdp_stages_pass_the_harness_mdp_audit(reference):
 def test_invariants_hold_on_the_protocols_own_values():
     """Each template's own rules, and the protocol's rule about two different steps."""
     protocol = ProtocolStore.builtin().get("mimic_qmmm_solvated_solute")
-    regime = {s.stage.name: s.stage.regime for s in protocol.steps if s.stage}
-    seen, rendered = [], {}
-    for step in protocol.steps:
-        if not step.cites:
-            continue
-        stage = step.cited()[0]
+    rendered: dict[str, dict] = {}
+    for physical in protocol.stages:
+        stage = physical.name
         ramp = ({"&CPMD/TEMPERATURE RAMP": "1.8 300 20", "&CPMD/BERENDSEN IONS": "1.8 5000"}
                 if stage == "heat" else {})
-        coupled = (("cpmd", "cpmd_inp"),) if regime[stage] != "mm" else ()
-        for engine, renders in (("gromacs", "mdp"), *coupled):
+        coupled = ("cpmd",) if physical.regime != "mm" else ()
+        for engine in ("gromacs", *coupled):
             template, resolution = compiled(stage, engine, **(ramp if coupled else {}))
             results = evaluate_invariants(template.invariants, {"": resolution.values})
             assert all(r.status == "satisfied" for r in results), [
                 (r.id, r.detail) for r in results]
-            seen += results
-            rendered[f"stage:{stage}/{renders}"] = resolution.values
+            rendered.setdefault(stage, {}).update(resolution.values)
     across = protocol.check_invariants(rendered)
     assert across and all(r.status == "satisfied" for r in across)
 
@@ -353,25 +349,15 @@ def test_the_force_matching_stage_reproduces_the_harness_fixtures():
 
 
 def test_the_force_matching_pace_invariant_catches_a_mismatch(ws_ctx):
-    """The rule the fixture states in a comment, enforced across two files: it relates
-    values two *different* steps render, so it is procedure and lives on the protocol the
-    mandate names."""
+    """The rule the fixture states in a comment, enforced across the stage's two files: it
+    relates values two templates render, so it is the protocol's and the compiler checks it
+    as the stage is prepared, every file of it at once."""
     files = _qm_study(ws_ctx, "fm_reference_singlepoint")
-    ok = REGISTRY.call("inputset_apply", ws_ctx, {
-        "stage": "reference", **files, "output": "01_input/sp.inp"})
-    assert ok.ok, ok.summary
-    # with only one file rendered the cross-file rule cannot be decided yet
-    assert [i["status"] for i in ok.invariants if i["id"] == "FM_PACE_MATCHES_NSTXOUT"] == [
-        "deferred"]
+    refused = REGISTRY.call("stage_prepare", ws_ctx, {
+        "stage": "reference", **files, "overrides": {"nstxout": 10, "nstfout": 10}})
+    assert not refused.ok and refused.error.code == "FM_PACE_MATCHES_NSTXOUT"
 
-    refused = REGISTRY.call("inputset_apply", ws_ctx, {
-        "stage": "reference", **files, "output": "01_input/mimic_fm.mdp",
-        "overrides": {"nstxout": 10, "nstfout": 10}})
-    assert not refused.ok
-    assert [w.id for w in blocking(refused)] == ["FM_PACE_MATCHES_NSTXOUT"]
-
-    obs = REGISTRY.call("inputset_apply", ws_ctx, {
-        "stage": "reference", **files, "output": "01_input/mimic_fm.mdp"})
+    obs = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "reference", **files})
     assert obs.ok, obs.summary
     assert "FM_PACE_MATCHES_NSTXOUT" in {
         i["id"] for i in obs.invariants if i["status"] == "satisfied"}

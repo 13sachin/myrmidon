@@ -977,15 +977,20 @@ STARTING_STATE = frozenset({"continuation", "gen-vel"})
 
 def compile_mandate(mandate: Mandate, *, templates: TemplateStore, methods: Methods,
                     facts: dict[str, SystemFact], atoms: int | None, paces: list[Pace],
-                    compute) -> MandateCompiled:
+                    compute, invariants: list = ()) -> MandateCompiled:
     """Every stage compiled by each template that tells an engine it: the keys its
     physical terms set, what only a render supplies, what the stage as stated cannot be
-    told at all; and its price on this machine."""
+    told at all; and its price on this machine. ``invariants`` relate values of its stages
+    (``$<stage>.<key>``, a protocol's): one its compiled values break is a problem, one on a
+    value only a render supplies is checked then."""
+    from myrmidon.core.invariants import evaluate_invariants
+
     out = MandateCompiled(notes=list(methods.missing),
                           problems=lock_problems(mandate, templates))
     # the system's structure is where the first stage starts; a later one starts from what
     # the stage before it leaves, which its render reads
     later_facts = {k: v for k, v in facts.items() if k not in STARTING_STATE}
+    compiled_values: dict[str, dict] = {}
     for at, stage in enumerate(mandate.method.stages):
         view = stage.model_dump(mode="json")
         lines = out.lines.setdefault(stage.name, [])
@@ -1000,6 +1005,7 @@ def compile_mandate(mandate: Mandate, *, templates: TemplateStore, methods: Meth
         for template in found:
             res = compile_stage(mandate, stage, template, templates=templates,
                                 methods=methods, facts=facts if at == 0 else later_facts)
+            compiled_values.setdefault(stage.name, {}).update(res.values)
             forms, _ = flattened(template, templates)
             out.problems += [f"stage {stage.name}: {why}" for why in res.unbuildable.values()]
             later = [k for k in res.missing if k not in res.unbuildable]
@@ -1017,6 +1023,9 @@ def compile_mandate(mandate: Mandate, *, templates: TemplateStore, methods: Meth
         if price.core_h is None:
             out.unpriced.append(stage.name)
         out.estimate_core_h += price.core_h or 0.0
+    out.problems += [f"{r.id}: {r.message} ({r.detail})"
+                     for r in evaluate_invariants(list(invariants), compiled_values)
+                     if r.status == "violated"]
     stages = {s.name for s in mandate.method.stages}
     for d in mandate.deliverables:
         if d.over and stages and d.over not in stages:

@@ -227,10 +227,10 @@ class ProtocolHit(BaseModel):
     scope: str = "project"
     layer: str | None = None
     version: int = 1
-    given: list[str] = Field(default_factory=list)  # roles the researcher brings
-    steps: list[dict] = Field(default_factory=list)
-    # the physical stages its runs carry out, as a mandate's method states them
+    given: list[str] = Field(default_factory=list)  # the file kinds the researcher brings
+    # its stages as a mandate's method states them, each with its price here
     stages: list[dict] = Field(default_factory=list)
+    deliverables: list[dict] = Field(default_factory=list)
     # the QM method and coupling its QM/MM stages were measured with, as a mandate's
     # hamiltonian states them
     hamiltonian: dict | None = None

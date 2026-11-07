@@ -614,10 +614,10 @@ def _render_kind(resolution, output: str | None) -> str | None:
     return kind if kind in RENDERED_FILES else None
 
 
-def _sidecar_values(ctx: ToolContext) -> dict[str, dict]:
-    """``stage:<name>/<renders>`` -> the values already rendered for that stage as that
-    file in this workspace, read back from the sidecars: how a protocol's rule about two
-    different files sees the other one. Two renders of one stage: the later path wins."""
+def rendered_by_stage(ctx: ToolContext) -> dict[str, dict]:
+    """Stage name -> the values rendered for it in this workspace, every file of it at once,
+    read back from the sidecars: how a rule about two stages, or two files of one stage, sees
+    what is already written. Two renders of one file: the later path wins."""
     known: dict[str, dict] = {}
     root = getattr(ctx.workspace, "root", None)
     if root is None:
@@ -627,49 +627,33 @@ def _sidecar_values(ctx: ToolContext) -> dict[str, dict]:
             data = json.loads(path.read_text())
         except (OSError, ValueError):
             continue
-        if data.get("stage") and "values" in data:  # a stage's render, as a step cites it
-            known[f"stage:{data['stage']}/{data.get('renders')}"] = data["values"]
+        if data.get("stage") and "values" in data:  # a stage's render
+            known.setdefault(data["stage"], {}).update(data["values"])
     return known
 
 
-def _study_protocol(ctx: ToolContext):
-    """The protocol the study's mandate names as its method, if it names one.
-
-    A protocol carries the rules that relate values *different steps* render — the GROMACS
-    output pace against the CPMD force-matching pace. They cannot live on an input set,
-    which knows only its own parameter set, so without a protocol they are not checked.
-    """
-    from myrmidon.core.mandate import read_mandate
+def protocol_of(ctx: ToolContext, mandate):
+    """The protocol a mandate names as its method; None when it names none this machine
+    has (unknown, or a layer's file that does not load)."""
     from myrmidon.knowledge.protocols import ProtocolStore
 
-    mandate = read_mandate(ctx.workspace) if ctx.workspace is not None else None
     if mandate is None or not mandate.method.protocol:
         return None
     store = ctx.protocols or ProtocolStore.default()
     try:
         return store.get_versioned(mandate.method.protocol)[0]
-    except (KeyError, ValueError):  # unknown, or a layer's file that does not load
+    except (KeyError, ValueError):
         return None
 
 
 def _check_invariants(ctx: ToolContext, inputset, resolution, method=None,
                       stage: str | None = None):
-    """The input set's or template's own rules, plus any the study's protocol declares
-    across steps; ``stage`` names the mandate stage a template render is for."""
+    """The input set's or template's own rules, over the values it resolves to; a rule across
+    a protocol's stages is the compiler's (``compile_mandate``, ``stage_prepare``)."""
     from myrmidon.knowledge.inputsets import evaluate_invariants
 
-    results = []
     own = [*inputset.invariants, *(method.invariants if method is not None else [])]
-    if own:
-        results += evaluate_invariants(own, {"": resolution.values})
-
-    protocol = _study_protocol(ctx)
-    if protocol is not None and protocol.invariants:
-        rendered = _sidecar_values(ctx)
-        if stage:  # the one about to be written
-            rendered[f"stage:{stage}/{inputset.renders}"] = resolution.values
-        results += protocol.check_invariants(rendered)
-    return results
+    return evaluate_invariants(own, {"": resolution.values}) if own else []
 
 
 def inputset_apply_gate(ctx: ToolContext, params: InputSetApplyParams):

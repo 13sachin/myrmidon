@@ -1,14 +1,16 @@
 id: mimic_qmmm_solvated_solute
-system_class: a solute treated quantum-mechanically in a classical water box, closed-shell, light elements;
-  distilled from a box of about 1500 atoms with a 10-atom QM region
+system_class: >-
+  a solute treated quantum-mechanically in a classical water box, closed-shell, light elements; distilled
+  from a box of about 1500 atoms with a 10-atom QM region
 aliases:
 - mimic_qmmm_acetone
 title: MiMiC QM/MM of a small solute in water — the MiMiC project's pipeline
 scope: engine
-applicability: 'The reference MiMiC QM/MM sequence: minimise and equilibrate classically, pick the QM
-  region, then four coupled runs — anneal, check NVE, heat, produce. Start from it for a small solute
-  treated quantum-mechanically in a classical box. It is a starting point and not a rule: bring an equilibrated
-  box and skip the first half, or build a different sequence entirely — that is what experimenting is.'
+applicability: >-
+  The reference MiMiC QM/MM sequence: minimise and equilibrate classically, then four coupled stages
+  — anneal, check NVE, heat, produce. Start from it for a small solute treated quantum-mechanically
+  in a classical box. It is a starting point and not a rule: bring an equilibrated box and drop the
+  first two stages, or build a different sequence entirely — that is what experimenting is.
 given:
 - structure
 - topology
@@ -17,254 +19,112 @@ hamiltonian:
     method: blyp_mt
   coupling:
     scheme: mimic
-steps:
-- name: box
-  tool: gmx_editconf
-  needs:
-  - structure
-  produces:
-  - structure_boxed
-  values:
-    structure: structure
-- name: solvate
-  tool: gmx_solvate
-  needs:
-  - structure_boxed
-  - topology
-  produces:
-  - structure_solvated
-  values:
-    structure: structure_boxed
-    topology: topology
-  note: writes the solvent count back into the topology, so the topology role carries on from here
-- name: minimise_prep
-  tool: stage_prepare
-  cites: stage:minimise
-  needs:
-  - structure_solvated
-  - topology
-  produces:
-  - tpr_minimise
-- name: minimise_run
-  tool: stage_run
-  needs:
-  - tpr_minimise
-  produces:
-  - structure_minimised
-  stage:
-    name: minimise
-    kind: minimize
-- name: heat_prep
-  tool: stage_prepare
-  cites: stage:equilibrate
-  needs:
-  - structure_minimised
-  - topology
-  produces:
-  - tpr_heat
-- name: heat_run
-  tool: stage_run
-  needs:
-  - tpr_heat
-  produces:
-  - structure_equilibrated
-  - checkpoint_equilibrated
-  note: NPT, for as long as the researcher asks; this is the classical equilibration every later step
-    depends on
-  stage:
-    name: equilibrate
-    kind: dynamics
-    ensemble: NPT
-    temperature_k: 300
-    pressure_bar: 1
-    duration_ps: 200
-- name: qm_region
-  tool: qm_region
-  needs:
-  - structure_equilibrated
-  - topology
-  produces:
-  - index_qm
-  - cpmd_input_qm
-  - qm_selection
-  values:
-    coords: structure_equilibrated
-    topology: topology
-  note: which atoms are quantum is the researcher's; for a solute in water it is the whole solute and
-    cuts no bond, which is the only case this sequence was measured on
-- name: anneal_prepare
-  tool: stage_prepare
-  cites: stage:anneal
-  needs:
-  - cpmd_input_qm
-  - index_qm
-  - qm_selection
-  - structure_equilibrated
-  - topology
-  produces:
-  - cpmd_input_anneal
-  - tpr_anneal
-  - mdp_anneal
-  note: its complete run input, merged onto the system the QM selection made once, and its compiled MM
-    half; charge and spin are the stage's
-- name: annealing
-  tool: stage_run
-  needs:
-  - cpmd_input_anneal
-  - tpr_anneal
-  produces:
-  - cpmd_restart_annealed
-  stage:
-    name: anneal
-    kind: minimize
-    regime: qmmm
-    steps: 300
-    temperature_k: 300
-    qm_region:
-      subsystems:
-      - ligand
-      charge: 0
-      multiplicity: 1
-- name: nve_check_prepare
-  tool: stage_prepare
-  cites: stage:nve_check
-  needs:
-  - cpmd_input_qm
-  - index_qm
-  - qm_selection
-  - structure_equilibrated
-  - topology
-  produces:
-  - cpmd_input_nve_check
-  - tpr_nve_check
-  - mdp_nve_check
-  note: its complete run input, merged onto the system the QM selection made once, and its compiled MM
-    half; charge and spin are the stage's
-- name: nve_test
-  tool: stage_run
-  needs:
-  - cpmd_input_nve_check
-  - tpr_nve_check
-  - cpmd_restart_annealed
-  produces:
-  - cpmd_restart_nve
-  stage:
-    name: nve_check
-    kind: dynamics
-    regime: qmmm
-    starts_from: anneal
-    ensemble: NVE
-    steps: 1000
-    qm_region:
-      subsystems:
-      - ligand
-      charge: 0
-      multiplicity: 1
-- name: heat_prepare
-  tool: stage_prepare
-  cites: stage:heat
-  needs:
-  - cpmd_input_qm
-  - index_qm
-  - qm_selection
-  - structure_equilibrated
-  - topology
-  produces:
-  - cpmd_input_heat
-  - tpr_heat
-  - mdp_heat
-  note: its complete run input, merged onto the system the QM selection made once, and its compiled MM
-    half; charge and spin are the stage's
-- name: heating
-  tool: stage_run
-  needs:
-  - cpmd_input_heat
-  - tpr_heat
-  - cpmd_restart_annealed
-  produces:
-  - cpmd_restart_heated
-  - trajectory_heating
-  stage:
-    name: heat
-    kind: dynamics
-    regime: qmmm
-    ensemble: NVT
-    steps: 1500
-    starts_from: anneal
-    temperature_k:
-      to_k: 300
-    qm_region:
-      subsystems:
-      - ligand
-      charge: 0
-      multiplicity: 1
-- name: production_prepare
-  tool: stage_prepare
-  cites: stage:production
-  needs:
-  - cpmd_input_qm
-  - index_qm
-  - qm_selection
-  - structure_equilibrated
-  - topology
-  produces:
-  - cpmd_input_production
-  - tpr_production
-  - mdp_production
-  note: its complete run input, merged onto the system the QM selection made once, and its compiled MM
-    half; charge and spin are the stage's
+stages:
+- name: minimise
+  kind: minimize
+- name: equilibrate
+  kind: dynamics
+  ensemble: NPT
+  temperature_k: 300
+  pressure_bar: 1
+  duration_ps: 200
+- name: anneal
+  kind: minimize
+  regime: qmmm
+  steps: 300
+  temperature_k: 300
+  qm_region:
+    subsystems:
+    - ligand
+    charge: 0
+    multiplicity: 1
+- name: nve_check
+  kind: dynamics
+  regime: qmmm
+  starts_from: anneal
+  ensemble: NVE
+  steps: 1000
+  qm_region:
+    subsystems:
+    - ligand
+    charge: 0
+    multiplicity: 1
+- name: heat
+  kind: dynamics
+  regime: qmmm
+  ensemble: NVT
+  steps: 1500
+  starts_from: anneal
+  temperature_k:
+    to_k: 300
+  qm_region:
+    subsystems:
+    - ligand
+    charge: 0
+    multiplicity: 1
 - name: production
-  tool: stage_run
-  needs:
-  - cpmd_input_production
-  - tpr_production
-  - cpmd_restart_heated
-  produces:
-  - trajectory_qmmm
-  - dipole_series
-  stage:
-    name: production
-    kind: dynamics
-    regime: qmmm
-    ensemble: NVT
-    steps: 1000
-    temperature_k: 300
-    qm_region:
-      subsystems:
-      - ligand
-      charge: 0
-      multiplicity: 1
+  kind: dynamics
+  regime: qmmm
+  ensemble: NVT
+  steps: 1000
+  temperature_k: 300
+  qm_region:
+    subsystems:
+    - ligand
+    charge: 0
+    multiplicity: 1
+deliverables:
+- name: nve_drift
+  property: energy_drift
+  over: nve_check
+- name: heating_temperature
+  property: thermodynamics
+  over: heat
+  statistics:
+  - final
+- name: production_temperature
+  property: thermodynamics
+  over: production
+  statistics:
+  - mean
+  - sd
+- name: production_dipole
+  property: dipole
+  over: production
+  statistics:
+  - mean
 invariants:
 - id: DYNAMICS_TIMESTEP_IS_THE_CPMD_ONE
   not_equal:
-  - $anneal_prepare.dt
-  - $production_prepare.&CPMD/TIMESTEP
-  message: the GROMACS dt and the CPMD TIMESTEP are in different units and are not the same number; the
-    mdp dt is inert in a MiMiC run and the CPMD one is what advances time
+  - $anneal.dt
+  - $production.&CPMD/TIMESTEP
+  message: >-
+    the GROMACS dt and the CPMD TIMESTEP are in different units and are not the same number; the mdp
+    dt is inert in a MiMiC run and the CPMD one is what advances time
 sources:
 - kind: tutorial
-  text: 'MiMiC acetone-in-water tutorial, the input archive published by the MiMiC project. Downloaded
-    with the command the tutorial gives; template.inp, mini.mdp, heat.mdp, mimic.mdp, sele.dat and pp_info.dat
-    are copied verbatim into tests/fixtures/mimic_tutorial/. sha256 is of template.inp.
-
-    '
+  text: >
+    MiMiC acetone-in-water tutorial, the input archive published by the MiMiC project. Downloaded
+    with the command the tutorial gives; template.inp, mini.mdp, heat.mdp, mimic.mdp, sele.dat and
+    pp_info.dat are copied verbatim into tests/fixtures/mimic_tutorial/. sha256 is of template.inp.
   locator: https://gitlab.com/mimic-project/mimic-docs/-/tree/main/docs/tutorials/AcetoneTutorial
   sha256: 51e3952370e541dac4f2da20dd526cceba4aa016117daa62878bb73dbe425440
 - kind: url
-  text: 'The tutorial page itself, which prints the per-stage &CPMD blocks the reader edits the template
+  text: >
+    The tutorial page itself, which prints the per-stage &CPMD blocks the reader edits the template
     into. The archive ships the template only, so the four dynamics stages cite the page.
-
-    '
   locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
 pitfalls: []
 validated_by:
-- src/myrmidon/knowledge/protocols.py (a protocol that cannot run in its own order is refused at load)
-notes: 'Distilled from the eight stages of the MiMiC project''s acetone-in-water tutorial: the sequence
-  is knowledge, one study''s instance of it is not. The box''s cell
-  type and its solute-to-box clearance are gmx_editconf''s parameters, and which atoms are quantum is
-  qm_region''s and the researcher''s. Each step that renders a file cites the stage it renders: its values
-  are compiled from that stage''s physical terms, its template and the methods this protocol''s hamiltonian
-  names. Each coupled stage is two steps: stage_prepare compiles its complete CPMD input onto the system
-  the selection made once, with its compiled MM half, and stage_run continues from the restart of the
-  stage it starts from.'
-version: 8
+- >-
+  src/myrmidon/knowledge/protocols.py (a protocol whose stages do not hold together as a mandate's
+  method is refused at load)
+notes: >-
+  Distilled from the eight stages of the MiMiC project's acetone-in-water tutorial: the sequence is
+  knowledge, one study's instance of it is not. It starts from a solvated box (the skills build one:
+  its cell, its solute-to-box clearance and its solvent are the build's), minimises and equilibrates
+  it classically, then runs four coupled stages: anneal, an NVE check of energy conservation, heat,
+  produce. Which atoms are quantum is each coupled stage's qm_region and the researcher's; every value
+  a stage's files hold is compiled from its physical terms, its template and the methods the hamiltonian
+  names.
+version: 9

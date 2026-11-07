@@ -1,6 +1,6 @@
-"""The published pipelines a study may start from: a sequence, the stage each step's
-values come from, the methods its stages were measured with, and what its stages cost on
-this machine."""
+"""The published pipelines a study may start from: the stages a mandate is written from,
+the deliverables they are measured for, the Hamiltonian they are computed with, and what each
+stage costs on this machine."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from myrmidon.core.tool import ToolContext, tool
 class ProtocolLookupParams(BaseModel):
     query: str = Field(
         default="",
-        description="words to match against ids, titles, tools and applicability. Empty "
+        description="words to match against ids, titles, stages and applicability. Empty "
         "lists every published pipeline this machine can see.",
     )
 
@@ -22,16 +22,6 @@ def _protocol_hit(ctx: ToolContext, w, *, full: bool = False) -> ProtocolHit:
     from myrmidon.execution.pace import read_paces
 
     prices = w.priced(ctx.config.compute, read_paces(ctx.config.studies_root))
-
-    def core_h(step) -> float | None:
-        return prices[step.stage.name].core_h if step.stage is not None else None
-
-    steps = [
-        {**(s.model_dump(mode="json", exclude_none=True,
-                         exclude={"values", "needs", "produces", "stage"}) if full
-            else {"name": s.name, "tool": s.tool, **({"cites": s.cites} if s.cites else {})}),
-         **({"core_h": core_h(s)} if core_h(s) else {})}
-        for s in w.steps]
     return ProtocolHit(
         id=w.id,
         title=w.title,
@@ -41,8 +31,11 @@ def _protocol_hit(ctx: ToolContext, w, *, full: bool = False) -> ProtocolHit:
         layer=w.layer,
         version=w.version,
         given=w.given,
-        steps=steps,
-        stages=[s.stage.model_dump(mode="json", exclude_none=True) for s in w.steps if s.stage],
+        stages=[{**s.model_dump(mode="json", exclude_none=True),
+                 **({"core_h": prices[s.name].core_h} if prices[s.name].core_h else {})}
+                for s in w.stages],
+        deliverables=[d.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+                      for d in w.deliverables] if full else [],
         hamiltonian=(w.hamiltonian.model_dump(mode="json", exclude_none=True, exclude={"mm"})
                      if w.hamiltonian is not None else None),
         total_core_h=round(sum(p.core_h or 0.0 for p in prices.values()), 3),
@@ -56,10 +49,10 @@ def _protocol_hit(ctx: ToolContext, w, *, full: bool = False) -> ProtocolHit:
 @tool(
     "protocol_lookup",
     navigation=True,
-    description="Published pipelines to start a study from: the sequence, the stage each "
-    "step renders and the methods it was measured with, what you bring, what its stages "
-    "cost here. A STARTING POINT, never a rule: price one on the built system with "
-    "`protocol_preview`, or run stages of your own and cite none.",
+    description="Published pipelines to start a study from: the stages a mandate is written "
+    "from, their deliverables and Hamiltonian, what you bring, what each stage costs here. A "
+    "STARTING POINT, never a rule: price one on the built system with `protocol_preview`, or "
+    "write stages of your own and cite none.",
     tags={"knowledge"},
     needs_workspace=False,
 )

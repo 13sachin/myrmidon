@@ -26,8 +26,7 @@ def _wf(tmp_path, **over):
         "title": "a toy pipeline",
         "applicability": "testing",
         "given": ["structure"],
-        "steps": [{"name": "a", "tool": "stage_prepare", "needs": ["structure"],
-                   "produces": ["tpr"]}],
+        "stages": [{"name": "a", "kind": "minimize"}],
         "sources": [{"kind": "in_house", "text": "this test", "evidence": ["ev-1"]}],
         **over,
     }
@@ -40,14 +39,24 @@ def _wf(tmp_path, **over):
 # --- the shipped store ------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", SHIPPED)
-def test_each_stage_of_a_shipped_protocol_is_prepared_by_one_step(name):
-    """A coupled stage's mdp and CPMD input are one stage_prepare call that cites the whole
-    stage, so a rule between the two files reads one step, and no step names the same call
-    twice."""
-    protocol = ProtocolStore.builtin().get(name)
-    prepared = [s.cited() for s in protocol.steps if s.tool == "stage_prepare"]
-    assert sorted(prepared) == sorted({(s.stage.name, "") for s in protocol.steps if s.stage})
+def test_a_mandate_is_written_from_a_protocol(ws_ctx, solvated):
+    """A protocol is what a mandate is instantiated from: named alone, its stages, their
+    deliverables and its Hamiltonian are the mandate's, and the researcher's edits are the
+    mandate's own."""
+    protocol = ProtocolStore.builtin().get("mimic_qmmm_solvated_solute")
+    written = REGISTRY.call("mandate_write", ws_ctx, {
+        "question": "acetone under QM/MM", "ceiling_core_h": 5000.0,
+        "protocol": protocol.id,
+        "system_files": [{"path": solvated["structure"], "kind": "structure"},
+                         {"path": solvated["topology"], "kind": "topology"}]})
+    assert written.ok, written.summary
+    from myrmidon.core.mandate import read_mandate
+
+    held = read_mandate(ws_ctx.workspace)
+    assert held.method.protocol == protocol.ref
+    assert [s.name for s in held.method.stages] == [s.name for s in protocol.stages]
+    assert [d.name for d in held.deliverables] == [d.name for d in protocol.deliverables]
+    assert held.system.hamiltonian.qm.method == protocol.hamiltonian.qm.method
 
 
 # --- what the schema refuses -------------------------------------------------------
@@ -60,7 +69,7 @@ def test_a_protocol_without_a_source_is_refused(tmp_path):
     directory.mkdir(parents=True)
     (directory / "bare.yaml").write_text(yaml.safe_dump({
         "id": "bare", "title": "t", "applicability": "a",
-        "steps": [{"name": "a", "tool": "stage_prepare"}],
+        "stages": [{"name": "a", "kind": "minimize"}],
     }))
     with pytest.raises(ValueError):
         ProtocolStore(path=directory, builtin_path=tmp_path / "absent").get("bare")
@@ -69,22 +78,28 @@ def test_a_protocol_without_a_source_is_refused(tmp_path):
 # --- a study's relation to a protocol -----------------------------------------------
 
 
-def test_an_adapted_sequence_still_has_to_hold_together():
-    """Free to depart, not free to be broken.
+# (what a protocol states beside its stage `a`, whether it holds together): free to depart,
+# not free to be broken
+SEQUENCES = [
+    ({"stages": [{"name": "a", "kind": "minimize"},
+                 {"name": "b", "kind": "dynamics", "ensemble": "NVE", "steps": 10,
+                  "starts_from": "a"}]}, True),
+    ({"stages": [{"name": "a", "kind": "minimize", "starts_from": "b"},
+                 {"name": "b", "kind": "dynamics", "ensemble": "NVE", "steps": 10}]}, False),
+    ({"invariants": [{"id": "X", "equal": ["$a.dt", "$c.dt"], "message": "m"}]}, False),
+    ({"deliverables": [{"name": "d", "property": "rmsd", "over": "c"}]}, False),
+]
 
-    Dropping the heating step while keeping the production step that restarts from it is
-    not a new pipeline, it is a sequence that reads a file nothing writes. The check names
-    the role, not the convention; dropping a step nothing later reads passes."""
-    from myrmidon.knowledge.protocols import unsatisfied_roles
 
-    protocol = ProtocolStore.builtin().get("mimic_qmmm_solvated_solute")
-    assert protocol.unsatisfied() == {}
-    broken = unsatisfied_roles(protocol.given,
-                               [s for s in protocol.steps if s.name != "heating"])
-    assert "cpmd_restart_heated" in broken.get("production", [])
-    last = protocol.steps[-1].name
-    assert unsatisfied_roles(protocol.given,
-                             [s for s in protocol.steps if s.name != last]) == {}
+@pytest.mark.parametrize("over,holds", SEQUENCES)
+def test_an_adapted_sequence_still_has_to_hold_together(tmp_path, over, holds):
+    """A stage starts from an earlier one; a rule and a deliverable name its stages."""
+    store = _wf(tmp_path, **over)
+    if holds:
+        assert store.get("toy").stages
+    else:
+        with pytest.raises(ValueError):
+            store.get("toy")
 
 
 def test_the_shipped_pack_says_which_systems_each_recipe_is_for():
@@ -103,15 +118,6 @@ def test_the_shipped_pack_says_which_systems_each_recipe_is_for():
             assert store.get(old).id == item.id
     box = resolve(sets.get("box_qmmm_solute"))
     assert "distance_nm" in box.missing and "distance_nm" not in box.values
-
-
-def test_a_protocol_wires_roles_and_states_no_values(tmp_path):
-    """A protocol may say which role feeds which parameter; a value is an input set's."""
-    step = {"name": "a", "tool": "stage_prepare", "needs": ["structure"], "produces": ["tpr"]}
-    ok = _wf(tmp_path, steps=[dict(step, values={"structure": "structure"})])
-    assert ok.get("toy").steps[0].values == {"structure": "structure"}
-    with pytest.raises(ValueError, match="not roles it needs"):
-        _wf(tmp_path / "x", steps=[dict(step, values={"maxwarn": "3"})]).get("toy")
 
 
 def test_a_protocol_is_priced_on_the_machine_that_looks_it_up(ctx):
@@ -145,9 +151,9 @@ def test_a_protocols_stages_are_built_on_the_system_and_priced_for_its_length(
     before = len(list(ws_ctx.workspace.ledger.events()))
     obs = REGISTRY.call("protocol_preview", ws_ctx, {
         "protocol": "mimic_qmmm_solvated_solute", **solvated,
-        "overrides": {"heat_prep": {"nsteps": 25000}}})
+        "overrides": {"equilibrate": {"nsteps": 25000}}})
     assert obs.ok, obs.text
-    assert "minimise_prep" in obs.text and "renders and builds" in obs.text
+    assert "minimise" in obs.text and "renders and builds" in obs.text
     assert "does NOT" not in obs.text
     heat = REGISTRY.call("protocol_preview", ws_ctx, {
         "protocol": "mimic_qmmm_solvated_solute", **solvated})

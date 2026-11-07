@@ -20,8 +20,8 @@ metadata:
 
 ## Scope
 
-Everything between an equilibrated classical box and the first coupled run: the
-`qm_region` and `mimic_prep` steps of `mimic_qmmm_solvated_solute`. Not here: building the
+Everything between an equilibrated classical box and the first coupled run: the QM region
+and the coupled stages of `mimic_qmmm_solvated_solute`. Not here: building the
 box (`setup-and-equilibrate`), reference forces (`fm-reference`), the fit
 (`fm-fit-and-validate`), a failed run (`diagnose-a-failed-run`). When `qm_region` is
 not among your tools, `tool_lookup` names the engine it needs: say so and stop.

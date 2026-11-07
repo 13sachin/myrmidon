@@ -252,7 +252,37 @@ def compiled(ctx: ToolContext, mandate: mandates.Mandate, facts: dict | None = N
         methods=methods_for(mandate, MethodStore.default(), ff.value if ff else None),
         facts=facts, atoms=atom_count(ws.resolve(structure.path)) if structure else None,
         paces=[*study_paces(ws), *read_paces(ctx.config.studies_root)],
-        compute=ctx.config.compute)
+        compute=ctx.config.compute, invariants=_protocol_invariants(ctx, mandate))
+
+
+def _protocol_invariants(ctx: ToolContext, mandate: mandates.Mandate) -> list:
+    from myrmidon.tools.inputsets import protocol_of
+
+    protocol = protocol_of(ctx, mandate)
+    return list(protocol.invariants) if protocol is not None else []
+
+
+def _from_protocol(ctx: ToolContext, params: MandateWriteParams) -> MandateWriteParams:
+    """The call with what its protocol states as its defaults: its stages and their
+    deliverables, and its Hamiltonian, where the call states none of its own; the
+    researcher's edits are the mandate's."""
+    from myrmidon.knowledge.protocols import ProtocolStore
+
+    if not params.protocol:
+        return params
+    store = ctx.protocols or ProtocolStore.default()
+    try:
+        protocol = store.get_versioned(params.protocol)[0]
+    except (KeyError, ValueError):
+        return params
+    update: dict = {"protocol": protocol.ref}
+    if not params.stages:  # its deliverables are measured over its own stages
+        update["stages"] = [s.model_copy(deep=True) for s in protocol.stages]
+        if not params.deliverables and "deliverables" not in params.model_fields_set:
+            update["deliverables"] = [d.model_copy(deep=True) for d in protocol.deliverables]
+    if params.hamiltonian is None and protocol.hamiltonian is not None:
+        update["hamiltonian"] = protocol.hamiltonian.model_copy(deep=True)
+    return params.model_copy(update=update)
 
 
 def _topology_parts(ctx: ToolContext, mandate: mandates.Mandate) -> dict[str, dict]:
@@ -504,6 +534,7 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
     existing = mandates.read_mandate(ws)
     if params.revise and existing is not None:
         params = _carried(params, existing)
+    params = _from_protocol(ctx, params)
     if not params.question.strip():
         return Observation(ok=False, summary="a mandate states the researcher's question, "
                            "verbatim: give `question`")

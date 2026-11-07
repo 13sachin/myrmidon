@@ -133,12 +133,32 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
         kind = RENDERED_FILES[template.renders][0]
         prepared[kind] = ctx.workspace.relpath(output)
         values[kind] = rendered.values
+    checked = _protocol_rules(ctx, mandate, stage, values)
+    broken = [r for r in checked if r.status == "violated"]
+    if broken:
+        return _refused(f"{broken[0].id}: {broken[0].message} ({broken[0].detail})",
+                        broken[0].id, [Precondition(id=r.id, message=f"{r.message} ({r.detail})")
+                                       for r in broken], files=prepared)
     obs = _with_run_input(ctx, params, stage, stage_dir, templates, prepared, findings,
                           {"structure": structure, "topology": topology, "index": index,
                            "restraint_reference": params.restraint_reference}, later)
     obs.values = values
+    obs.invariants = [r.model_dump() for r in checked]
     obs.quiet = {"values"}  # each value and its origin is in the sidecar beside its file
     return obs
+
+
+def _protocol_rules(ctx: ToolContext, mandate, stage, values: dict[str, dict]) -> list:
+    """The rules of the mandate's protocol across its stages, over every file this stage
+    just rendered and what the other stages already rendered."""
+    from myrmidon.tools.inputsets import protocol_of, rendered_by_stage
+
+    protocol = protocol_of(ctx, mandate)
+    if protocol is None or not protocol.invariants:
+        return []
+    known = rendered_by_stage(ctx)
+    known[stage.name] = {k: v for rendered in values.values() for k, v in rendered.items()}
+    return protocol.check_invariants(known)
 
 
 def _with_run_input(ctx: ToolContext, params: StagePrepareParams, stage, stage_dir: Path,

@@ -1,281 +1,78 @@
 id: protein_ligand_complex_in_water
-system_class: one protein chain with one small-molecule ligand from a deposited structure, an Amber-family
-  protein force field with a GAFF-family ligand and TIP3P water
-title: Protein–ligand complex in water — select, parametrise, assemble, equilibrate under restraints,
-  produce
+system_class: >-
+  one protein chain with one small-molecule ligand from a deposited structure, an Amber-family protein
+  force field with a GAFF-family ligand and TIP3P water
+title: >-
+  Protein–ligand complex in water — select, parametrise, assemble, equilibrate under restraints, produce
 scope: engine
-applicability: 'A deposited protein–ligand structure to an equilibrated complex in water and a short production
-  run: the chain and the ligand selected out of the deposited file, the ligand parametrised (GAFF2 or
-  GAFF atom types, AM1-BCC or Gasteiger charges, through acpype), the complex assembled into one topology,
-  boxed, solvated and neutralised, minimised, then NVT and NPT with protein and ligand restrained and
-  the ligand in the protein''s heat bath, then unrestrained production. A starting point, not a rule:
-  a ligand parametrised elsewhere enters at the assembly, and a second ligand or a membrane is a different
-  sequence.'
+applicability: >-
+  An assembled protein–ligand complex in water, minimised, then NVT and NPT with protein and ligand
+  restrained and the ligand in the protein's heat bath, then unrestrained production. A starting point,
+  not a rule: a second ligand or a membrane is a different sequence.
 given:
-- structure_deposited
-steps:
-- name: select
-  tool: structure_select
-  needs:
-  - structure_deposited
-  produces:
-  - structure_protein
-  - structure_ligand
-  values:
-    structure: structure_deposited
-  note: which chains and which ligand copy make the system is the researcher's; crystal waters and buffer
-    molecules are discarded and counted; heavy atoms a residue lacks are built and listed
-- name: protein_topology
-  tool: gmx_pdb2gmx
-  needs:
-  - structure_protein
-  produces:
-  - structure_protein_gro
-  - topology_protein
-  values:
-    structure: structure_protein
-  note: the protein force field and the water model are the researcher's
-- name: ligand_parameters
-  tool: ligand_parametrize
-  needs:
-  - structure_ligand
-  produces:
-  - structure_ligand_gro
-  - itp_ligand
-  - topology_ligand
-  values:
-    structure: structure_ligand
-  note: the atom types, the charge method, the protonation and the net charge are the researcher's; AM1-BCC
-    runs sqm in the session (seconds for a drug-sized molecule)
-- name: ligand_heavy_atoms
-  tool: gmx_make_ndx
-  needs:
-  - structure_ligand_gro
-  produces:
-  - index_ligand
-  values:
-    structure: structure_ligand_gro
-  note: a group of the ligand's heavy atoms ('0 & ! a H*'), on the ligand's own coordinates so its atoms
-    are numbered from 1
-- name: ligand_restraints
-  tool: gmx_genrestr
-  needs:
-  - structure_ligand_gro
-  - topology_ligand
-  - index_ligand
-  produces:
-  - restraints_ligand
-  values:
-    structure: structure_ligand_gro
-    topology: topology_ligand
-    index: index_ligand
-  note: which atoms are held and how hard is the researcher's
-- name: assemble
-  tool: complex_assemble
-  needs:
-  - structure_protein_gro
-  - topology_protein
-  - structure_ligand_gro
-  - itp_ligand
-  - restraints_ligand
-  produces:
-  - structure_complex
-  - topology
-  values:
-    structure: structure_protein_gro
-    topology: topology_protein
-    ligand_structure: structure_ligand_gro
-    ligand_itp: itp_ligand
-    ligand_restraints: restraints_ligand
-  note: the ligand's restraints go under POSRES_LIG, which the restrained stages read from the topology
-    and switch on; the topology role carries on from here
-- name: box
-  tool: gmx_editconf
-  needs:
-  - structure_complex
-  produces:
-  - structure_boxed
-  values:
-    structure: structure_complex
-  note: the box shape and the clearance are the researcher's when the question states them
-- name: solvate
-  tool: gmx_solvate
-  needs:
-  - structure_boxed
-  - topology
-  produces:
-  - structure_solvated
-  values:
-    structure: structure_boxed
-    topology: topology
-- name: ions
-  tool: gmx_genion
-  needs:
-  - structure_solvated
-  - topology
-  produces:
-  - structure_ionised
-  values:
-    structure: structure_solvated
-    topology: topology
-  note: neutralises the complex's net charge, which complex_assemble reports
-- name: index
-  tool: gmx_make_ndx
-  needs:
-  - structure_ionised
-  produces:
-  - index
-  values:
-    structure: structure_ionised
-  note: 'the step''s commands value is the one command "Protein" | "Other" (group names in double quotes,
-    group numbers bare): it makes Protein_Other, which with Water_and_ions splits the system, and the
-    equilibration and production stages read the two from the index as their tc-grps'
-- name: minimise_prep
-  tool: stage_prepare
-  cites: stage:em
-  needs:
-  - structure_ionised
-  - topology
-  produces:
-  - tpr_minimise
-  note: a box straight out of genion needs more than the set's bound; on a 48 000-atom complex the set's
-    own left the maximum force above emtol, so raise nsteps as the set's rationale says
-- name: minimise_run
-  tool: stage_run
-  needs:
-  - tpr_minimise
-  produces:
-  - structure_minimised
-  stage:
-    name: em
-    kind: minimize
-- name: nvt_prep
-  tool: stage_prepare
-  cites: stage:nvt
-  needs:
-  - structure_minimised
-  - topology
-  - index
-  produces:
-  - tpr_nvt
-  note: the restraints hold protein and ligand at the minimised coordinates
-- name: nvt_run
-  tool: stage_run
-  needs:
-  - tpr_nvt
-  produces:
-  - structure_nvt
-  - energy_nvt
-  stage:
-    name: nvt
-    kind: dynamics
-    ensemble: NVT
-    temperature_k: 300
-    duration_ps: 100
-    restraints:
-    - protein
-    - ligand
-- name: npt_prep
-  tool: stage_prepare
-  cites: stage:npt
-  needs:
-  - structure_nvt
-  - topology
-  - index
-  produces:
-  - tpr_npt
-  note: continues from the NVT run's final coordinates and velocities
-- name: npt_run
-  tool: stage_run
-  needs:
-  - tpr_npt
-  produces:
-  - structure_npt
-  - energy_npt
-  stage:
-    name: npt
-    kind: dynamics
-    ensemble: NPT
-    temperature_k: 300
-    pressure_bar: 1
-    duration_ps: 100
-    restraints:
-    - protein
-    - ligand
-- name: production_prep
-  tool: stage_prepare
-  cites: stage:production
-  needs:
-  - structure_npt
-  - topology
-  - index
-  produces:
-  - tpr_production
-- name: production_run
-  tool: stage_run
-  needs:
-  - tpr_production
-  produces:
-  - trajectory_production
-  - energy_production
-  note: how long is the researcher's
-  stage:
-    name: production
-    kind: dynamics
-    ensemble: NPT
-    temperature_k: 300
-    pressure_bar: 1
-    duration_ps: 1000
-    sampling_ps: 10
-- name: ligand_rmsd
-  tool: observable_measure
-  needs:
-  - tpr_production
-  - trajectory_production
-  produces:
-  - data_ligand_rmsd
-  values:
-    structure: tpr_production
-    trajectory: trajectory_production
-  note: the ligand's heavy atoms after superposing each frame on the protein backbone, molecules made
-    whole first; how far the ligand moves in its pocket
-- name: ligand_contact
-  tool: observable_measure
-  needs:
-  - tpr_production
-  - trajectory_production
-  produces:
-  - data_ligand_mindist
-  values:
-    structure: tpr_production
-    trajectory: trajectory_production
-  note: the minimum distance between the ligand and the protein; whether the ligand stays in contact
+- structure
+- topology
+- index
+stages:
+- name: em
+  kind: minimize
+- name: nvt
+  kind: dynamics
+  ensemble: NVT
+  temperature_k: 300
+  duration_ps: 100
+  restraints:
+  - protein
+  - ligand
+- name: npt
+  kind: dynamics
+  ensemble: NPT
+  temperature_k: 300
+  pressure_bar: 1
+  duration_ps: 100
+  restraints:
+  - protein
+  - ligand
+- name: production
+  kind: dynamics
+  ensemble: NPT
+  temperature_k: 300
+  pressure_bar: 1
+  duration_ps: 1000
+  sampling_ps: 10
 sources:
 - kind: tutorial
-  text: Lemkul, "Protein-Ligand Complex" GROMACS tutorial — T4 lysozyme L99A with 2-propylphenol (PDB
+  text: >-
+    Lemkul, "Protein-Ligand Complex" GROMACS tutorial — T4 lysozyme L99A with 2-propylphenol (PDB
     3HTB); the sequence of selection, ligand topology, assembly, restrained NVT and NPT with the ligand
     coupled to the protein, and production.
   locator: http://www.mdtutorials.com/gmx/complex/
 - kind: doi
-  text: Sousa da Silva, Vranken, BMC Res. Notes 5, 367 (2012) — ACPYPE, AnteChamber PYthon Parser interfacE.
+  text: >-
+    Sousa da Silva, Vranken, BMC Res. Notes 5, 367 (2012) — ACPYPE, AnteChamber PYthon Parser interfacE.
     doi:10.1186/1756-0500-5-367
   locator: doi:10.1186/1756-0500-5-367
 - kind: doi
-  text: Jakalian, Jack, Bayly, J. Comput. Chem. 23, 1623 (2002) — fast, efficient generation of high-quality
+  text: >-
+    Jakalian, Jack, Bayly, J. Comput. Chem. 23, 1623 (2002) — fast, efficient generation of high-quality
     atomic charges, AM1-BCC model. doi:10.1002/jcc.10128
   locator: doi:10.1002/jcc.10128
 - kind: doi
-  text: Wang, Wolf, Caldwell, Kollman, Case, J. Comput. Chem. 25, 1157 (2004) — the general Amber force
+  text: >-
+    Wang, Wolf, Caldwell, Kollman, Case, J. Comput. Chem. 25, 1157 (2004) — the general Amber force
     field (GAFF). doi:10.1002/jcc.20035
   locator: doi:10.1002/jcc.20035
 pitfalls:
 - LIGAND_HYDROGENS_ABSENT
 - COMPLEX_RESTRAINTS_OUT_OF_RANGE
 - NDX_COMMAND_REJECTED
-notes: The tutorial parametrises its ligand with CGenFF for CHARMM36; this sequence keeps its shape and
-  system and takes the Amber route (GAFF2, AM1-BCC), so the ligand and the protein share one combination
-  rule and fudge factors. The steps up to the index run in the session before the mandate is written,
-  and their outputs are the system it names.
 validated_by:
-- tests/unit/test_gromacs_tools.py::test_a_ligand_is_parametrised_and_placed_where_grompp_reads_it
-version: 5
+- >-
+  tests/unit/test_gromacs_tools.py::test_a_ligand_is_parametrised_and_placed_where_grompp_reads_it
+notes: >-
+  The tutorial parametrises its ligand with CGenFF for CHARMM36; this sequence keeps its shape and
+  system and takes the Amber route (GAFF2, AM1-BCC), so the ligand and the protein share one combination
+  rule and fudge factors. The complex is built before the mandate is written (the complex-prep skill:
+  the chain and the ligand selected, the ligand parametrised through acpype, assembled, boxed, solvated,
+  neutralised, indexed), and what that made is the system it names.
+version: 6

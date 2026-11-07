@@ -2,96 +2,82 @@ id: fm_reference_singlepoint
 system_class: frames of any QM/MM system whose QM region the QM method covers
 title: QM/MM reference forces for force matching — the single-point pipeline
 scope: engine
-applicability: 'Generate the reference force set a force-matching fit is trained against: render the CPMD
-  and GROMACS halves, then one coupled run over the sampled frames. Start from it when you have frames
-  and want QM forces for them.'
+applicability: >-
+  Generate the reference force set a force-matching fit is trained against: one coupled single point
+  per frame of a trajectory. Start from it when you have frames and want QM forces for them.
 given:
 - structure
 - topology
-- frames
+- trajectory
 hamiltonian:
   qm:
     method: blyp_mt
   coupling:
     scheme: mimic
-steps:
-- name: qm_region
-  tool: qm_region
-  needs:
-  - structure
-  - topology
-  produces:
-  - system_input
-  - index_qm
-  - qm_selection
-  note: which atoms are quantum is the researcher's; run on the first frame, the probe
-- name: reference_prepare
-  tool: stage_prepare
-  cites: stage:reference
-  needs:
-  - structure
-  - topology
-  - system_input
-  - index_qm
-  produces:
-  - cpmd_input
-  - tpr_fm
-  note: the frame's complete run input and its compiled MM half, in one call
-- name: reference_run
-  tool: stage_run
-  needs:
-  - tpr_fm
-  - cpmd_input
-  - frames
-  produces:
-  - reference_forces
-  - trajectory_mm
-  stage:
-    name: reference
-    kind: single_point
-    regime: qmmm
-    qm_region:
-      subsystems:
-      - ligand
-      charge: 0
-      multiplicity: 1
-- name: dataset
-  tool: dataset_collect
-  needs:
-  - reference_forces
-  - trajectory_mm
-  - qm_selection
-  produces:
-  - reference_dataset
-  note: every frame's run merged, aligned and summarised, from the stage's runs in the ledger
+stages:
+- name: reference
+  kind: single_point
+  regime: qmmm
+  qm_region:
+    subsystems:
+    - ligand
+    charge: 0
+    multiplicity: 1
+  scan:
+    parameter: frames
+    values:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+    - 8
+    - 9
+    - 10
+    - 11
+    - 12
+    - 13
+    - 14
+    - 15
+    - 16
+    - 17
+    - 18
+    - 19
 invariants:
 - id: FM_PACE_MATCHES_NSTXOUT
   equal:
-  - $reference_prepare.nstxout
-  - $reference_prepare.&CPMD/FORCE_MATCHING
-  message: 'the GROMACS output pace must equal the CPMD FORCE_MATCHING pace: CPMD writes one reference-force
+  - $reference.nstxout
+  - $reference.&CPMD/FORCE_MATCHING
+  message: >-
+    the GROMACS output pace must equal the CPMD FORCE_MATCHING pace: CPMD writes one reference-force
     record per pace step and the fit pairs it with the GROMACS frame of the same index, so a mismatch
-    silently pairs QM forces with the wrong geometry'
+    silently pairs QM forces with the wrong geometry
 sources:
 - kind: in_house
-  text: 'The acetone force-matching reference pair generated through the harness with MiMiC-enabled CPMD
+  text: >
+    The acetone force-matching reference pair generated through the harness with MiMiC-enabled CPMD
     and GROMACS on a SLURM cluster. Inputs kept verbatim in tests/fixtures/acetone/ as fm_singlepoint_template.inp
-    and mimic_fm.mdp; the pace/nstxout rule is stated in that mdp''s own comments.
-
-    '
+    and mimic_fm.mdp; the pace/nstxout rule is stated in that mdp's own comments.
   locator: tests/fixtures/acetone/fm_singlepoint_template.inp
   evidence:
   - tests/fixtures/acetone/mimic_fm.mdp
 - kind: tutorial
-  text: 'The coupled stages it inherits are those distilled from the MiMiC project''s acetone-in-water
-    tutorial.
-
-    '
+  text: >
+    The coupled stages it inherits are those distilled from the MiMiC project's acetone-in-water tutorial.
   locator: https://mimic-project.org/en/latest/tutorials/acetone_tutorial.html
 pitfalls:
 - FM_RERUN_MDP_IS_MIMIC
 validated_by:
-- src/myrmidon/knowledge/protocols.py (a protocol that cannot run in its own order is refused at load)
-notes: The sequence is knowledge; a study's mandate names it as its method. The classical rerun the fit
-  subtracts is a different mdp — a classical single-point stage, rendered with gromacs.single_point.
-version: 4
+- >-
+  src/myrmidon/knowledge/protocols.py (a protocol whose stages do not hold together as a mandate's
+  method is refused at load)
+notes: >-
+  The sequence is knowledge; a study's mandate names it as its method. Its one stage is a coupled
+  single point over the frames its scan names, indices into the trajectory the researcher brings;
+  how many frames is the researcher's (a fit on fewer than a hundred overfits them). The classical
+  rerun a fit subtracts is a different mdp — a classical single-point stage, rendered with gromacs.single_point.
+  The reference dataset is collected from the stage's runs (dataset_collect).
+version: 5
