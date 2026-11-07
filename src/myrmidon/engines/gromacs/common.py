@@ -115,12 +115,26 @@ def join_trajectories(ctx: ToolContext, paths: list[Path], out: Path, continuous
 
 def bonded_structure(ctx: ToolContext, run_input: Path, structure: Path, out: Path
                      ) -> Path | None:
-    """``gmx trjconv -conect``: ``structure``'s atoms as a .pdb with the bonds ``run_input``
-    holds, as CONECT records, for a reader that cannot take the run input itself; None when
-    it could not be written."""
-    n_atoms, _ = read_gro_info(structure) if structure.suffix == ".gro" else (0, None)
-    if n_atoms > 99_999:  # a PDB's serials wrap there, and its CONECT records name wrong atoms
+    """``gmx trjconv -conect``: ``structure``'s atoms (a structure, or a trajectory's first
+    frame) as a .pdb with the bonds ``run_input`` holds, as CONECT records, for a reader that
+    cannot take the run input itself; None when it could not be written."""
+    if _atoms_in(structure) > 99_999:  # a PDB's serials wrap, and CONECT names wrong atoms
         return None
+    frame = ["-dump", "0"] if structure.suffix in (".xtc", ".trr") else []
     proc = run_gmx(ctx, ["trjconv", "-s", str(run_input), "-f", str(structure), "-o", str(out),
-                         "-conect"], cwd=out.parent, stdin="0\n")
+                         "-conect", *frame], cwd=out.parent, stdin="0\n")
     return out if proc.returncode == 0 and out.is_file() else None
+
+
+def _atoms_in(path: Path) -> int:
+    """How many atoms a structure or a trajectory's frames hold; 0 when it cannot be read."""
+    try:
+        if path.suffix == ".gro":
+            return read_gro_info(path)[0]
+        import MDAnalysis as mda
+
+        reader = {".xtc": mda.coordinates.XTC.XTCReader,
+                  ".trr": mda.coordinates.TRR.TRRReader}.get(path.suffix)
+        return reader(str(path)).n_atoms if reader else 0
+    except Exception:  # noqa: BLE001 — a file no reader takes counts as none
+        return 0

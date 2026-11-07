@@ -755,6 +755,14 @@ def _measured_over_both_segments(ctx, stage):
     assert (diagnosed.segments, diagnosed.stage_md_steps) == (2, sum(
         cpmd_facts(ctx.workspace.resolve(log).read_text())["md_steps_completed"]
         for log in logs))
+    # and so is one named outright, with the atoms its engine writes from the first frame
+    tpr = next(i.path for i in stage_segments(ctx.workspace, stage)[-1][2]
+               if i.role.split(".")[-1] == "tpr")
+    named = REGISTRY.call("observable_measure", ctx, {
+        "structure": tpr, "trajectory": segments[0],
+        "metric": "rmsd", "selection": "resname ACT", "unwrap": True})
+    assert named.ok, named.summary
+    assert "TRAJECTORY_STRUCTURE_WRITTEN" in {f.id for f in named.findings}
 
 
 def test_a_run_belongs_to_the_stage_it_was_submitted_for(ws_ctx):

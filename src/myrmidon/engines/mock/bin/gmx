@@ -818,7 +818,14 @@ def main():
         if not src or not out or not os.path.exists(src):
             sys.stderr.write("Fatal error:\nNo structure to convert\n")
             return 1
-        rows = open(src).read().splitlines()
+        if src.endswith(".gro"):
+            rows = open(src).read().splitlines()
+        else:  # a trajectory's first frame (-dump 0): the atoms the tpr carries
+            conf = tpr_fields_of(arg_after("-s")).get("mock-conf")
+            if not conf:
+                sys.stderr.write("Fatal error:\nNo coordinates in the run input\n")
+                return 1
+            rows = base64.b64decode(conf).decode().splitlines()
         n = int(rows[1].split()[0])
         atoms = [(ln[5:10].strip(), ln[10:15].strip(), int(ln[0:5]),
                   *(float(ln[20 + 8 * k:28 + 8 * k]) * 10 for k in range(3)))

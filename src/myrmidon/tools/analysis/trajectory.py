@@ -19,6 +19,7 @@ from myrmidon.analysis.trajectory import has_bonds
 from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext
+from myrmidon.core.validation import Finding
 from myrmidon.engines.inputs import resolve_in_ws
 
 #: what each metric is a function of
@@ -103,8 +104,39 @@ def _selection_error(selection: str, exc: Exception) -> str:
 
 
 def measure_trajectory(ctx: ToolContext, params) -> Observation:
-    """A trajectory metric, the series saved and its statistics computed by the harness."""
+    """A trajectory metric, the series saved and its statistics computed by the harness. A
+    run input the reader cannot take as a topology (one newer than it knows) is measured with
+    its atoms and bonds as its engine writes them from the trajectory's first frame."""
+    import MDAnalysis as mda
+
+    structure = resolve_in_ws(ctx, params.structure)
+    try:
+        mda.Universe(str(structure))
+    except Exception:  # noqa: BLE001 — any reader failure is a file it cannot take
+        bonded = _with_bonds(ctx, structure, resolve_in_ws(ctx, params.trajectory),
+                             ctx.workspace.stage("analysis"))
+        if bonded is not None:
+            written = ctx.workspace.relpath(bonded)
+            obs = _analyze(ctx, params.model_copy(update={"structure": written}))
+            obs.findings = [Finding(
+                id="TRAJECTORY_STRUCTURE_WRITTEN",
+                message=f"{params.structure} cannot be read as a topology here: measured with "
+                f"its atoms and bonds as its engine writes them, {written}"), *obs.findings]
+            return obs
     return _analyze(ctx, params)
+
+
+def _with_bonds(ctx: ToolContext, run_input, trajectory, stage):
+    """The run input's atoms and bonds from the trajectory's first frame, as the engine that
+    reads it writes them; None where no engine can."""
+    from myrmidon.core.artifacts import fresh_path
+    from myrmidon.engines.registry import adapter_with
+
+    engine = adapter_with("bonded_structure")
+    if engine is None:
+        return None
+    return engine.bonded_structure(ctx, run_input, trajectory,
+                                   fresh_path(stage / f"{run_input.stem}_bonded.pdb"))
 
 
 def _analyze(ctx: ToolContext, params: TrajParams) -> Observation:
