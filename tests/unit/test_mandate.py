@@ -546,7 +546,8 @@ def test_a_coupled_stage_is_priced_from_the_seconds_a_qmmm_step_took_here():
                           methods=methods_for(mandate, MethodStore.builtin()), atoms=None,
                           paces=paces, qm_atoms=10, compute=ComputeDefaults(cores_per_node=48,
                                                                             node_exclusive=True))
-              for paces in ([], [Pace(engine="cpmd", atoms=10, cores=48, s_per_step=seconds)],
+              for paces in ([], [Pace(engine="cpmd", atoms=10, cores=48, s_per_step=seconds,
+                                      cutoff_ry=70.0)],
                             [Pace(engine="cpmd", atoms=3, cores=48, s_per_step=0.05)])]
     # unmeasured, the machine's reference step of this region, 3.2 s on 5 cores, scaled to the
     # node's 48; measured, 1000 steps × 15.27 s × 1.5; another region's pace prices nothing;

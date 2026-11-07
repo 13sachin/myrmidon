@@ -202,16 +202,17 @@ def _unread_targets(ctx: ToolContext, decisions: list[mandates.Decision]
             for m in out]
 
 
-def open_chemistry(ws, stages: list, decisions: list) -> list[str]:
-    """What the latest QM selection left open of the region's chemistry and no stage or decision
-    settles: a charge whose atoms sum to no integer is the researcher's unless they locked it, a
-    multiplicity the electrons do not decide unless a stage states it."""
+def open_chemistry(ws, stages: list, decisions: list, selected_for: str | None = None
+                   ) -> list[str]:
+    """What the latest QM selection (for a stage, if named) left open of the region's chemistry
+    and no stage or decision settles: a charge whose atoms sum to no integer is the researcher's
+    unless they locked it, a multiplicity the electrons do not decide unless a stage states it."""
     import json
 
     from myrmidon.core.lineage import latest_outputs
 
     regions = [s.qm_region for s in stages if s.qm_region is not None]
-    side = latest_outputs(ws, "qm_region").get("provenance")
+    side = latest_outputs(ws, "qm_region", selected_for).get("provenance")
     if not regions or side is None:
         return []
     try:

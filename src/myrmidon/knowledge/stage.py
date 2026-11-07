@@ -919,9 +919,7 @@ def price_stage(mandate: Mandate, stage: Stage, *, templates: TemplateStore,
         cutoff = methods.values.get("qm", {}).get("cutoff_ry")
         cutoff_ry = float(cutoff[0]) if cutoff else None
         # a step's cost grows steeply with the region and the cutoff: no other measurement serves
-        same = [p for p in paces
-                if (qm_atoms is None or p.atoms == qm_atoms)
-                and (p.cutoff_ry is None or cutoff_ry is None or p.cutoff_ry == cutoff_ry)]
+        same = [p for p in paces if p.atoms == qm_atoms and p.cutoff_ry == cutoff_ry]
         pace, factor = pace_for(same, "s_per_step", billing.cores_per_node)
         if not steps:
             price.basis = "unpriced: no length"

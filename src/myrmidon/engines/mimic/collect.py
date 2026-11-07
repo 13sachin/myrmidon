@@ -243,9 +243,9 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
 
 
 def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min: int,
-                 extend_ps: float | None = None) -> list[Finding]:
+                 extend_ps: float | None = None, continuing: bool = False) -> list[Finding]:
     """What stops a coupled stage's run: the gate on its input, its compiled MM half, and the
-    state it restarts from."""
+    state it restarts from. A continuation's RESTART line is added when its job is built."""
     root = ctx.workspace.root
     missing = [k for k in ("cpmd_input", "tpr") if k not in inputs]
     if missing:
@@ -259,10 +259,12 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
 
     found, _ = coupled_findings(ctx, rel("cpmd_input"), rel("tpr"), rel("restart"),
                                 rel("geometry"))
+    if continuing:
+        found = [f for f in found if f.id != "CPMD_RESTART_FILE_UNUSED"]
     sections = parse_cpmd(inputs["cpmd_input"].read_text())
     restarts = any(line.strip().upper().startswith("RESTART")
                    for line in sections.get("CPMD", []))
-    if "geometry" in inputs and not restarts:
+    if "geometry" in inputs and not restarts and not continuing:
         found.append(Precondition(
             id="STAGE_SNAPSHOT_UNREAD",
             message=f"stage {stage.name}'s input has no RESTART line, so CPMD would start from "
@@ -313,33 +315,66 @@ def _steps_of(sections: dict, length_ps: float) -> int:
     return max(1, round(length_ps / (step_au * PS_PER["au"])))
 
 
+def _steps_left(ctx, stage, sections: dict, facts: dict) -> int:
+    """The steps a stage's last run did not reach. A restarted log counts from one, so they are
+    what that run was asked less what it did, and a run killed part-way resumes from its last
+    STORE, which is what the restart holds."""
+    from myrmidon.core.lineage import stage_left
+    from myrmidon.engines.mimic.cpmd_input import keyword_value
+
+    last = next((a.path for a in stage_left(ctx.workspace, stage.name)
+                 if a.role == "cpmd_input"), None)
+    asked = parse_cpmd(ctx.workspace.resolve(last).read_text()) if last else sections
+    maximum = keyword_value(asked, "&CPMD/MAXSTEP") or keyword_value(sections, "&CPMD/MAXSTEP")
+    done = facts.get("md_steps_completed") or 0
+    store = keyword_value(asked, "&CPMD/STORE")
+    if store and not facts.get("finished_normally"):
+        done -= done % max(1, int(float(store.split()[0])))
+    return max(1, int(float(maximum or done + 1)) - done)
+
+
 def _continuing(run_input: Path, run_dir: Path, ctx, request, stage) -> Path:
     """The run input as a continuation runs it, in the run's own directory, with its sidecar: a
-    RESTART line if it has none, and the steps it has left, or those an extension adds."""
-    import shutil
+    RESTART line if it has none; the steps it has left, or those an extension adds; a ramp and
+    its thermostat from the temperature the last run reached, on to the same target."""
+    import json
 
     from myrmidon.core.lineage import stage_left
     from myrmidon.engines.mimic.cpmd_input import has_keyword, keyword_value, set_keyword
-    from myrmidon.engines.mimic.diagnostics import parse_cpmd_output
+    from myrmidon.engines.mimic.diagnostics import cpmd_facts, parse_cpmd_output
 
     sections = parse_cpmd(run_input.read_text())
     cpmd = sections.get("CPMD", [])
+    changed: dict[str, object] = {}
     if not has_keyword(cpmd, "RESTART"):
         cpmd = ["RESTART COORDINATES VELOCITIES WAVEFUNCTION", *cpmd]
-    if request.extend_ps:
-        steps = _steps_of(sections, request.extend_ps)
-    else:
-        log = next((a.path for a in stage_left(ctx.workspace, stage.name) if a.role == "qm_log"),
-                   None)
-        done = (parse_cpmd_output(ctx.workspace.resolve(log).read_text(errors="replace"))
-                .get("md_steps_completed") if log else 0) or 0
-        steps = max(1, int(float(keyword_value(sections, "&CPMD/MAXSTEP") or done + 1)) - done)
-    sections["CPMD"] = set_keyword(cpmd, "MAXSTEP", str(steps))
+        changed["&CPMD/RESTART COORDINATES VELOCITIES WAVEFUNCTION"] = True
+    log = next((a.path for a in stage_left(ctx.workspace, stage.name) if a.role == "qm_log"), None)
+    text = ctx.workspace.resolve(log).read_text(errors="replace") if log else ""
+    facts = {**parse_cpmd_output(text), **cpmd_facts(text)}
+    steps = (_steps_of(sections, request.extend_ps) if request.extend_ps
+             else _steps_left(ctx, stage, sections, facts))
+    cpmd = set_keyword(cpmd, "MAXSTEP", str(steps))
+    changed["&CPMD/MAXSTEP"] = steps
+    reached = facts.get("final_temperature_k")
+    ramp = keyword_value(sections, "&CPMD/TEMPERATURE RAMP")
+    if ramp and reached is not None:
+        for key, value in (("TEMPERATURE RAMP", ramp),
+                           ("BERENDSEN IONS", keyword_value(sections, "&CPMD/BERENDSEN IONS"))):
+            if value:
+                moved = " ".join([f"{reached:g}", *value.split()[1:]])
+                cpmd = set_keyword(cpmd, key, moved)
+                changed[f"&CPMD/{key}"] = moved
+    sections["CPMD"] = cpmd
     target = run_dir / run_input.name
     target.write_text(render_cpmd(sections))
     sidecar = run_input.with_name(run_input.name + ".myrmidon.json")
-    if sidecar.is_file() and sidecar.parent != run_dir:
-        shutil.copy2(sidecar, target.with_name(target.name + ".myrmidon.json"))
+    if sidecar.is_file():  # what the continuation wrote is the harness's, not an edit
+        record = json.loads(sidecar.read_text())
+        record["values"] = {**(record.get("values") or {}), **changed}
+        record["origin"] = {**(record.get("origin") or {}),
+                            **dict.fromkeys(changed, "continuation")}
+        target.with_name(target.name + ".myrmidon.json").write_text(json.dumps(record, indent=1))
     return target
 
 

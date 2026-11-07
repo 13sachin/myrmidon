@@ -781,9 +781,9 @@ def stage_words(stage: Stage) -> str:
                 else "unrestrained")
     if stage.qm_region is not None:
         q = stage.qm_region
-        bits.append(f"QM: {', '.join(q.subsystems)}, charge {q.charge}, multiplicity "
-                    f"{q.multiplicity}" + (f", padding {q.padding_nm:g} nm"
-                                           if q.padding_nm is not None else ""))
+        bits.append(f"QM: {', '.join(q.subsystems)}, charge {q.charge}"
+                    + (f", multiplicity {q.multiplicity}" if q.multiplicity is not None else "")
+                    + (f", padding {q.padding_nm:g} nm" if q.padding_nm is not None else ""))
     if stage.scan is not None:
         bits.append(f"scanning {stage.scan.parameter} over "
                     + ", ".join(str(v) for v in stage.scan.values))

@@ -1,6 +1,7 @@
 """The mock engines ship with the harness and behave the same wherever they run."""
 
 import os
+from dataclasses import replace
 
 import pytest
 
@@ -16,6 +17,17 @@ def test_the_mock_engines_are_part_of_the_package():
     mock.check_bin()
     assert {"gmx", "cpmd.x", "mimicpy", "sbatch", "squeue", "sacct"} <= {
         p.name for p in mock.BIN.iterdir()}
+
+
+def test_a_mock_context_reaches_no_real_engine_a_machine_config_names(ws_ctx):
+    """A machine config names its engines by absolute path; on the mocks none of them is used."""
+    configured = ws_ctx.config.model_copy(update={
+        "gromacs_bin": "/opt/real/gmx", "cpmd_bin": "/opt/real/cpmd.x",
+        "mimicpy_bin": "/opt/real/mimicpy"})
+    with mock.activated(ws_ctx.workspace.root):
+        engines = mock.mock_context(replace(ws_ctx, config=configured)).engines
+    assert {engines[name].path for name in ("gromacs", "cpmd", "mimicpy")} == {
+        str(mock.BIN / binary) for binary in ("gmx", "cpmd.x", "mimicpy")}
 
 
 def test_a_mock_job_is_seen_running_exactly_once_whatever_the_host(ws_ctx):

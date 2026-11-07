@@ -350,7 +350,7 @@ def _frames_in(structure: Path, trajectory: Path) -> int | None:
 
 
 def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min: int,
-                 extend_ps: float | None = None) -> list[Finding]:
+                 extend_ps: float | None = None, continuing: bool = False) -> list[Finding]:
     """What stops a classical run or is worth saying of it: the input it must have, whether the
     booked walltime can cover what its .tpr carries, a checkpoint that does not name this run's
     files, a coupled .tpr rerun as if it were classical, frames past a trajectory's end."""

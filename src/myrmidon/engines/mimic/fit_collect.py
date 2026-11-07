@@ -85,7 +85,7 @@ def fm_dataset_frames(ctx: ToolContext, dataset: Path) -> int | None:
 
 
 def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min: int,
-                 extend_ps: float | None = None) -> list[Finding]:
+                 extend_ps: float | None = None, continuing: bool = False) -> list[Finding]:
     """What stops a fit: an input it cannot run without, one its input file does not state, a
     topology mimicpy cannot rewrite."""
     missing = [k for k in FIT_INPUTS if k not in inputs]
@@ -94,8 +94,8 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
             id="STAGE_NOT_PREPARED",
             message=f"stage {stage.name} has no {', '.join(missing)}",
             suggestion="stage_prepare the fit and a classical single_point stage, whose mdp is "
-            "the fit's rerun; dataset_collect the reference run it fits against; qm_region "
-            "writes the selection and the index")]
+            "the fit's rerun, or name one in inputs.mdp; dataset_collect the reference run it "
+            "fits against; qm_region writes the selection and the index")]
     findings = list(itp_atomtypes_warnings(inputs["topology"]))
     if "mdp" in inputs:
         from myrmidon.engines.gromacs.mdp import parse_mdp_file

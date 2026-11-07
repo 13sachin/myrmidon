@@ -170,7 +170,7 @@ if restarting:
 
 if ramp:
     t0, t1, rate = (ramp + [0.0, 0.0, 0.0])[:3]
-    start = t_start if t_start is not None else t0
+    start = t0  # a ramp climbs from what its input states, restart or none
 
     timestep = (_value_after(cpmd, "TIMESTEP") or [5.0])[0]
 
@@ -247,13 +247,21 @@ with open("LATEST", "w") as fh:
 with open("ENERGIES", "w") as fh:
     for nfi in range(1, n_steps + 1):
         fh.write(f"   {nfi}   0.00000000   {max(0.0, temperature(nfi)):.3f}  -17.12345678\n")
+def _is_position(line):
+    try:
+        return len([float(x) for x in line.split()]) == 3
+    except ValueError:
+        return False
+
+
+atoms = max(1, sum(_is_position(ln) for ln in _section("ATOMS").splitlines()))
 with open("GEOMETRY", "w") as fh:
-    fh.write("  0.0  0.0  0.0  0.0  0.0  0.0\n")
-# real CPMD's rows: every atom's position and velocity at each stored step
+    fh.write("  0.0  0.0  0.0  0.0  0.0  0.0\n" * atoms)
+# real CPMD's rows: every atom's position and velocity, one row each, at each stored step
 sample = _value_after(cpmd, "TRAJECTORY SAMPLE")
 with open("TRAJECTORY", "w") as fh:
     for nfi in range(1, n_steps + 1, max(1, int(sample[0])) if sample else 1):
-        fh.write(f"   {nfi}  0.0  0.0  0.0  0.0  0.0  0.0\n")
+        fh.write(f"   {nfi}  0.0  0.0  0.0  0.0  0.0  0.0\n" * atoms)
 if "DIPOLE DYNAMICS" in inp_text:
     # real CPMD's rows: the step, the electronic and the total dipole per cell volume (a.u.)
     with open("DIPOLE", "w") as fh:

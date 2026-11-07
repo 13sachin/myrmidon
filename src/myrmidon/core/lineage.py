@@ -352,12 +352,13 @@ def _runs(ev) -> bool:
         return False
 
 
-def latest_outputs(ws, tool: str) -> dict[str, str]:
-    """Role -> path of what the latest successful call of ``tool`` wrote; empty when it has
-    not run."""
+def latest_outputs(ws, tool: str, stage: str | None = None) -> dict[str, str]:
+    """Role -> path of what the latest successful call of ``tool`` wrote, for ``stage`` when one
+    was made for it; empty when it has not run."""
     found = [ev for ev in ws.ledger.events()
              if ev.tool == tool and ev.ok and ev.kind == "call" and ev.outputs]
-    return {a.role: a.path for a in found[-1].outputs} if found else {}
+    own = [ev for ev in found if stage and ev.params.get("stage") == stage]
+    return {a.role: a.path for a in (own or found)[-1].outputs} if found else {}
 
 
 def latest_dataset(ws, stage: str | None = None) -> str | None:

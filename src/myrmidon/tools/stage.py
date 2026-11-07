@@ -73,38 +73,43 @@ def _starting_structure(ctx: ToolContext, mandate, stage) -> tuple[str | None, s
 
 def _region_findings(ctx: ToolContext, mandate, stage, structure: str | None) -> list[Finding]:
     """What keeps a stage's QM region from being the approved one on these coordinates: chemistry
-    a selection made since leaves open; other atoms than the mandate's selection; and, on a fresh
-    start, where CPMD takes the QM atoms from the input the selection wrote and GROMACS the rest
-    from the structure, a selection made on other coordinates. A stage that restarts takes both
-    from what it restarts."""
+    its selection leaves open; atoms none of the mandate's selections holds; and, on a coupled
+    fresh start, where CPMD takes the QM atoms from the input the selection wrote and GROMACS the
+    rest from the structure, a selection made on other coordinates. A stage that restarts takes
+    both from what it restarts."""
     if stage.qm_region is None:
         return []
     from myrmidon.tools.mandate import open_chemistry
 
-    found = [Precondition(id="QM_REGION_OPEN", message=question,
-                          suggestion="ask the researcher; the answer goes into the stage's "
-                          "qm_region, a revision they approve")
-             for question in open_chemistry(ctx.workspace, [stage], mandate.decisions.yours)]
-    selected = next((ev for ev in reversed(list(ctx.workspace.ledger.events()))
-                     if ev.tool == "qm_region" and ev.ok and ev.kind == "call"), None)
+    ws = ctx.workspace
+    found: list[Finding] = [
+        Precondition(id="QM_REGION_OPEN", message=question,
+                     suggestion="ask the researcher, then revise the mandate: a stated "
+                     "multiplicity goes in the stage's qm_region, a charge in a decision locking "
+                     "qm_region.charge")
+        for question in open_chemistry(ws, [stage], mandate.decisions.yours, stage.name)]
+    merged = system_file(ctx, mandate, "cpmd_input", stage.name)
+    selected = next((ev for ev in reversed(list(ws.ledger.events()))
+                     if ev.tool == "qm_region" and ev.ok and ev.kind == "call"
+                     and any(a.path == merged for a in ev.outputs)), None)
     if selected is None:
         return found
-    approved = next((f for f in mandate.system.files if f.kind == "qm_selection"), None)
+    approved = [f.path for f in mandate.system.files if f.kind == "qm_selection"
+                and ws.resolve(f.path).is_file()]
     wrote = next((a for a in selected.outputs if a.role == "qm_selection"), None)
-    if approved and wrote and ctx.workspace.resolve(approved.path).is_file() and (
-            ctx.workspace.resolve(wrote.path).read_text()
-            != ctx.workspace.resolve(approved.path).read_text()):
+    if approved and wrote and ws.resolve(wrote.path).read_text() not in {
+            ws.resolve(path).read_text() for path in approved}:
         found.append(Precondition(
             id="QM_SELECTION_NOT_APPROVED",
-            message=f"the latest QM selection ({wrote.path}) is not the one the approved mandate "
-            f"holds ({approved.path}): which atoms are quantum is the researcher's",
+            message=f"the QM selection this stage reads ({wrote.path}) is none the approved "
+            f"mandate holds ({', '.join(approved)}): which atoms are quantum is the researcher's",
             suggestion="select the approved atoms, or revise the mandate with the reason"))
     begins = mandate.method.starts_from(stage)
     coupled_before = begins is not None and begins.regime != "mm" and begins.name != stage.name
     coords = next((i for i in selected.inputs if i.role == "coords"), None)
-    if (not coupled_before and coords is not None and structure is not None
-            and ctx.workspace.resolve(structure).is_file()
-            and sha256_file(ctx.workspace.resolve(structure)) != coords.sha256):
+    if (stage.regime != "mm" and not coupled_before and coords is not None
+            and structure is not None and ws.resolve(structure).is_file()
+            and sha256_file(ws.resolve(structure)) != coords.sha256):
         found.append(Precondition(
             id="QM_REGION_ON_OTHER_COORDINATES",
             message=f"the QM region was selected on {coords.path}, and stage {stage.name} starts "
@@ -147,8 +152,8 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
     if stopping:
         return _refused(stopping[0].message, stopping[0].id, stopping,
                         stopping[0].suggestion or "")
-    topology = params.topology or system_file(ctx, mandate, "topology")
-    index = params.index or system_file(ctx, mandate, "index")
+    topology = params.topology or system_file(ctx, mandate, "topology", stage.name)
+    index = params.index or system_file(ctx, mandate, "index", stage.name)
     stage_dir = ctx.workspace.stage(stage.name)
     prepared: dict[str, str] = {}
     values: dict[str, dict] = {}
@@ -359,7 +364,7 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
             "checkpoint or a restart, or its job has not been collected",
             suggestion=f"job_status on its job, or stage_run stage={stage.name} from the start")]
     return [*_source_findings(ctx, params, files), *engine.job_findings(
-        ctx, stage, files, params.walltime_min or 60, params.extend_ps)]
+        ctx, stage, files, params.walltime_min or 60, params.extend_ps, params.continue_run)]
 
 
 def _source_findings(ctx: ToolContext, params: StageRunParams, files: dict) -> list[Finding]:

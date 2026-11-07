@@ -352,6 +352,8 @@ def main():
             "&END\n"
             "\n"
             "&SYSTEM\n"
+            "    CELL\n"
+            "        20.5 1.1 0.9 0.0 0.0 0.0\n"
             "    CHARGE\n"
             f"        {round(total)}\n"
             "&END\n"

@@ -94,7 +94,7 @@ def mock_context(ctx: ToolContext) -> ToolContext:
     from myrmidon.execution.slurm import SlurmBackend
 
     config = ctx.config.model_copy(update={
-        "gromacs_bin": "gmx", "cpmd_bin": "cpmd.x", "backend": "slurm",
+        "gromacs_bin": "gmx", "cpmd_bin": "cpmd.x", "mimicpy_bin": "mimicpy", "backend": "slurm",
         # the mock sbatch runs the script with sh on this node: no module prelude
         "slurm": ctx.config.slurm.model_copy(update={"extra_sbatch_lines": []}),
     })

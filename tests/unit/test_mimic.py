@@ -527,14 +527,15 @@ def test_a_coupled_stage_compiles_on_the_coordinates_its_region_was_selected_on(
     for named in ({}, {"structure": left}):
         refused = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "first", **named})
         assert refused.error.code == "QM_REGION_ON_OTHER_COORDINATES"
-    selected = _select_on(ws_ctx, left, stage="reselected")
+    selected = _select_on(ws_ctx, left)
     prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "first"})
     assert prepared.ok, prepared.summary
     held = read_mandate(ws_ctx.workspace)
     assert system_file(ws_ctx, held, "cpmd_input") == next(
         a.path for a in selected.artifacts if a.role == "cpmd_input")
-    assert REGISTRY.call("stage_run", ws_ctx, {"stage": "first", "preview": True}).ok
-    _select_on(ws_ctx, left, stage="other_atoms",
+    run = REGISTRY.call("stage_run", ws_ctx, {"stage": "first", "preview": True})
+    assert run.ok, run.summary
+    _select_on(ws_ctx, left,
                selections=["add resname is ACT", "add resid is 2"])
     other = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "first"})
     assert other.error.code == "QM_SELECTION_NOT_APPROVED"
@@ -573,6 +574,99 @@ def test_a_stage_that_starts_from_itself_runs_afresh_until_it_has_a_run(ws_ctx):
     assert goes_on.ok, goes_on.summary
     event = [e for e in ws_ctx.workspace.ledger.events() if e.tool == "stage_run"][-1]
     assert event.params["continue_run"] is True
+
+
+def test_a_stage_reads_the_region_selected_for_it(ws_ctx):
+    """Two selections a mandate holds, each read by the stage it was made for."""
+    from myrmidon.core.mandate import read_mandate
+    from myrmidon.tools.inputsets import system_file
+
+    call, mandates = _study_before_selecting(ws_ctx, [_qmmm("one"), _qmmm("two", starts_from="")])
+    gro = "01_input/acetone_equilibrated.gro"
+    one = _select_on(ws_ctx, gro, stage="one")
+    two = _select_on(ws_ctx, gro, stage="two",
+                     selections=["add resname is ACT", "add resid is 2"])
+    picks = {name: {a.role: a.path for a in obs.artifacts}
+             for name, obs in (("one", one), ("two", two))}
+    call["system_files"] += [{"path": picks[n]["qm_selection"], "kind": "qm_selection"}
+                             for n in picks]
+    written = REGISTRY.call("mandate_write", ws_ctx, call)
+    assert written.ok, written.summary
+    held = read_mandate(ws_ctx.workspace)
+    mandates.record_approval(ws_ctx.workspace, held, approver="researcher", via="terminal")
+    for name in picks:
+        prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": name})
+        assert prepared.ok, prepared.summary
+        assert system_file(ws_ctx, held, "cpmd_input", name) == picks[name]["cpmd_input"]
+
+
+def test_a_mandates_own_input_is_not_replaced_by_a_selection(ws_ctx):
+    """A file the researcher named stands, whatever a selection wrote; a classical stage's
+    compile takes the same index; and a fit reads no coupled input, so its region is on no
+    coordinates of its own."""
+    from tests.conftest import REGION, coupled_study
+
+    from myrmidon.core.mandate import read_mandate
+    from myrmidon.tools.inputsets import system_file
+
+    coupled_study(ws_ctx, [MD, {"name": "fit", "kind": "parameter_fit", "qm_region": REGION}])
+    _ran(ws_ctx, "md")
+    fit = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit",
+                                                  "overrides": {"stride": "[0,10,1]"}})
+    assert fit.ok, fit.summary
+    held = read_mandate(ws_ctx.workspace)
+    mine = ws_ctx.workspace.stage("mine") / "mine.ndx"
+    mine.write_text("[ System ]\n1\n")
+    named = held.model_copy(deep=True)
+    named.system.files = [f for f in named.system.files if f.kind != "index"] + [
+        type(named.system.files[0])(path=ws_ctx.workspace.relpath(mine), kind="index")]
+    assert system_file(ws_ctx, named, "index") == ws_ctx.workspace.relpath(mine)
+
+
+def test_a_continuation_asks_only_what_is_left_of_the_stage(ws_ctx):
+    """A restarted log counts from one, so two runs killed at 30 steps of 1000 leave 970, then
+    940, not 970 twice, and each resumes from the last STORE."""
+    from tests.conftest import coupled_study, wait_for
+
+    from myrmidon.core.lineage import stage_left
+    from myrmidon.engines.mimic.cpmd_input import keyword_value
+
+    killed = (Path(__file__).parents[1] / "fixtures" / "cpmd" / "mimic_heating_berendsen.out"
+              ).read_text()
+    coupled_study(ws_ctx, [_qmmm("a", steps=1000)])
+    _ran(ws_ctx, "a", {"overrides": {"&CPMD/STORE": "10"}})
+
+    def killed_again():
+        log = next(a.path for a in stage_left(ws_ctx.workspace, "a") if a.role == "qm_log")
+        ws_ctx.workspace.resolve(log).write_text(killed)
+        submitted = REGISTRY.call("stage_run", ws_ctx, {"stage": "a", "continue_run": True})
+        assert submitted.ok, submitted.summary
+        wait_for(ws_ctx, submitted.job_id)
+        return int(keyword_value(parse_cpmd(Path(submitted.command[1]).read_text()),
+                                 "&CPMD/MAXSTEP"))
+
+    assert [killed_again(), killed_again()] == [970, 940]
+
+
+def test_a_continued_ramp_climbs_on_from_where_the_run_reached(ws_ctx):
+    """Its thermostat too: the first values would pull a run at 95 K back to where it started."""
+    from tests.conftest import coupled_study
+
+    from myrmidon.core.lineage import stage_left
+    from myrmidon.engines.mimic.cpmd_input import keyword_value
+    from myrmidon.engines.mimic.diagnostics import cpmd_facts
+
+    ramp = {"start_k": 50, "to_k": 300, "rate_k_per_au": 0.01}
+    coupled_study(ws_ctx, [_qmmm("hot", steps=2000, ensemble="NVT", temperature_k=ramp)])
+    _ran(ws_ctx, "hot")
+    log = next(a.path for a in stage_left(ws_ctx.workspace, "hot") if a.role == "qm_log")
+    reached = cpmd_facts(ws_ctx.workspace.resolve(log).read_text())["final_temperature_k"]
+    goes_on = REGISTRY.call("stage_run", ws_ctx, {"stage": "hot", "continue_run": True})
+    assert goes_on.ok, goes_on.summary
+    sections = parse_cpmd(Path(goes_on.command[1]).read_text())
+    assert float(keyword_value(sections, "&CPMD/TEMPERATURE RAMP").split()[0]) == reached
+    assert keyword_value(sections, "&CPMD/TEMPERATURE RAMP").split()[1] == "300"
+    assert float(keyword_value(sections, "&CPMD/BERENDSEN IONS").split()[0]) == reached
 
 
 # (the call's extension in ps, or none: the steps the run has left)

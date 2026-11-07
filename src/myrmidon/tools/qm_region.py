@@ -137,6 +137,8 @@ def _refused(params: QMRegionParams, argv, proc, inp, ndx) -> Observation | None
 def qm_region(ctx: ToolContext, params: QMRegionParams) -> Observation:
     precheck(ctx, _gate(ctx, params)[0])
     stage = ctx.workspace.stage(params.stage)
+    if (stage / "cpmd.inp").exists():  # a mandate may hold what an earlier selection wrote
+        stage = ctx.workspace.run_dir(stage, "selection")
     gmx = ctx.engines.get("gromacs")
     argv = prepqm_argv(
         mimicpy_bin(ctx), resolve_in_ws(ctx, params.topology), resolve_in_ws(ctx, params.coords),

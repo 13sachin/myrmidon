@@ -521,13 +521,19 @@ def _from_run_keys(template, store) -> set[str]:
     return {key for key, form in forms.items() if form.from_stage in FROM_RUN}
 
 
-def system_file(ctx: ToolContext, mandate, kind: str) -> str | None:
-    """The study's file of a system kind: what the latest QM selection wrote, which re-selecting
-    on a later frame replaces, else the mandate's."""
+def system_file(ctx: ToolContext, mandate, kind: str, stage: str | None = None) -> str | None:
+    """The study's file of a system kind, for a stage if named: the mandate's, unless a QM
+    selection wrote that one, when the latest selection for the stage replaces it."""
     from myrmidon.core.lineage import latest_outputs
 
-    selected = latest_outputs(ctx.workspace, "qm_region").get(kind)
-    return selected or next((f.path for f in mandate.system.files if f.kind == kind), None)
+    named = next((f.path for f in mandate.system.files if f.kind == kind), None)
+    selected = latest_outputs(ctx.workspace, "qm_region", stage).get(kind)
+    if named is None or selected is None:
+        return named or selected
+    from_selection = any(ev.tool == "qm_region" and ev.ok and any(a.path == named
+                                                                  for a in ev.outputs)
+                         for ev in ctx.workspace.ledger.events())
+    return selected if from_selection else named
 
 
 def _starting_facts(ctx: ToolContext, mandate, stage, template) -> dict:
@@ -862,7 +868,7 @@ def inputset_apply(ctx: ToolContext, params: InputSetApplyParams) -> Observation
     extra: dict = {}
     if mandate is not None and engine.stage_text is not None:
         files = {k: ctx.workspace.resolve(path) for k in ("cpmd_input",)
-                 if (path := system_file(ctx, mandate, k))}
+                 if (path := system_file(ctx, mandate, k, params.stage))}
         text = engine.stage_text(StageRender(
             mandate.method.stage(params.stage), resolution.values, resolution.origin, header,
             files))

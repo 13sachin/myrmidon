@@ -166,15 +166,17 @@ def write_gro(path, n_atoms, box="2.50000   2.50000   2.50000"):
 
 
 def write_final_gro(path, tpr_fields, step):
-    """The structure a run leaves: the atoms its tpr holds, titled with its last step as a real
-    one is, so that it is never the file the run started from. A tpr with no coordinates: the
-    mock's own system."""
+    """The structure a run leaves: the atoms its tpr holds, moved by a hundredth of a nm and titled
+    with its last step as a real one is, so that it is never what the run started from. A tpr
+    with no coordinates: the mock's own system."""
     conf = tpr_fields.get("mock-conf")
     if not conf:
         write_gro(path, 670)
         return
-    title, *rest = base64.b64decode(conf).decode().splitlines()
-    path_write(path, "\n".join([f"{title} step= {step}", *rest]) + "\n")
+    title, count, *rest = base64.b64decode(conf).decode().splitlines()
+    moved = [f"{ln[:20]}{float(ln[20:28]) + 0.01:8.3f}{ln[28:]}" if len(ln) >= 44 else ln
+             for ln in rest]
+    path_write(path, "\n".join([f"{title} step= {step}", count, *moved]) + "\n")
 
 
 def _gro_coordinates(tpr_fields):
@@ -192,8 +194,9 @@ def _gro_coordinates(tpr_fields):
 
 def write_trr(path, tpr_fields):
     """A GROMACS .trr in its real XDR form, so that what reads a real one reads this: frames at
-    multiples of nstxout, at most twenty of them, since a mock run has no need of thousands. The
-    atoms drift by a thousandth of a nm per frame, enough to tell frames apart."""
+    multiples of nstxout, at most twenty of them, since a mock run has no need of thousands. A run
+    storing only compressed frames gets its first and last here too, the mock's .xtc being no
+    real one. The atoms drift by a thousandth of a nm per frame, to tell frames apart."""
     import struct
 
     positions, box = _gro_coordinates(tpr_fields)
