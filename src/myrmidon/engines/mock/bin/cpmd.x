@@ -9,7 +9,7 @@ LATEST, ENERGIES and GEOMETRY, which is what the next segment needs.
 
 Temperature: the ionic temperature follows the &CPMD block the way the real program's
 would in shape — a TEMPERATURE RAMP climbs from its first value towards its second at its
-rate (here: kelvin per MD step, the mock's own unit), BERENDSEN or NOSE holds its target,
+rate in kelvin per a.u. of time, as real CPMD's is, BERENDSEN or NOSE holds its target,
 ANNEALING cools by its factor each step, and no thermostat keeps the temperature it started
 with. The mock restart carries the final temperature (``T_FINAL``), so a segment that
 continues from it continues from where the last one ended, which is what makes a stage
@@ -172,8 +172,11 @@ if ramp:
     t0, t1, rate = (ramp + [0.0, 0.0, 0.0])[:3]
     start = t_start if t_start is not None else t0
 
+    timestep = (_value_after(cpmd, "TIMESTEP") or [5.0])[0]
+
     def temperature(step):
-        return min(t1, start + rate * step) if t1 >= start else max(t1, start - rate * step)
+        climbed = rate * step * timestep
+        return min(t1, start + climbed) if t1 >= start else max(t1, start - climbed)
     control = "TEMPERATURE RAMP"
 elif nose:
     target = nose[0]
@@ -225,7 +228,9 @@ for nfi in nfis:
     # a conserved energy that drifts by 1e-8 Ha per step: 4e-5 Ha/ps at a 10 a.u. step,
     # the order a sound NVE run shows
     e = -17.123456 + 0.00000001 * nfi
-    print(f"      {nfi:4d}  {t_final:8.1f}     {e:.5f}     {e + 0.003:.5f}   0.557E-04   71.89")
+    # the first step builds the wavefunction, as a real log's does; the rest extrapolate it
+    tcpu = 71.89 if nfi == nfis[0] else 0.62
+    print(f"      {nfi:4d}  {t_final:8.1f}     {e:.5f}     {e + 0.003:.5f}   0.557E-04   {tcpu:.2f}")
     print("        SHAKE CONVERGED AFTER   3 ITERATIONS. TCPU =         0.00")
     print("        INFR         GEMAX            ETOT         DETOT     TCPU")
     for it in range(1, 13):
