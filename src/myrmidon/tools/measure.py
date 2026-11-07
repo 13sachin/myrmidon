@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pydantic import Field, PrivateAttr
 
-from myrmidon.core.artifacts import ArtifactRef
+from myrmidon.core.artifacts import ArtifactRef, fresh_path
 from myrmidon.core.contracts import Contract
 from myrmidon.core.lineage import latest_dataset, lineage, stage_run, stage_segments
 from myrmidon.core.mandate import read_mandate
@@ -14,7 +14,7 @@ from myrmidon.core.observation import Observation
 from myrmidon.core.tool import REGISTRY, ToolContext, tool
 from myrmidon.core.validation import Finding
 from myrmidon.engines.inputs import resolve_in_ws
-from myrmidon.engines.registry import fit_adapter
+from myrmidon.engines.registry import adapter_with, fit_adapter
 from myrmidon.knowledge.observables import (
     COUPLED,
     ENERGY_TERMS,
@@ -211,12 +211,14 @@ def _on_run(ctx: ToolContext, params: MeasureParams, extractor: str, over: str, 
             if not _reads_as_topology(ctx.workspace.resolve(tpr.path)):
                 started = _prepared_on(ctx, over)
                 if started:
-                    update["structure"] = started
+                    bonded = _with_bonds(ctx, tpr.path, started, over)
+                    update["structure"] = bonded or started
                     said.append(Finding(id="DELIVERABLE_STRUCTURE_FOR_TPR", message=(
                         f"{tpr.path} cannot be read as a topology here (a run input newer than "
                         f"the reader knows, say), so {what} is measured with the atoms of "
-                        f"{started}, the structure stage {over} was prepared on: no bonds, so "
-                        "no molecule is made whole across the box")))
+                        f"{started}, the structure stage {over} was prepared on"
+                        + (f", written with the run input's bonds as {bonded}" if bonded
+                           else ": no bonds, so no molecule is made whole across the box"))))
     elif extractor == "energy":
         if not take("energy", "edr"):
             return _refused(params, f"the run of stage {over} wrote no energy file")
@@ -255,6 +257,18 @@ def _reads_as_topology(path) -> bool:
     except Exception:  # noqa: BLE001 — any reader failure is a file it cannot take
         return False
     return True
+
+
+def _with_bonds(ctx: ToolContext, run_input: str, structure: str, stage: str) -> str | None:
+    """The structure with the bonds its run input holds, written by the engine that reads
+    that input; None where none can."""
+    engine = adapter_with("bonded_structure")
+    if engine is None:
+        return None
+    out = fresh_path(ctx.workspace.stage("analysis") / f"{stage}_bonded.pdb")
+    written = engine.bonded_structure(ctx, ctx.workspace.resolve(run_input),
+                                      ctx.workspace.resolve(structure), out)
+    return ctx.workspace.relpath(written) if written else None
 
 
 def _prepared_on(ctx: ToolContext, stage: str) -> str | None:

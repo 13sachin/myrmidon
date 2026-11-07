@@ -336,8 +336,9 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
         if not frames_to_run(ctx, stage, []):
             return [Precondition(
                 id="STAGE_NOTHING_TO_RUN",
-                message=f"every frame of stage {stage.name}'s scan has been computed",
-                suggestion="dataset_collect stage=" + stage.name)]
+                message=f"every frame of stage {stage.name}'s scan has been computed, or is "
+                "in a job not yet collected",
+                suggestion=f"job_status on a running one; dataset_collect stage={stage.name}")]
         total = (frames_in(inputs["structure"], inputs["trajectory"])
                  if "structure" in inputs else None)
         past = [f for f in stage.scan.values if total and not 0 <= int(f) < total]

@@ -9,7 +9,11 @@ from myrmidon.engines.gromacs import layout, mdp, parse, run, system
 from myrmidon.engines.gromacs.batch import collect_minimized
 from myrmidon.engines.gromacs.collect import collect_run, diagnose_log
 from myrmidon.engines.gromacs.collect import run_progress as mdrun_progress
-from myrmidon.engines.gromacs.common import extract_energy_terms, join_trajectories
+from myrmidon.engines.gromacs.common import (
+    bonded_structure,
+    extract_energy_terms,
+    join_trajectories,
+)
 from myrmidon.engines.registry import EngineAdapter, InputCheck
 from myrmidon.execution.collect import collector, progress
 
@@ -73,6 +77,7 @@ ADAPTER = EngineAdapter(
     diagnose=diagnose_log,
     join_trajectories=join_trajectories,
     energy_series=extract_energy_terms,
+    bonded_structure=bonded_structure,
     forcefield=system.forcefield,
     input_findings=_input_findings,
     checks=mdp.CHECKS,

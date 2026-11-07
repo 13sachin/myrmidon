@@ -183,6 +183,9 @@ class EngineAdapter:
     diagnose: Callable[..., object] | None = None
     #: (ctx, trajectories in order, the joined file) -> the finished process that joined them
     join_trajectories: Callable[..., object] | None = None
+    #: (ctx, a run input, a structure of its atoms, the .pdb to write) -> that structure with
+    #: the run input's bonds, for a reader that cannot take the run input; None when not written
+    bonded_structure: Callable[..., Path | None] | None = None
     #: (ctx, an energy file, its terms by label, the directory to write in) -> (the series
     #: file, the finished process that wrote it)
     energy_series: Callable[..., tuple] | None = None
@@ -203,6 +206,9 @@ class EngineAdapter:
     #: (the system's parts by name, as dicts; the names asked) -> (the selection commands that
     #: take them into a QM region, the names none resolves)
     select_subsystems: Callable[..., tuple] | None = None
+    #: (ctx, stage, frames asked) -> the frames a run of a scan stage computes; None for a
+    #: stage that is no scan
+    scan_frames: Callable[..., list | None] | None = None
     #: (mandate, stage) -> (the padding in nm, the pseudopotential table, "" when the method
     #: names none) the stage's QM region is partitioned with
     region_settings: Callable[..., tuple] | None = None

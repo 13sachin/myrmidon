@@ -111,3 +111,13 @@ def join_trajectories(ctx: ToolContext, paths: list[Path], out: Path, continuous
         return run_gmx(ctx, ["trjcat", "-f", *files, "-settime", "-o", str(out)],
                        cwd=out.parent, stdin="0\n" + "c\n" * (len(files) - 1))
     return run_gmx(ctx, ["trjcat", "-f", *files, "-cat", "-o", str(out)], cwd=out.parent)
+
+
+def bonded_structure(ctx: ToolContext, run_input: Path, structure: Path, out: Path
+                     ) -> Path | None:
+    """``gmx trjconv -conect``: ``structure``'s atoms as a .pdb with the bonds ``run_input``
+    holds, as CONECT records, for a reader that cannot take the run input itself; None when
+    it could not be written."""
+    proc = run_gmx(ctx, ["trjconv", "-s", str(run_input), "-f", str(structure), "-o", str(out),
+                         "-conect"], cwd=out.parent, stdin="0\n")
+    return out if proc.returncode == 0 and out.is_file() else None

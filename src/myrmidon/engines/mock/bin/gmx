@@ -17,8 +17,8 @@ frames it chose through a run collected as any other.
 
 Procedural traps (as GROMACS 2021.6 behaves):
     a topology carrying the line "; MOCK_NET_CHARGE <q>" makes grompp emit the
-    Ewald net-charge WARNING, refused unless -maxwarn covers it; genion removes
-    the marker and neutralises it.
+    Ewald net-charge WARNING, refused unless -maxwarn covers it; genion neutralises it and
+    sets the marker to what its ions leave.
 
 Net charge: the marker when a topology carries one (a protein whose force field is not
 here to read), else the sum over [ molecules ] of each molecule type's [ atoms ] charges,
@@ -641,7 +641,10 @@ def main():
             if fail == "genion":
                 d, name = os.path.split(top)
                 path_write(os.path.join(d, f"#{name}.1#"), text)
-            lines = [ln for ln in text.splitlines() if not ln.startswith("; MOCK_NET_CHARGE")]
+            # a protein whose charges are not here carries its charge as the marker: what the
+            # ions leave of it is what grompp counts next
+            lines = [f"; MOCK_NET_CHARGE {mock_net_charge(top) + n_pos - n_neg:+.0f}"
+                     if ln.startswith("; MOCK_NET_CHARGE") else ln for ln in text.splitlines()]
             # the ions take the place of solvent molecules: the group's count goes down
             for i in range(len(lines) - 1, -1, -1):
                 cols = lines[i].split(";")[0].split()
@@ -806,6 +809,38 @@ def main():
             return 0
         sys.stderr.write("mock gmx dump: no checkpoint\n")
         return 1
+
+    if sub == "trjconv" and "-conect" in sys.argv:
+        # the structure as a .pdb with its bonds as CONECT records, which a real trjconv takes
+        # from the tpr's topology. The mock has no force field: a chain's atoms are bonded in
+        # order, a water's hydrogens to its oxygen, and an ion is alone
+        src, out = arg_after("-f"), arg_after("-o")
+        if not src or not out or not os.path.exists(src):
+            sys.stderr.write("Fatal error:\nNo structure to convert\n")
+            return 1
+        rows = open(src).read().splitlines()
+        n = int(rows[1].split()[0])
+        atoms = [(ln[5:10].strip(), ln[10:15].strip(), int(ln[0:5]),
+                  *(float(ln[20 + 8 * k:28 + 8 * k]) * 10 for k in range(3)))
+                 for ln in rows[2:2 + n]]
+        lines, bonds = [], []
+        for i, (res, name, resid, x, y, z) in enumerate(atoms, start=1):
+            lines.append(f"ATOM  {i % 100000:5d} {name[:4]:<4s} {res[:3]:>3s} A{resid % 10000:4d}"
+                         f"    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00\n")
+            if i == 1:
+                continue
+            prev_res, _, prev_id = atoms[i - 2][:3]
+            water = res in ("SOL", "WAT", "HOH")
+            if water and prev_id == resid and prev_res == res:
+                first = i - 1 if name.upper().startswith("H") and atoms[i - 2][1].upper() \
+                    .startswith("O") else i - 2
+                bonds.append((first, i))
+            elif not water and res.upper() not in STANDARD_IONS and \
+                    prev_res not in ("SOL", "WAT", "HOH") and prev_res.upper() not in STANDARD_IONS:
+                bonds.append((i - 1, i))
+        lines += [f"CONECT{a:5d}{b:5d}\n" for a, b in bonds]
+        path_write(out, "".join(lines) + "END\n")
+        return 0
 
     if sub == "trjcat":
         # concatenate the input trajectories: a trr's frames follow one another

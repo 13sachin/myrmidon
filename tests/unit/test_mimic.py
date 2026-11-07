@@ -727,9 +727,10 @@ def _measured_over_both_segments(ctx, stage):
         ctx.workspace, stage)]
     assert len(set(segments)) == 2
     measured = REGISTRY.call("observable_measure", ctx, {
-        "stage": stage, "property": "rmsd", "selection": "resname ACT"})
+        "stage": stage, "property": "rmsd", "selection": "resname ACT", "unwrap": True})
     assert measured.ok, measured.summary
-    # a run input the reader cannot take is measured on the structure the stage was prepared on
+    # a run input the reader cannot take is measured on the structure the stage was prepared
+    # on, written with the run input's bonds, so its molecules are made whole
     assert "DELIVERABLE_STRUCTURE_FOR_TPR" in {f.id for f in measured.findings}
     join = [e for e in ctx.workspace.ledger.events() if e.tool == "trajectory_join"][-1]
     assert [i.path for i in join.inputs] == segments
@@ -795,6 +796,9 @@ def test_single_points_over_frames_run_as_a_probe_then_one_batch(ws_ctx):
     for frames in ([0], []):
         submitted = REGISTRY.call("stage_run", ws_ctx, {"stage": "reference", "frames": frames})
         assert submitted.ok, submitted.summary
+        if not frames:  # the frames a running job computes are taken
+            beside = REGISTRY.call("stage_run", ws_ctx, {"stage": "reference"})
+            assert beside.error.code == "STAGE_NOTHING_TO_RUN"
         done = wait_for(ws_ctx, submitted.job_id, seconds=60)
         assert done.ok, f"{done.summary}\n{done.log_tail or ''}"
     assert frames_done(ws_ctx, held.method.stage("reference")) == {0, 1, 2}

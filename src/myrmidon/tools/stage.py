@@ -90,11 +90,13 @@ def _partition(ctx: ToolContext, mandate, stage, structure: str | None,
     """The stage's QM region partitioned by the harness from what the stage states (its
     subsystems; the padding and pseudopotentials its engine resolves from the stage and its QM
     method), as a ``qm_region`` call of its own in the ledger: on the first coupled stage of a
-    topology, and again on a fresh coupled start from other coordinates or another topology.
-    None when the stage reads a partition already: the researcher's own
+    topology, and again on a fresh coupled start from other coordinates, another topology or
+    another padding than the stage states. None when the stage reads a partition already: the
+    researcher's own
     selection (``qm_region`` called with selections of their own, or a selection file the
     mandate holds), the restart of the coupled stage it continues, which holds both halves, or
-    one made from the same subsystems on this structure and topology."""
+    one made from the same subsystems on this structure and topology at the padding the stage
+    states, if it states one."""
     region = stage.qm_region
     engine = adapter_with("partition_qm")
     if region is None or stage.regime == "mm" or not structure or engine is None:
@@ -120,7 +122,9 @@ def _partition(ctx: ToolContext, mandate, stage, structure: str | None,
         if given != region_selections(ctx, topology, latest.params.get("subsystems") or [])[0]:
             return None  # commands of the researcher's own: read as they are
         read = {i.role: i for i in latest.inputs}
-        if (given == wanted and read.get("coords") and read["coords"].sha256
+        stated = region.padding_nm
+        if (given == wanted and (not stated or latest.params.get("padding_nm") == stated)
+                and read.get("coords") and read["coords"].sha256
                 == sha256_file(ws.resolve(structure))
                 and read.get("topology") and read["topology"].sha256
                 == sha256_file(ws.resolve(topology))):
@@ -353,7 +357,11 @@ class StageRunParams(BaseModel):
             if node.max_walltime_min and minutes > node.max_walltime_min:
                 minutes = node.max_walltime_min
                 why += f"; capped at the {minutes} min the partition grants: continue the stage"
+        # a scan's run names the frames it computes, so a run beside it computes others
+        frames = (engine.scan_frames(ctx, stage, self.frames) if engine.scan_frames
+                  else None)
         return self.model_copy(update={
+            "frames": self.frames if frames is None else frames,
             "inputs": inputs, "cores": cores, "walltime_min": minutes,
             "continue_run": continuing, "snapshot": snapshot,
             "layout": {"ntasks": found.ntasks, "cpus_per_task": found.cpus_per_task,

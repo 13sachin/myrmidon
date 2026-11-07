@@ -105,6 +105,7 @@ ADAPTER = EngineAdapter(
     partition_qm=partition.partition_qm,
     select_subsystems=partition.subsystem_selections,
     region_settings=partition.region_settings,
+    scan_frames=batch.scan_frames,
     region_questions=partition.open_chemistry,
     prepare_findings=collect.prepare_findings,
     input_findings=_input_findings,

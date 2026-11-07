@@ -124,13 +124,30 @@ def frames_in(structure: Path, trajectory: Path) -> int | None:
         return None
 
 
+def frames_in_flight(ctx, stage) -> set[int]:
+    """The frames a submitted run of a scan stage computes whose job has not been collected."""
+    from myrmidon.core.lineage import lineage, named_stage
+
+    ws = ctx.workspace
+    collected = lineage(ws).submissions
+    return {int(f) for ev in ws.ledger.events()
+            if ev.tool == "stage_run" and ev.ok and ev.kind == "call"
+            and named_stage(ev) == stage.name and ev.event_id not in collected
+            for f in ev.params.get("frames") or ()}
+
+
 def frames_to_run(ctx, stage, asked: list[int]) -> list[int]:
     """The frames a run of a scan stage computes: those asked, else every frame of the scan
-    no collected run has computed."""
+    no collected run has computed and no running one is computing."""
     if asked:
         return [int(f) for f in asked]
-    done = frames_done(ctx, stage)
-    return [int(f) for f in stage.scan.values if int(f) not in done]
+    taken = frames_done(ctx, stage) | frames_in_flight(ctx, stage)
+    return [int(f) for f in stage.scan.values if int(f) not in taken]
+
+
+def scan_frames(ctx, stage, asked: list[int]) -> list[int] | None:
+    """The frames a run of a stage computes, when it is a scan's; None for any other stage."""
+    return frames_to_run(ctx, stage, asked) if is_scan(stage) else None
 
 
 def scan_job(ctx, stage, inputs: dict[str, Path], layout, request):

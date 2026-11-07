@@ -43,7 +43,8 @@ def _genion(ws_ctx, top_text, **params):
 
 
 # (topology, genion params, the [ molecules ] tail it writes). The charge is counted from
-# [ atoms ]; a protein whose force field is not here carries it as a marker, removed after.
+# [ atoms ]; a protein whose force field is not here carries it as a marker, which the ions
+# bring to zero.
 GENION = [
     (ANION_TOP, {}, ["SOL 199", "NA 1"]),
     (ANION_TOP, {"positive_ion": "K"}, ["SOL 199", "K 1"]),
@@ -57,7 +58,8 @@ def test_the_mock_genion_neutralises_the_charge_the_topology_has(ws_ctx, top_tex
                                                                  tail):
     _, top = _genion(ws_ctx, top_text, **params)
     assert top.rstrip().splitlines()[-2:] == tail
-    assert "MOCK_NET_CHARGE" not in top
+    marker = [ln.split()[-1] for ln in top.splitlines() if ln.startswith("; MOCK_NET_CHARGE")]
+    assert [float(q) for q in marker] in ([], [0.0])  # what grompp counts next is neutral
 
 
 # (topology, mdp, the engine's own line). What real grompp 2021.6 refuses, the mock refuses:
