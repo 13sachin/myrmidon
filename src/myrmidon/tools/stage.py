@@ -302,6 +302,9 @@ class StageRunParams(BaseModel):
         "its walltime, or one a stage that starts from itself extends")
     extend_ps: float | None = Field(default=None, gt=0, description="with continue_run: how many "
                                     "ps further than the run's end; unset, to the end it states")
+    frames: list[int] = Field(default_factory=list, description="a stage of single points over "
+                              "frames: the frames this run computes (the first alone, a probe); "
+                              "unset, every frame of its scan no run has computed")
     snapshot: str | None = Field(default=None, description="a geometry snapshot_select wrote, for "
                                  "a coupled stage to start from in place of the restart's")
     inputs: dict[str, str] = Field(
@@ -347,7 +350,7 @@ class StageRunParams(BaseModel):
         minutes, why = self.walltime_min, ""
         if minutes is None:
             minutes, why = engine.size_walltime(ctx, stage, files, found, found.cores,
-                                                self.extend_ps, continuing)
+                                                self.extend_ps, continuing, self.frames)
             minutes = minutes or ctx.config.compute.unmeasured_walltime_min
             if node.max_walltime_min and minutes > node.max_walltime_min:
                 minutes = node.max_walltime_min

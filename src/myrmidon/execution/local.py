@@ -94,28 +94,22 @@ class LocalBackend(ExecutionBackend):
         if spec.coupled:
             # MiMiC-style: all programs start concurrently; the job fails if
             # any of them fails (first nonzero exit code wins).
-            parts = [*([lead] if lead else []),
-                     f"{cmd} > {shquote(spec.stdout)} 2> {shquote(spec.stderr)} & p0=$!"]
+            run = [f"{cmd} > {shquote(spec.stdout)} 2> {shquote(spec.stderr)} & p0=$!"]
             for i, cc in enumerate(spec.coupled, start=1):
                 ccmd = self._decorate(cc.argv, cc.mpi_ranks)
-                parts.append(
+                run.append(
                     f"{ccmd} > {shquote(cc.stdout)} 2> {shquote(cc.stderr)} & p{i}=$!"
                 )
             n = len(spec.coupled)
-            parts.append("code=0")
+            run.append("code=0")
             for i in range(n + 1):
-                parts.append(f"wait $p{i}; c=$?; [ $c -ne 0 ] && [ $code -eq 0 ] && code=$c")
-            parts.append("rc=$code")
-            if after:
-                parts.append(after)
-            parts.append(f"echo $rc > {exit_file}")
-            inner = "(" + "; ".join(parts) + ")"
+                run.append(f"wait $p{i}; c=$?; [ $c -ne 0 ] && [ $code -eq 0 ] && code=$c")
+            run.append("rc=$code")
         else:
-            inner = (
-                f"({lead + '; ' if lead else ''}"
-                f"{cmd} > {shquote(spec.stdout)} 2> {shquote(spec.stderr)}; rc=$?; "
-                f"{after + '; ' if after else ''}echo $rc > {exit_file})"
-            )
+            run = [f"{cmd} > {shquote(spec.stdout)} 2> {shquote(spec.stderr)}", "rc=$?"]
+        parts = [*([lead] if lead else []), *_over_points(spec, run, exit_file),
+                 *([after] if after else []), f"echo $rc > {exit_file}"]
+        inner = "(" + "; ".join(parts) + ")"
         wrapper = f"{inner} & echo $! > {shquote(str(run_dir / '.pid'))}"
         env = {**os.environ, **spec.env}
         proc = subprocess.Popen(  # noqa: S603
@@ -180,3 +174,20 @@ def _alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def _over_points(spec: JobSpec, run: list[str], exit_file: str) -> list[str]:
+    """The run's commands, after the prelude when there is one (the job ends there when it
+    fails), repeated in each point's directory when the job is a scan's; ``rc`` is the first
+    failure's code, every point run all the same."""
+    parts: list[str] = []
+    if spec.prelude:
+        parts += [" ".join(shquote(a) for a in spec.prelude), "rc=$?",
+                  f'if [ "$rc" -ne 0 ]; then echo $rc > {exit_file}; exit $rc; fi']
+    if not spec.points:
+        return [*parts, *run]
+    parts += ["base=$(pwd)", "failed=0"]
+    for point in spec.points:
+        parts += [f'cd "$base"/{shquote(point)}', *run,
+                  'if [ "$rc" -ne 0 ] && [ "$failed" -eq 0 ]; then failed=$rc; fi']
+    return [*parts, 'cd "$base"', "rc=$failed"]

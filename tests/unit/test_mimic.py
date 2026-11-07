@@ -777,6 +777,33 @@ def test_a_stage_starting_from_itself_tries_again_after_a_first_run_that_left_no
     assert again.ok, again.summary
 
 
+def test_single_points_over_frames_run_as_a_probe_then_one_batch(ws_ctx):
+    """A coupled single point whose scan names frames: the probe computes the first frame
+    alone, one job then computes every frame no run has, each partitioned by prepqm inside the
+    job, and the dataset is collected from all of them."""
+    from tests.conftest import REGION, coupled_study, wait_for
+
+    from myrmidon.engines.mimic.batch import frames_done
+
+    reference = {"name": "reference", "kind": "single_point", "regime": "qmmm",
+                 "starts_from": "md", "scan": {"parameter": "frames", "values": [0, 1, 2]},
+                 "qm_region": REGION}
+    held = coupled_study(ws_ctx, [{**MD, "sampling_ps": 0.025}, reference])
+    _ran(ws_ctx, "md")
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "reference"})
+    assert prepared.ok, prepared.summary
+    for frames in ([0], []):
+        submitted = REGISTRY.call("stage_run", ws_ctx, {"stage": "reference", "frames": frames})
+        assert submitted.ok, submitted.summary
+        done = wait_for(ws_ctx, submitted.job_id, seconds=60)
+        assert done.ok, f"{done.summary}\n{done.log_tail or ''}"
+    assert frames_done(ws_ctx, held.method.stage("reference")) == {0, 1, 2}
+    collected = REGISTRY.call("dataset_collect", ws_ctx, {"stage": "reference"})
+    assert collected.ok, collected.summary
+    event = [e for e in ws_ctx.workspace.ledger.events() if e.tool == "dataset_collect"][-1]
+    assert len([i for i in event.inputs if i.role.startswith("fmdata")]) == 3
+
+
 # how a coupled stage is told of the snapshot it starts from
 SNAPSHOT_AS = [lambda path: {"snapshot": path}, lambda path: {"inputs": {"geometry": path}}]
 

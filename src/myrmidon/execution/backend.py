@@ -42,6 +42,12 @@ class JobSpec(BaseModel):
     resources: Resources = Field(default_factory=Resources)
     mpi_ranks: int | None = None  # main argv runs under mpirun/srun with this many ranks
     coupled: list[CoupledCmd] | None = None  # MiMiC two-program launch
+    #: run once in ``cwd`` before the program(s), on the batch host: a step that writes what
+    #: they read; the job ends there when it fails
+    prelude: list[str] | None = None
+    #: directories under ``cwd``, one per point of a scan: the program(s) run in each in turn,
+    #: launched as a single run's are, and the job fails when any point's run fails
+    points: list[str] = Field(default_factory=list)
     # the node receipt (execution/receipt.py): where it is written, and the files it hashes
     receipt: str | None = None
     receipt_inputs: list[str] = Field(default_factory=list)

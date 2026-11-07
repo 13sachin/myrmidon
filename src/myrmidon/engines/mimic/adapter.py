@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from myrmidon.engines.mimic import (
+    batch,
     collect,
     cpmd_input,
     diagnostics,
@@ -17,6 +18,9 @@ from myrmidon.engines.mimic import (
     trajectory,
 )
 from myrmidon.engines.registry import EngineAdapter, InputCheck, StageRender, StageText
+from myrmidon.execution.collect import collector
+
+collector("mimic_scan")(batch.collect_scan)
 
 
 def _system_facts(files: Mapping[str, Path], _data_dir: Path | None,
@@ -96,7 +100,8 @@ ADAPTER = EngineAdapter(
     build_job=collect.build_job,
     diagnose=collect.diagnose_log,
     cut_snapshots=trajectory.cut_snapshots,
-    run_reads=("cpmd_input", "tpr", "restart", "geometry", "structure"),
+    run_reads=("cpmd_input", "tpr", "restart", "geometry", "structure", "mdp", "trajectory",
+               "topology", "qm_selection"),
     partition_qm=partition.partition_qm,
     select_subsystems=partition.subsystem_selections,
     pp_table=partition.pp_table,

@@ -426,7 +426,8 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
 
 
 def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, cores: int,
-                  extend_ps: float | None = None, continuing: bool = False
+                  extend_ps: float | None = None, continuing: bool = False,
+                  frames: list | None = None
                   ) -> tuple[int | None, str]:
     """(minutes, why) the run the stage's .tpr carries needs here, an extension only what it
     adds; a frame batch by its template's fixed walltime for each frame."""

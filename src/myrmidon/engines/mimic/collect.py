@@ -206,10 +206,13 @@ def prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) ->
             f"mandate holds ({', '.join(approved)}): which atoms are quantum is the researcher's",
             suggestion="select the approved atoms, or revise the mandate with the reason, "
             "stating system_files with this selection: a revision keeps the files it held"))
+    from myrmidon.engines.mimic.batch import is_scan
+
     begins = mandate.method.starts_from(stage)
     coupled_before = begins is not None and begins.regime != "mm" and begins.name != stage.name
     coords = next((i for i in selected.inputs if i.role == "coords"), None)
-    if (stage.regime != "mm" and not coupled_before and coords is not None
+    # a scan's frames are each partitioned on their own coordinates, in its job
+    if (stage.regime != "mm" and not coupled_before and not is_scan(stage) and coords is not None
             and structure is not None and ws.resolve(structure).is_file()
             and sha256_file(ws.resolve(structure)) != coords.sha256):
         found.append(Precondition(
@@ -269,13 +272,26 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
     """What a coupled stage's run reads besides what was prepared: the restart and the geometry
     the run it starts from left, when its input asks to restart, and the structure its layout
     divides. An input with no RESTART line starts fresh and reads neither."""
-    from myrmidon.core.lineage import stage_left, stage_run
+    from myrmidon.core.lineage import stage_left, stage_run, system_file
+    from myrmidon.engines.mimic.batch import is_scan
     from myrmidon.engines.mimic.cpmd_input import has_keyword
 
     out: dict[str, str] = {}
     named = next((f.path for f in mandate.system.files if f.kind == "structure"), None)
     if named and "structure" not in prepared:
         out["structure"] = named
+    if is_scan(stage):  # each frame is partitioned in the job, from the system's files
+        begins = mandate.method.starts_from(stage)
+        run = stage_run(ctx.workspace, begins.name) if begins is not None else None
+        written = [a.path for a in (run[0] if run else []) if a.role == "trajectory"]
+        # the compressed trajectory carries the stride the stage states; the full one may not
+        found = next((p for p in written if p.endswith(".xtc")), written[0] if written else None)
+        out |= {k: v for k, v in (
+            ("trajectory", found),
+            ("topology", system_file(ctx.workspace, mandate, "topology", stage.name)),
+            ("qm_selection", system_file(ctx.workspace, mandate, "qm_selection", stage.name)))
+            if v and k not in prepared}
+        return out
     if "cpmd_input" not in prepared:
         return out
     sections = parse_cpmd(ctx.workspace.resolve(prepared["cpmd_input"]).read_text())
@@ -300,6 +316,26 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
     """What stops a coupled stage's run: the gate on its input, its compiled MM half, and the
     state it restarts from. A continuation's RESTART line is added when its job is built."""
     root = ctx.workspace.root
+    from myrmidon.engines.mimic.batch import frames_in, is_scan
+
+    if is_scan(stage):
+        absent = [k for k in ("cpmd_input", "mdp", "trajectory", "topology", "qm_selection")
+                  if k not in inputs]
+        if absent:
+            return [Precondition(
+                id="STAGE_NO_FRAMES" if "trajectory" in absent else "STAGE_NOT_PREPARED",
+                message=f"stage {stage.name} computes single points over frames, and has no "
+                + ", ".join(absent),
+                suggestion=f"stage_prepare stage={stage.name}, and name the trajectory the "
+                "frames are in (inputs {trajectory: <path>}) unless a stage it starts from "
+                "wrote one")]
+        total = (frames_in(inputs["structure"], inputs["trajectory"])
+                 if "structure" in inputs else None)
+        past = [f for f in stage.scan.values if total and not 0 <= int(f) < total]
+        return [Precondition(
+            id="STAGE_FRAMES_OUT_OF_RANGE",
+            message=f"frame index out of range {past}: the trajectory has {total} frames")
+        ] if past else []
     missing = [k for k in ("cpmd_input", "tpr") if k not in inputs]
     if missing:
         return [Precondition(
@@ -334,8 +370,8 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
 
 
 def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, cores: int,
-                  extend_ps: float | None = None, continuing: bool = False
-                  ) -> tuple[int | None, str]:
+                  extend_ps: float | None = None, continuing: bool = False,
+                  frames: list | None = None) -> tuple[int | None, str]:
     """(minutes, why) a coupled stage needs, from its input's MAXSTEP (a continuation: the
     steps its last run left, or those an extension adds) at the seconds per step measured
     here on the same QM region and cutoff, else at the machine's reference step."""
@@ -362,8 +398,11 @@ def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, core
     if length is None:
         return None, "the input states no MAXSTEP"
     cutoff = keyword_value(sections, "&SYSTEM/CUTOFF")
+    from myrmidon.engines.mimic.batch import frames_to_run, is_scan
+
+    points = len(frames_to_run(ctx, stage, frames or [])) if is_scan(stage) else 1
     minutes, why = qm_walltime(
-        steps=length, qm_atoms=(qm_geometry(sections) or {}).get("n_atoms"),
+        steps=length * max(points, 1), qm_atoms=(qm_geometry(sections) or {}).get("n_atoms"),
         cutoff_ry=float(cutoff.split()[0]) if cutoff else None, cores=cores,
         paces=[*study_paces(ctx.workspace), *read_paces(ctx.config.studies_root)],
         compute=ctx.config.compute)
@@ -452,7 +491,10 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
     """A coupled stage as a job: CPMD and GROMACS started together in a directory of their own,
     never reused, since CPMD's output names are fixed and a second run would erase the first."""
     from myrmidon.engines.gromacs.common import gmx_bin
+    from myrmidon.engines.mimic.batch import is_scan, scan_job
 
+    if is_scan(stage):
+        return scan_job(ctx, stage, inputs, layout, request)
     root = ctx.workspace.root
     run_dir = ctx.workspace.run_dir(ctx.workspace.stage(stage.name), stage.name)
     run_input, aligned = align_mimic_paths(inputs["cpmd_input"], run_dir)
