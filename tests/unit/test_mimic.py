@@ -798,6 +798,9 @@ def test_single_points_over_frames_run_as_a_probe_then_one_batch(ws_ctx):
         done = wait_for(ws_ctx, submitted.job_id, seconds=60)
         assert done.ok, f"{done.summary}\n{done.log_tail or ''}"
     assert frames_done(ws_ctx, held.method.stage("reference")) == {0, 1, 2}
+    for frames, code in (([], "STAGE_NOTHING_TO_RUN"), ([7], "STAGE_FRAMES_NOT_SCANNED")):
+        again = REGISTRY.call("stage_run", ws_ctx, {"stage": "reference", "frames": frames})
+        assert again.error.code == code
     collected = REGISTRY.call("dataset_collect", ws_ctx, {"stage": "reference"})
     assert collected.ok, collected.summary
     event = [e for e in ws_ctx.workspace.ledger.events() if e.tool == "dataset_collect"][-1]

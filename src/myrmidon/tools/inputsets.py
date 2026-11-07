@@ -617,12 +617,13 @@ def _render_kind(resolution, output: str | None) -> str | None:
 def rendered_by_stage(ctx: ToolContext) -> dict[str, dict]:
     """Stage name -> the values rendered for it in this workspace, every file of it at once,
     read back from the sidecars: how a rule about two stages, or two files of one stage, sees
-    what is already written. Two renders of one file: the later path wins."""
+    what is already written. Two renders of one file: the later one stands."""
     known: dict[str, dict] = {}
     root = getattr(ctx.workspace, "root", None)
     if root is None:
         return known
-    for path in sorted(Path(root).rglob("*.myrmidon.json")):
+    # oldest first, so the latest render of a stage's file is what stands
+    for path in sorted(Path(root).rglob("*.myrmidon.json"), key=lambda f: f.stat().st_mtime):
         try:
             data = json.loads(path.read_text())
         except (OSError, ValueError):

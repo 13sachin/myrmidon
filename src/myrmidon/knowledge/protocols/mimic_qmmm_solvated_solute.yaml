@@ -36,7 +36,6 @@ stages:
   qm_region:
     subsystems:
     - ligand
-    charge: 0
     multiplicity: 1
 - name: nve_check
   kind: dynamics
@@ -47,7 +46,6 @@ stages:
   qm_region:
     subsystems:
     - ligand
-    charge: 0
     multiplicity: 1
 - name: heat
   kind: dynamics
@@ -60,7 +58,6 @@ stages:
   qm_region:
     subsystems:
     - ligand
-    charge: 0
     multiplicity: 1
 - name: production
   kind: dynamics
@@ -71,7 +68,6 @@ stages:
   qm_region:
     subsystems:
     - ligand
-    charge: 0
     multiplicity: 1
 deliverables:
 - name: nve_drift
@@ -127,4 +123,4 @@ notes: >-
   produce. Which atoms are quantum is each coupled stage's qm_region and the researcher's; every value
   a stage's files hold is compiled from its physical terms, its template and the methods the hamiltonian
   names.
-version: 9
+version: 10

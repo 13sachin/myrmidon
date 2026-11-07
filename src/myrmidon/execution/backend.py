@@ -48,9 +48,37 @@ class JobSpec(BaseModel):
     #: directories under ``cwd``, one per point of a scan: the program(s) run in each in turn,
     #: launched as a single run's are, and the job fails when any point's run fails
     points: list[str] = Field(default_factory=list)
+    #: files each point must hold for its run to start; a point without them is a failure, and
+    #: never a launch that waits on a partner that cannot start
+    point_reads: list[str] = Field(default_factory=list)
     # the node receipt (execution/receipt.py): where it is written, and the files it hashes
     receipt: str | None = None
     receipt_inputs: list[str] = Field(default_factory=list)
+
+
+def scan_lines(spec: JobSpec, run: list[str]) -> list[str]:
+    """A job's run commands as a backend writes them: the prelude first when there is one,
+    then the run, in each point's directory when the job is a scan's. ``rc`` is the prelude's
+    code when it fails (no point runs), else the first failing point's, every point run all
+    the same."""
+    from myrmidon.core.provenance import shquote
+
+    if not spec.prelude and not spec.points:
+        return run
+    lines: list[str] = []
+    if spec.prelude:
+        lines += [" ".join(shquote(a) for a in spec.prelude), "rc=$?"]
+    else:
+        lines.append("rc=0")
+    if not spec.points:
+        return [*lines, 'if [ "$rc" -eq 0 ]; then', *run, "fi"]
+    lines += ['if [ "$rc" -eq 0 ]; then', "base=$(pwd)", "failed=0"]
+    present = " && ".join(f"[ -f {shquote(f)} ]" for f in spec.point_reads) or "true"
+    for point in spec.points:
+        lines += [f'cd "$base"/{shquote(point)}', f"if {present}; then", *run,
+                  "else rc=1; fi",
+                  'if [ "$rc" -ne 0 ] && [ "$failed" -eq 0 ]; then failed=$rc; fi']
+    return [*lines, 'cd "$base"', "rc=$failed", "fi"]
 
 
 class JobStatus(BaseModel):

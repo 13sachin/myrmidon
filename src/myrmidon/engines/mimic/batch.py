@@ -7,7 +7,8 @@ Per frame, taken by index from the trajectory: its coordinates as a .gro; prepqm
 the approved selection, so the QM atoms, their order, the units and the cell padding are
 prepqm's own; the stage's method and spin applied onto that system input (``apply_method``,
 ``set_spin``), as a stage's render applies them; grompp for the MM half with the frame's own
-index. A frame whose preparation fails is said in ``prepared.json`` and its run fails alone.
+index. A frame whose preparation fails is said in ``prepared.json``; its directory lacks the
+files the launch needs, so its run is never started and fails alone.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ import sys
 from pathlib import Path
 
 PREPARED_FILENAME = "prepared.json"
+#: what a scan's collection says of each frame, beside the frames' directories
+FRAMES_FILENAME = "frames.json"
 LOG_FILENAME = "prepare.log"
 #: what each frame's directory holds for the coupled launch to read
 RUN_INPUT, RUN_TPR = "frame.inp", "frame.tpr"
@@ -46,14 +49,21 @@ def prepare(p: dict) -> list[dict]:
     run_dir = Path(p["run_dir"])
     log = run_dir / LOG_FILENAME
     method = parse_cpmd(Path(p["method_input"]).read_text())
-    u = mda.Universe(p["structure"], p["trajectory"])
     stdin = "\n".join(p["selections"]) + f"\n{p['quit_cmd']}\n"
     out = []
+    try:
+        u = mda.Universe(p["structure"], p["trajectory"])
+    except (OSError, ValueError) as exc:  # no frame can be read against the structure
+        with open(log, "a") as fh:
+            fh.write(f"{p['trajectory']}: {exc}\n")
+        u = None
     for frame in p["frames"]:
         work = run_dir / point_name(frame)
         work.mkdir(parents=True, exist_ok=True)
         coords = work / "frame.gro"
         try:
+            if u is None:
+                raise ValueError("the trajectory cannot be read against the structure")
             u.trajectory[int(frame)]
             with mda.Writer(str(coords), n_atoms=len(u.atoms)) as w:
                 w.write(u.atoms)
@@ -126,8 +136,9 @@ def frames_to_run(ctx, stage, asked: list[int]) -> list[int]:
 def scan_job(ctx, stage, inputs: dict[str, Path], layout, request):
     """The frames this run computes, as one job: the prelude prepares a directory per frame
     with the partition the stage's region was made with, and CPMD and GROMACS run in each."""
+    from myrmidon.core.mandate import read_mandate
     from myrmidon.engines.gromacs.common import gmx_bin
-    from myrmidon.engines.mimic.partition import PARTITION_TOOL
+    from myrmidon.engines.mimic.partition import PARTITION_TOOL, region_settings
     from myrmidon.engines.mimic.qm_region import mimicpy_bin
     from myrmidon.engines.registry import StageJob
     from myrmidon.execution.backend import CoupledCmd, JobSpec
@@ -141,6 +152,14 @@ def scan_job(ctx, stage, inputs: dict[str, Path], layout, request):
     run_dir = ws.run_dir(ws.stage(stage.name), f"{stage.name}_frames")
     gmx = ctx.engines.get("gromacs")
     region = stage.qm_region
+    # each frame is partitioned as the stage's region was: by the call that made it, else as
+    # the stage and its method state
+    padding, table = region_settings(read_mandate(ws), stage)
+    pp_info = (ws.resolve(selection.params["pp_info"])
+               if selection and selection.params.get("pp_info") else None)
+    if selection is None and table:
+        pp_info = run_dir / "pp_info.dat"
+        pp_info.write_text(table)
     driver = {
         "run_dir": str(run_dir), "frames": frames, "mimicpy": mimicpy_bin(ctx),
         "gmx": gmx_bin(ctx), "data_dir": gmx.data_dir if gmx else None,
@@ -149,9 +168,8 @@ def scan_job(ctx, stage, inputs: dict[str, Path], layout, request):
         "method_input": str(inputs["cpmd_input"]),
         "selections": (inputs["qm_selection"].read_text().split("\n")
                        if "qm_selection" in inputs else []),
-        "padding_nm": selection.params.get("padding_nm") if selection else region.padding_nm,
-        "pp_info": (str(ws.resolve(selection.params["pp_info"]))
-                    if selection and selection.params.get("pp_info") else None),
+        "padding_nm": selection.params.get("padding_nm") if selection else padding,
+        "pp_info": str(pp_info) if pp_info else None,
         "atomtypes_map": selection.params.get("atomtypes_map", {}) if selection else {},
         "qm_group": selection.params.get("qm_group", "QMatoms") if selection else "QMatoms",
         "quit_cmd": ctx.config.mimicpy_quit_cmd,
@@ -164,7 +182,10 @@ def scan_job(ctx, stage, inputs: dict[str, Path], layout, request):
         argv=[ctx.engines["cpmd"].path, RUN_INPUT], cwd=run_dir, stdout="cpmd.out",
         stderr="cpmd.err", mpi_ranks=layout.ntasks, env=threads,
         prelude=[sys.executable, "-m", "myrmidon.engines.mimic.batch", str(params_file)],
-        points=[point_name(f) for f in frames], resources=request.resources(),
+        points=[point_name(f) for f in frames], point_reads=[RUN_INPUT, RUN_TPR],
+        receipt_inputs=[str(params_file), *(str(inputs[k]) for k in (
+            "cpmd_input", "mdp", "trajectory", "topology", "qm_selection") if k in inputs)],
+        resources=request.resources(),
         coupled=[CoupledCmd(
             argv=[gmx_bin(ctx), "mdrun", "-s", RUN_TPR, "-deffnm", stage.name],
             mpi_ranks=layout.partner_ntasks, stdout=f"{stage.name}.stdout",
@@ -174,10 +195,6 @@ def scan_job(ctx, stage, inputs: dict[str, Path], layout, request):
         meta={"deffnm": stage.name, "frames": frames},
         summary=f"{len(frames)} frame(s) of {inputs['trajectory'].name}, each partitioned by "
         f"prepqm and run coupled, in {ws.relpath(run_dir)}")
-
-
-#: what a scan's collection says of each frame, beside the frames' directories
-FRAMES_FILENAME = "frames.json"
 
 
 def collect_scan(ctx, record, state, exit_code):
@@ -191,6 +208,11 @@ def collect_scan(ctx, record, state, exit_code):
     run_dir, root = Path(record.spec.cwd), ctx.workspace.root
     deffnm = record.meta.get("deffnm", "")
     artifacts, frames = [], []
+    try:
+        prepared = {f["index"]: f["prepared"] for f in json.loads(
+            (run_dir / PREPARED_FILENAME).read_text())["frames"]}
+    except (OSError, ValueError, KeyError):
+        prepared = {}
     for frame in record.meta.get("frames", []):
         work = run_dir / point_name(frame)
         log = work / "cpmd.out"
@@ -199,7 +221,7 @@ def collect_scan(ctx, record, state, exit_code):
         trajectory = work / f"{deffnm}.trr"
         ok = bool(facts.get("finished_normally") and forces and trajectory.is_file()
                   and facts.get("wavefunction_converged", True))
-        frames.append({"index": frame, "ok": ok,
+        frames.append({"index": frame, "ok": ok, "prepared": prepared.get(frame, False),
                        "converged": facts.get("wavefunction_converged"),
                        "scf_iterations": facts.get("scf_iterations")})
         if log.is_file():

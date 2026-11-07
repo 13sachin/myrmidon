@@ -8,7 +8,7 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
-from myrmidon.core.artifacts import ArtifactRef, sha256_file
+from myrmidon.core.artifacts import ArtifactRef, fresh_path, sha256_file
 from myrmidon.core.contracts import Contract, includes_of
 from myrmidon.core.lineage import stage_files, stage_left
 from myrmidon.core.lineage import stage_run as collected_run
@@ -88,15 +88,13 @@ def _prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) -
 def _partition(ctx: ToolContext, mandate, stage, structure: str | None,
                topology: str | None) -> Observation | None:
     """The stage's QM region partitioned by the harness from what the stage states (its
-    subsystems; its padding, else its QM method's; the method's pseudopotentials), as a
-    ``qm_region`` call of its own in the ledger: on the first coupled stage of a topology, and
-    again on a fresh coupled start from other coordinates or another topology. None when the
-    stage reads a partition already: the researcher's own selection (``qm_region`` called with
-    selections, or a selection file the mandate holds), the restart of the coupled stage it
-    continues, which holds both halves, or one made from these subsystems on this structure
-    and topology."""
-    from myrmidon.knowledge.stage import MethodStore, methods_for
-
+    subsystems; the padding and pseudopotentials its engine resolves from the stage and its QM
+    method), as a ``qm_region`` call of its own in the ledger: on the first coupled stage of a
+    topology, and again on a fresh coupled start from other coordinates or another topology.
+    None when the stage reads a partition already: the researcher's own
+    selection (``qm_region`` called with selections of their own, or a selection file the
+    mandate holds), the restart of the coupled stage it continues, which holds both halves, or
+    one made from the same subsystems on this structure and topology."""
     region = stage.qm_region
     engine = adapter_with("partition_qm")
     if region is None or stage.regime == "mm" or not structure or engine is None:
@@ -112,25 +110,25 @@ def _partition(ctx: ToolContext, mandate, stage, structure: str | None,
             if ev.tool == "qm_region" and ev.ok and ev.kind == "call"]
     if not made and any(f.kind == "qm_selection" for f in mandate.system.files):
         return None
+    padding, table = (engine.region_settings(mandate, stage) if engine.region_settings
+                      else (region.padding_nm, ""))
+    wanted = region_selections(ctx, topology, list(region.subsystems))[0]
     latest = next((ev for ev in reversed(made) if ev.params.get("stage") == stage.name),
                   made[-1] if made else None)
     if latest is not None:
-        if not latest.params.get("subsystems"):
+        given = latest.params.get("selections")
+        if given != region_selections(ctx, topology, latest.params.get("subsystems") or [])[0]:
+            return None  # commands of the researcher's own: read as they are
+        read = {i.role: i for i in latest.inputs}
+        if (given == wanted and read.get("coords") and read["coords"].sha256
+                == sha256_file(ws.resolve(structure))
+                and read.get("topology") and read["topology"].sha256
+                == sha256_file(ws.resolve(topology))):
             return None
-        read = {i.role: i.sha256 for i in latest.inputs}
-        if (latest.params.get("selections")
-                == region_selections(ctx, topology, list(region.subsystems))[0]
-                and read.get("coords") == sha256_file(ws.resolve(structure))
-                and read.get("topology") == sha256_file(ws.resolve(topology))):
-            return None
-    qm = {name: value for name, (value, _) in methods_for(
-        mandate, MethodStore.default(), None).values.get("qm", {}).items()}
-    padding = region.padding_nm or qm.get("qm_cell_padding_nm")
     call = {"topology": topology, "coords": structure, "subsystems": list(region.subsystems),
             "stage": stage.name, **({"padding_nm": padding} if padding else {})}
-    table = engine.pp_table(qm) if engine.pp_table else ""
     if table:
-        path = ws.stage(stage.name) / "pp_info.dat"
+        path = fresh_path(ws.stage(stage.name) / "pp_info.dat")
         path.write_text(table)
         call["pp_info"] = ws.relpath(path)
     return REGISTRY.call("qm_region", ctx, call)
@@ -397,6 +395,12 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
                for kind, path in files.items() if not path.is_file()]
     if missing:
         return missing
+    outside = sorted(set(params.frames) - set(stage.scan.values if stage.scan else ()))
+    if outside:
+        return [Precondition(id="STAGE_FRAMES_NOT_SCANNED",
+                             message=f"frames {outside} are none of stage {stage.name}'s scan",
+                             suggestion="name frames the stage's scan holds, or revise the "
+                             "mandate's scan", needs=["frames"])]
     if params.extend_ps and not params.continue_run:
         return [Precondition(
             id="STAGE_EXTEND_WITHOUT_CONTINUE",

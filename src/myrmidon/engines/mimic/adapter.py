@@ -104,7 +104,7 @@ ADAPTER = EngineAdapter(
                "topology", "qm_selection"),
     partition_qm=partition.partition_qm,
     select_subsystems=partition.subsystem_selections,
-    pp_table=partition.pp_table,
+    region_settings=partition.region_settings,
     region_questions=partition.open_chemistry,
     prepare_findings=collect.prepare_findings,
     input_findings=_input_findings,

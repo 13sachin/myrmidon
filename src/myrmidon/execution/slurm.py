@@ -24,6 +24,7 @@ from myrmidon.execution.backend import (
     JobSpec,
     JobState,
     JobStatus,
+    scan_lines,
 )
 
 _SQUEUE_STATE = {
@@ -123,9 +124,6 @@ class SlurmBackend(ExecutionBackend):
                 return f"srun {joined}"
             return joined
 
-        body: list[str] = []
-        if spec.prelude:
-            body += [" ".join(shquote(a) for a in spec.prelude), "rc=$?"]
         start = len(lines)
         if spec.coupled and self.defaults.coupled_launch == "multi-prog":
             lines.extend(self._render_multi_prog(spec))
@@ -154,7 +152,7 @@ class SlurmBackend(ExecutionBackend):
             lines.append("rc=$?")
         run = lines[start:]
         del lines[start:]
-        lines += _over_points(body, run, spec.points)
+        lines += scan_lines(spec, run)
         if after:
             lines.append(after)
         lines += ["exit $rc", ""]
@@ -318,20 +316,3 @@ class SlurmBackend(ExecutionBackend):
             return round(cores * elapsed / 3600.0, 3)
         return None
 
-
-def _over_points(prelude: list[str], run: list[str], points: list[str]) -> list[str]:
-    """The script's run lines, after the prelude when there is one (the job ends there when it
-    fails), repeated in each point's directory when the job is a scan's; ``rc`` is the first
-    failure's code, every point run all the same."""
-    if not prelude and not points:
-        return run
-    lines = list(prelude)
-    if prelude:
-        lines.append('if [ "$rc" -ne 0 ]; then exit $rc; fi')
-    if not points:
-        return [*lines, *run]
-    lines += ["base=$(pwd)", "failed=0"]
-    for point in points:
-        lines += [f"cd \"$base\"/{shquote(point)}", *run,
-                  'if [ "$rc" -ne 0 ] && [ "$failed" -eq 0 ]; then failed=$rc; fi']
-    return [*lines, 'cd "$base"', "rc=$failed"]

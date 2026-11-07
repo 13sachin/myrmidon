@@ -98,8 +98,16 @@ def protocol_mandate(protocol: str) -> Mandate:
         "subsystems": SUBSYSTEMS,
         "hamiltonian": {"mm": "amber",
                         **shipped.hamiltonian.model_dump(exclude_none=True, exclude={"mm"})}},
-        "method": {"stages": [s.model_dump(mode="json", exclude_none=True)
+        "method": {"stages": [_neutral(s.model_dump(mode="json", exclude_none=True))
                               for s in shipped.stages]}})
+
+
+def _neutral(stage: dict) -> dict:
+    """A stage's QM region with the charge mandate_write reads from the tutorial's neutral
+    acetone topology."""
+    if "qm_region" in stage:
+        stage["qm_region"] = {"charge": 0, **stage["qm_region"]}
+    return stage
 
 
 def compiled(stage: str, engine: str, protocol: str = "mimic_qmmm_solvated_solute",

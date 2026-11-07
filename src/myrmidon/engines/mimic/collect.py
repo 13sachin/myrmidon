@@ -273,7 +273,7 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
     the run it starts from left, when its input asks to restart, and the structure its layout
     divides. An input with no RESTART line starts fresh and reads neither."""
     from myrmidon.core.lineage import stage_left, stage_run, system_file
-    from myrmidon.engines.mimic.batch import is_scan
+    from myrmidon.engines.mimic.batch import frames_in, is_scan
     from myrmidon.engines.mimic.cpmd_input import has_keyword
 
     out: dict[str, str] = {}
@@ -284,8 +284,12 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
         begins = mandate.method.starts_from(stage)
         run = stage_run(ctx.workspace, begins.name) if begins is not None else None
         written = [a.path for a in (run[0] if run else []) if a.role == "trajectory"]
-        # the compressed trajectory carries the stride the stage states; the full one may not
-        found = next((p for p in written if p.endswith(".xtc")), written[0] if written else None)
+        # the compressed trajectory carries the stride the stage states, unless it holds fewer
+        # atoms than the structure: the one the structure reads, the compressed first
+        written.sort(key=lambda p: not p.endswith(".xtc"))
+        found = next((p for p in written if named and frames_in(
+            ctx.workspace.resolve(named), ctx.workspace.resolve(p)) is not None),
+            written[0] if written else None)
         out |= {k: v for k, v in (
             ("trajectory", found),
             ("topology", system_file(ctx.workspace, mandate, "topology", stage.name)),
@@ -316,7 +320,7 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
     """What stops a coupled stage's run: the gate on its input, its compiled MM half, and the
     state it restarts from. A continuation's RESTART line is added when its job is built."""
     root = ctx.workspace.root
-    from myrmidon.engines.mimic.batch import frames_in, is_scan
+    from myrmidon.engines.mimic.batch import frames_in, frames_to_run, is_scan
 
     if is_scan(stage):
         absent = [k for k in ("cpmd_input", "mdp", "trajectory", "topology", "qm_selection")
@@ -329,6 +333,11 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
                 suggestion=f"stage_prepare stage={stage.name}, and name the trajectory the "
                 "frames are in (inputs {trajectory: <path>}) unless a stage it starts from "
                 "wrote one")]
+        if not frames_to_run(ctx, stage, []):
+            return [Precondition(
+                id="STAGE_NOTHING_TO_RUN",
+                message=f"every frame of stage {stage.name}'s scan has been computed",
+                suggestion="dataset_collect stage=" + stage.name)]
         total = (frames_in(inputs["structure"], inputs["trajectory"])
                  if "structure" in inputs else None)
         past = [f for f in stage.scan.values if total and not 0 <= int(f) < total]

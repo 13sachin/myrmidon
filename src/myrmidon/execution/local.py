@@ -26,6 +26,7 @@ from myrmidon.execution.backend import (
     JobSpec,
     JobState,
     JobStatus,
+    scan_lines,
 )
 
 #: exit code written when an afterok dependency finished unsuccessfully — the
@@ -107,9 +108,9 @@ class LocalBackend(ExecutionBackend):
             run.append("rc=$code")
         else:
             run = [f"{cmd} > {shquote(spec.stdout)} 2> {shquote(spec.stderr)}", "rc=$?"]
-        parts = [*([lead] if lead else []), *_over_points(spec, run, exit_file),
+        parts = [*([lead] if lead else []), *scan_lines(spec, run),
                  *([after] if after else []), f"echo $rc > {exit_file}"]
-        inner = "(" + "; ".join(parts) + ")"
+        inner = "(" + "\n".join(parts) + "\n)"
         wrapper = f"{inner} & echo $! > {shquote(str(run_dir / '.pid'))}"
         env = {**os.environ, **spec.env}
         proc = subprocess.Popen(  # noqa: S603
@@ -175,19 +176,3 @@ def _alive(pid: int) -> bool:
         return True
     return True
 
-
-def _over_points(spec: JobSpec, run: list[str], exit_file: str) -> list[str]:
-    """The run's commands, after the prelude when there is one (the job ends there when it
-    fails), repeated in each point's directory when the job is a scan's; ``rc`` is the first
-    failure's code, every point run all the same."""
-    parts: list[str] = []
-    if spec.prelude:
-        parts += [" ".join(shquote(a) for a in spec.prelude), "rc=$?",
-                  f'if [ "$rc" -ne 0 ]; then echo $rc > {exit_file}; exit $rc; fi']
-    if not spec.points:
-        return [*parts, *run]
-    parts += ["base=$(pwd)", "failed=0"]
-    for point in spec.points:
-        parts += [f'cd "$base"/{shquote(point)}', *run,
-                  'if [ "$rc" -ne 0 ] && [ "$failed" -eq 0 ]; then failed=$rc; fi']
-    return [*parts, 'cd "$base"', "rc=$failed"]

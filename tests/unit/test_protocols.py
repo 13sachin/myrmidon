@@ -57,6 +57,9 @@ def test_a_mandate_is_written_from_a_protocol(ws_ctx, solvated):
     assert [s.name for s in held.method.stages] == [s.name for s in protocol.stages]
     assert [d.name for d in held.deliverables] == [d.name for d in protocol.deliverables]
     assert held.system.hamiltonian.qm.method == protocol.hamiltonian.qm.method
+    # a protocol states no charge: the region's is the topology's, proposed with its source
+    assert held.method.stage("production").qm_region.charge == 0
+    assert "production.qm_region.charge" in {k for p in held.decisions.proposed for k in p.locks}
 
 
 # --- what the schema refuses -------------------------------------------------------

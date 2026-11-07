@@ -21,7 +21,6 @@ stages:
   qm_region:
     subsystems:
     - ligand
-    charge: 0
     multiplicity: 1
   scan:
     parameter: frames
@@ -80,4 +79,4 @@ notes: >-
   how many frames is the researcher's (a fit on fewer than a hundred overfits them). The classical
   rerun a fit subtracts is a different mdp — a classical single-point stage, rendered with gromacs.single_point.
   The reference dataset is collected from the stage's runs (dataset_collect).
-version: 5
+version: 6

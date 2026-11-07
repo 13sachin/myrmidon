@@ -39,6 +39,18 @@ PARTITION_TOOL = "qm_region"
 declare_identity("qm_selection", replaced_by=PARTITION_TOOL)
 
 
+def region_settings(mandate, stage) -> tuple[float | None, str]:
+    """(the padding in nm, prepqm's pseudopotential table) a stage's region is partitioned
+    with: the stage's padding, else its QM method's; the method's pseudopotentials."""
+    from myrmidon.knowledge.stage import MethodStore, methods_for
+
+    qm = {name: value for name, (value, _) in methods_for(
+        mandate, MethodStore.default(), None).values.get("qm", {}).items()}
+    region = stage.qm_region
+    return (region.padding_nm if region and region.padding_nm else qm.get("qm_cell_padding_nm"),
+            pp_table(qm))
+
+
 def pp_table(qm: dict) -> str:
     """The pseudopotential table prepqm reads (``-pp``: element, file, boundary file, the
     nonlocal type, LMAX, LOC), from a QM method's pseudopotential family and each element's
