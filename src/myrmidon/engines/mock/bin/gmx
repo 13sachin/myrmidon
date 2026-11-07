@@ -192,21 +192,26 @@ def _gro_coordinates(tpr_fields):
             [float(x) for x in lines[2 + atoms].split()[:3]])
 
 
+def _frame_steps(tpr_fields, every_key):
+    """The steps a run writes a frame at: multiples of its output interval, at most twenty of
+    them, since a mock run has no need of thousands; a run that writes none of this kind gets
+    its first and last."""
+    nsteps = int(float(tpr_fields.get("nsteps", "5000")))
+    every = int(float(tpr_fields.get(every_key, "0"))) or nsteps or 1
+    written = nsteps // every
+    return list(range(0, written * every + 1, every * max(1, -(-written // 19))))
+
+
 def write_trr(path, tpr_fields):
     """A GROMACS .trr in its real XDR form, so that what reads a real one reads this: frames at
-    multiples of nstxout, at most twenty of them, since a mock run has no need of thousands. A run
-    storing only compressed frames gets its first and last here too, the mock's .xtc being no
-    real one. The atoms drift by a thousandth of a nm per frame, to tell frames apart."""
+    multiples of nstxout. The atoms drift by a thousandth of a nm per frame, to tell frames
+    apart."""
     import struct
 
     positions, box = _gro_coordinates(tpr_fields)
-    nsteps = int(float(tpr_fields.get("nsteps", "5000")))
-    every = int(float(tpr_fields.get("nstxout", "0"))) or nsteps or 1
     dt = float(tpr_fields.get("dt", "0.001"))
-    written = nsteps // every
     with open(path, "wb") as fh:
-        for frame, step in enumerate(range(0, written * every + 1,
-                                           every * max(1, -(-written // 19)))):
+        for frame, step in enumerate(_frame_steps(tpr_fields, "nstxout")):
             fh.write(struct.pack(">ii", 1993, 13) + struct.pack(">i", 12) + b"GMX_trn_file")
             fh.write(struct.pack(">13i", 0, 0, 36, 0, 0, 0, 0, 12 * len(positions), 0, 0,
                                  len(positions), step, 0))
@@ -214,6 +219,27 @@ def write_trr(path, tpr_fields):
             fh.write(struct.pack(">9f", box[0], 0, 0, 0, box[1], 0, 0, 0, box[2]))
             for x, y, z in positions:
                 fh.write(struct.pack(">3f", x + 0.001 * frame, y, z))
+
+
+def write_xtc(path, tpr_fields):
+    """A GROMACS .xtc as MDAnalysis writes one (real XDR, compressed), frames at multiples of
+    nstxout-compressed, drifting as the .trr's do, so that a measurement reads it."""
+    import MDAnalysis as mda
+    import numpy as np
+
+    positions, box = _gro_coordinates(tpr_fields)
+    dt = float(tpr_fields.get("dt", "0.001"))
+    u = mda.Universe.empty(len(positions), trajectory=True)
+    start = np.array(positions, dtype=np.float32) * 10.0  # nm -> Å
+    with mda.Writer(path, n_atoms=len(positions)) as w:
+        for frame, step in enumerate(_frame_steps(tpr_fields, "nstxout-compressed")):
+            moved = start.copy()
+            moved[:, 0] += 0.01 * frame
+            u.atoms.positions = moved
+            u.dimensions = [box[0] * 10, box[1] * 10, box[2] * 10, 90.0, 90.0, 90.0]
+            u.trajectory.ts.time = step * dt
+            u.trajectory.ts.data["step"] = step
+            w.write(u.atoms)
 
 
 def path_write(path, text):
@@ -756,6 +782,7 @@ def main():
             # in the ledger does not depend on where the study lives.
             f"   mock-charges                   = {','.join(f'{q:g}' for q in mock_charges(top)) if top else ''}\n"
             + f"   nstxout                        = {fields.get('nstxout', '0')}\n"
+            + f"   nstxout-compressed             = {fields.get('nstxout-compressed', '0')}\n"
             # a run input carries its coordinates, as a real tpr does: the structure and the
             # frames mdrun writes have the atoms it was given
             + (f"   mock-conf                      = {mock_conf(conf)}\n"
@@ -827,11 +854,14 @@ def main():
                 )
                 return 1
             restart = f"Reading checkpoint file {cpi} generated: Thu Jan  1 12:00:00 2026\n\n"
-        path_write(
-            deffnm + ".cpt",
-            "MOCKCPT\nnumber of output files = 3\n"
-            + "".join(f"output filename = {deffnm}.{ext}\n" for ext in ("log", "xtc", "edr")),
-        )
+        if tpr_fields_of(arg_after("-s")).get("integrator") != "mimic":
+            # a coupled run's state is CPMD's RESTART: GROMACS under MiMiC writes no checkpoint
+            path_write(
+                deffnm + ".cpt",
+                "MOCKCPT\nnumber of output files = 3\n"
+                + "".join(f"output filename = {deffnm}.{ext}\n"
+                          for ext in ("log", "xtc", "edr")),
+            )
         if fail == "walltime":
             # killed at the walltime: the log stops where the run got to, and the
             # parameter dump mdrun writes into it still says how far it was asked to go
@@ -933,7 +963,7 @@ def main():
                     open(deffnm + ".xtc", "wb") as dst:
                 dst.write(src.read())
         else:
-            path_write(deffnm + ".xtc", "MOCKXTC\n")
+            write_xtc(deffnm + ".xtc", tpr_fields)
         write_trr(deffnm + ".trr", tpr_fields)
         write_final_gro(deffnm + ".gro", tpr_fields, tpr_fields.get("nsteps", "5000"))
         return 0
