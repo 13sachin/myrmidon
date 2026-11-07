@@ -281,10 +281,12 @@ class StageRunParams(BaseModel):
         if engine is None:
             return self
         begins = mandate.method.starts_from(stage)
-        # a stage that starts from itself extends a run it has, and its first run is a first run
-        continuing = self.continue_run or bool(
+        # a stage that starts from itself extends a run that left something to extend; until one
+        # has, its run is a first run
+        continuing = self.continue_run or (
             begins is not None and begins.name == stage.name
-            and stage_left(ctx.workspace, stage.name))
+            and any(a.role in ("checkpoint", "restart")
+                    for a in stage_left(ctx.workspace, stage.name)))
         inputs = {**stage_files(ctx.workspace, stage.name), **self.inputs}
         inputs |= {**engine.stage_inputs(ctx, mandate, stage, inputs, continuing), **self.inputs}
         snapshot = self.snapshot or self.inputs.get("geometry")

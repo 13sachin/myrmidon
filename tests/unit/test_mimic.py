@@ -699,6 +699,35 @@ def test_a_coupled_stage_continues_from_its_restart(ws_ctx):
     wait_for(ws_ctx, submitted.job_id)
 
 
+def test_a_run_belongs_to_the_stage_it_was_submitted_for(ws_ctx):
+    """Two stages may compile to the same bytes: a run of one is still no run of the other."""
+    from tests.conftest import coupled_study
+
+    from myrmidon.core.lineage import stage_files, stage_runs
+
+    gro = {"structure": "01_input/acetone_equilibrated.gro"}
+    coupled_study(ws_ctx, [{**MD, "name": "one"}, {**MD, "name": "two", "starts_from": ""}])
+    _ran(ws_ctx, "one", gro)
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "two", **gro}).ok
+    workspace = ws_ctx.workspace
+    assert workspace.resolve(stage_files(workspace, "one")["tpr"]).read_text() == (
+        workspace.resolve(stage_files(workspace, "two")["tpr"]).read_text())
+    assert stage_runs(workspace, "one") and not stage_runs(workspace, "two")
+
+
+def test_a_stage_starting_from_itself_tries_again_after_a_first_run_that_left_nothing(
+        ws_ctx, monkeypatch):
+    from tests.conftest import coupled_study, prepare_and_run, wait_for
+
+    coupled_study(ws_ctx, [{**MD, "starts_from": "md"}])
+    monkeypatch.setenv("MOCK_GMX_FAIL", "lincs")
+    _, failed = prepare_and_run(ws_ctx, "md")
+    assert not wait_for(ws_ctx, failed.job_id).ok
+    monkeypatch.delenv("MOCK_GMX_FAIL")
+    again = REGISTRY.call("stage_run", ws_ctx, {"stage": "md"})
+    assert again.ok, again.summary
+
+
 # how a coupled stage is told of the snapshot it starts from
 SNAPSHOT_AS = [lambda path: {"snapshot": path}, lambda path: {"inputs": {"geometry": path}}]
 

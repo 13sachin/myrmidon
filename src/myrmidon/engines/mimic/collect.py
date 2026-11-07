@@ -587,7 +587,8 @@ def diagnose_log(ctx: ToolContext, path: Path) -> Observation:
     if facts.get("scf_iterations") is not None:
         bits.append(
             f"wavefunction optimisation: {facts['scf_iterations']} iterations, "
-            f"GEMAX {facts.get('gemax_last')} against {facts.get('gemax_criterion')}"
+            f"GEMAX {facts.get('gemax_last')}"
+            + (f" against {facts['gemax_criterion']}" if facts.get("gemax_criterion") else "")
         )
     if facts.get("energy_total") is not None:
         bits.append(f"total energy = {facts['energy_total']} a.u.")

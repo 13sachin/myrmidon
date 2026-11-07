@@ -292,6 +292,7 @@ def stage_run(ws, stage: str):
 
 def stage_runs(ws, stage: str) -> list[tuple]:
     """(what each collected run of ``stage`` wrote, what it was submitted on), oldest first. A
+    submission that names its stage is that stage's alone, whatever its files' bytes match. A
     rerun of a stage's run input over a trajectory recomputes it, and is no run of the stage
     unless submitted as one."""
     lin = lineage(ws)
@@ -303,6 +304,8 @@ def stage_runs(ws, stage: str) -> list[tuple]:
         if submission is ev or not ev.outputs:
             continue
         if f"{STAGE}{stage}" not in submission.knowledge_refs:
+            if any(ref.startswith(STAGE) for ref in submission.knowledge_refs):
+                continue
             if any(lin.kind(submission, inp.role) == "trajectory"
                    for inp in submission.inputs):
                 continue

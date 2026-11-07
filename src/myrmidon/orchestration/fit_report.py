@@ -529,7 +529,7 @@ def render_fit_report(data: dict, max_rows: int = 40) -> str:
          "nothing is transcribed from a session.", ""]
     ref = data["reference"]
     L += ["## Reference data", "",
-          f"- MiMiC single points run in this workspace: {ref['single_points']}"]
+          f"- coupled single points run in this workspace: {ref['single_points']}"]
     for sel in ref["snapshot_selections"]:
         L.append(f"- snapshots from `{sel['trajectory']}`: "
                  + (f"frames {sel['frames']}" if sel.get("frames") else
