@@ -109,6 +109,34 @@ def _current_values(root: Path, relpath: str, renders: str | None) -> dict[str, 
     return None
 
 
+def rewrite_for_run(source: Path, target: Path, text: str, by: str = "harness") -> Path:
+    """Write ``text`` as the copy of a rendered file one run reads (its own directory's
+    paths, the restart it reads, the steps a continuation has left), with the source's
+    sidecar beside it and every key the rewrite set, changed or dropped recorded as ``by``'s:
+    an edit by hand is what differs from that record, and the harness's own lines are none.
+    ``target`` may be ``source`` itself. Returns ``target``."""
+    side = source.with_name(source.name + ".myrmidon.json")
+    record = json.loads(side.read_text()) if side.is_file() else None
+    kind = (record or {}).get("renders") or ("cpmd_inp" if source.suffix == ".inp" else "mdp")
+    before = _current_values(source.parent, source.name, kind) or {}
+    target.write_text(text)
+    if record is None:
+        return target
+    if record.get("written_by") == "inputset_apply":
+        after = _current_values(target.parent, target.name, kind) or {}
+        values, origin = dict(record.get("values") or {}), dict(record.get("origin") or {})
+        for key in before.keys() - after.keys():
+            values.pop(key, None)
+            origin.pop(key, None)
+        for key, value in after.items():
+            if key not in before or not _same(before[key], value):
+                values[key], origin[key] = value, by
+        record |= {"values": values, "origin": origin, "system_keys": [
+            k for k in record.get("system_keys") or [] if k in after]}
+    target.with_name(target.name + ".myrmidon.json").write_text(json.dumps(record, indent=1))
+    return target
+
+
 def cpmd_values(text: str) -> dict[str, str]:
     """A CPMD input back as ``&SECTION/KEYWORD -> value`` — the inverse of the render.
 

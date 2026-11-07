@@ -63,7 +63,11 @@ class Kind:
 KINDS: dict[str, Kind] = {}
 #: kinds that carry a system's identity: a job's inputs of these kinds descend from the
 #: approved mandate's system files (core/lineage.py). An engine module declares its own.
-IDENTITY: set[str] = {"qm_selection"}
+IDENTITY: set[str] = set()
+#: tools whose outputs, per stage, stand in for the system's files of the kinds they write (a
+#: selection that rewrites a system's input for the region it picks). An engine module
+#: declares its own.
+RESELECTS: set[str] = set()
 
 
 def define_kind(kind: str, parser: Callable[[Path], dict], *properties: Property,
@@ -97,9 +101,13 @@ def includes_of(kind: str, path: Path) -> list[Path]:
         return []
 
 
-def declare_identity(*kinds: str) -> None:
-    """Mark kinds as carrying a system's identity; an engine module calls this once."""
+def declare_identity(*kinds: str, replaced_by: str | None = None) -> None:
+    """Mark kinds as carrying a system's identity; an engine module calls this once.
+    ``replaced_by`` names a tool whose outputs replace, for the stage it was called for, the
+    system's files of the kinds it writes (``core.lineage.system_file``)."""
     IDENTITY.update(canonical(k) for k in kinds)
+    if replaced_by:
+        RESELECTS.add(replaced_by)
 
 
 def parameter_kinds() -> set[str]:

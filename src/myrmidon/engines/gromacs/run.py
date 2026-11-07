@@ -426,8 +426,9 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
 
 
 def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, cores: int,
-                  extend_ps: float | None = None) -> tuple[int | None, str]:
-    """(minutes, why) the run the stage's .tpr carries needs here, a continuation only what it
+                  extend_ps: float | None = None, continuing: bool = False
+                  ) -> tuple[int | None, str]:
+    """(minutes, why) the run the stage's .tpr carries needs here, an extension only what it
     adds; a frame batch by its template's fixed walltime for each frame."""
     from myrmidon.knowledge.stage import TemplateStore, templates_for
 

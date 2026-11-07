@@ -114,3 +114,12 @@ def extract_energy_terms(ctx: ToolContext, edr: Path, terms: list[str], stage: P
     proc = run_gmx(ctx, ["energy", "-f", str(edr), "-o", str(xvg)], cwd=stage,
                    stdin="\n".join(terms) + "\n\n")
     return xvg, proc
+
+
+def join_trajectories(ctx: ToolContext, paths: list[Path], out: Path
+                      ) -> subprocess.CompletedProcess:
+    """``gmx trjcat -cat``: the trajectories one after another in the order given, every frame
+    each holds kept (a segment's duplicate time stamps are its own, never dropped for
+    another's); the joined file exists only when the process succeeded."""
+    return run_gmx(ctx, ["trjcat", "-f", *[str(p) for p in paths], "-cat", "-o", str(out)],
+                   cwd=out.parent)

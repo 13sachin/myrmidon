@@ -300,7 +300,7 @@ class StageRunParams(BaseModel):
         minutes, why = self.walltime_min, ""
         if minutes is None:
             minutes, why = engine.size_walltime(ctx, stage, files, found, found.cores,
-                                                self.extend_ps)
+                                                self.extend_ps, continuing)
             minutes = minutes or ctx.config.compute.unmeasured_walltime_min
             if node.max_walltime_min and minutes > node.max_walltime_min:
                 minutes = node.max_walltime_min

@@ -19,6 +19,8 @@ from dataclasses import dataclass
 COLLECTS = "collects:"
 #: how a parameter file's render names the mandate stage it was compiled for
 STAGE = "stage:"
+#: how a join of a stage's segments names each submission whose files it joined
+JOINS = "joins:"
 #: a collection whose node read other inputs than were submitted: its files are no one's
 RECEIPT_CHANGED = "RECEIPT_INPUT_CHANGED"
 
@@ -32,6 +34,11 @@ class Node:
     ok: bool = True
     reached: bool = False
     chain: tuple[tuple[str, str], ...] = ()
+
+
+def named_stage(ev) -> str | None:
+    """The mandate stage a call names in its refs (``stage:<name>``); None when it names none."""
+    return next((ref[len(STAGE):] for ref in ev.knowledge_refs if ref.startswith(STAGE)), None)
 
 
 def _param(role: str) -> str:
@@ -159,14 +166,20 @@ class Lineage:
                     return ref[len(STAGE):]
         return None
 
+    def stages_of(self, ev) -> set[str]:
+        """The stages a call ran: the one it was made for, when it names one (two stages that
+        render the same bytes are still two), else those of the parameter files it read."""
+        named = named_stage(ev)
+        if named:
+            return {named}
+        return {stage for path, sha, _ in self.parameter_files(ev.tool, ev.inputs)
+                if (stage := self.stage_of(path, sha))}
+
     def stages_behind(self, sha: str) -> set[str]:
-        """The stages of the parameter files the run that wrote these bytes ran on."""
+        """The stages of the call that wrote these bytes: a run's, or a join of its segments'."""
         out: set[str] = set()
         for ev in self.writers.get(sha, ())[-1:]:
-            for path, psha, _ in self.parameter_files(ev.tool, ev.inputs):
-                stage = self.stage_of(path, psha)
-                if stage:
-                    out.add(stage)
+            out |= self.stages_of(ev)
         return out
 
     def rendered_from(self, path: str, sha: str, depth: int = 3) -> str:
@@ -284,10 +297,13 @@ def _said(constraint) -> str:
 
 def stage_run(ws, stage: str):
     """(what the latest collected run of ``stage`` wrote, what it was submitted on, how
-    many collected runs of it there are): the files a measurement over that stage reads,
-    from the ledger; None when none was collected."""
-    found = stage_runs(ws, stage)
-    return (*found[-1], len(found)) if found else None
+    many collected runs of it there are, a continued one counted once): the files a
+    measurement over that stage reads, from the ledger; None when none was collected."""
+    found = _collected(ws, stage)
+    if not found:
+        return None
+    runs = sum(1 for sub, _ in found if not sub.params.get("continue_run"))
+    return found[-1][1].outputs, found[-1][0].inputs, max(runs, 1)
 
 
 def stage_runs(ws, stage: str) -> list[tuple]:
@@ -295,6 +311,11 @@ def stage_runs(ws, stage: str) -> list[tuple]:
     submission that names its stage is that stage's alone, whatever its files' bytes match. A
     rerun of a stage's run input over a trajectory recomputes it, and is no run of the stage
     unless submitted as one."""
+    return [(ev.outputs, sub.inputs) for sub, ev in _collected(ws, stage)]
+
+
+def _collected(ws, stage: str) -> list[tuple]:
+    """(submission, its successful collection) of each run of ``stage``, oldest first."""
     lin = lineage(ws)
     events = [ev for ev in ws.ledger.events() if ev.ok and ev.kind == "call"]
     by_id = {ev.event_id: ev for ev in events}
@@ -312,8 +333,35 @@ def stage_runs(ws, stage: str) -> list[tuple]:
             if stage not in {lin.stage_of(path, sha) for path, sha, _ in
                              lin.parameter_files(submission.tool, submission.inputs)}:
                 continue
-        found.append((ev.outputs, submission.inputs))
+        found.append((submission, ev))
     return found
+
+
+def stage_segments(ws, stage: str) -> list[tuple]:
+    """(the submission, what its run wrote, what it was submitted on) for each segment of
+    ``stage``'s latest collected run, oldest first: the submission of it that started afresh
+    and each continuation since, up to the latest that succeeded; a segment stopped at its
+    walltime is one of them, as what it wrote is the stage's up to where it stopped. Empty
+    when no run of the stage succeeded."""
+    events = [ev for ev in ws.ledger.events() if ev.kind == "call"]
+    by_id = {ev.event_id: ev for ev in events if ev.ok}
+    chains: list[dict] = []
+    for ev in events:
+        if not ev.outputs or RECEIPT_CHANGED in ev.knowledge_refs:
+            continue
+        submission = Lineage._submission(ev, by_id)
+        if submission is ev or named_stage(submission) != stage:
+            continue
+        if not chains or not submission.params.get("continue_run"):
+            chains.append({})
+        chains[-1][submission.event_id] = (submission, ev)  # its latest collection
+    for chain in reversed(chains):
+        segments = list(chain.values())
+        while segments and not segments[-1][1].ok:
+            segments.pop()
+        if segments:
+            return [(sub, ev.outputs, sub.inputs) for sub, ev in segments]
+    return []
 
 
 def stage_left(ws, stage: str) -> list:
@@ -338,7 +386,7 @@ def stage_files(ws, stage: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for ev in ws.ledger.events():
         if (ev.ok and ev.kind == "call" and f"{STAGE}{stage}" in ev.knowledge_refs
-                and not any(ref.startswith(COLLECTS) for ref in ev.knowledge_refs)
+                and not any(ref.startswith((COLLECTS, JOINS)) for ref in ev.knowledge_refs)
                 and not _runs(ev)):
             out |= {canonical(a.role): a.path for a in ev.outputs}
     return out
@@ -365,16 +413,22 @@ def latest_outputs(ws, tool: str, stage: str | None = None) -> dict[str, str]:
 
 
 def system_file(ws, mandate, kind: str, stage: str | None = None) -> str | None:
-    """The study's file of a system kind, for a stage if named: the mandate's, unless a QM
-    selection wrote that one, when the latest selection for the stage replaces it."""
+    """The study's file of a system kind, for a stage if named: the mandate's, unless a tool
+    an engine declared to reselect it (``contracts.RESELECTS``) wrote that one, when the
+    latest such call for the stage replaces it."""
+    from myrmidon.core.contracts import RESELECTS
+
     named = next((f.path for f in mandate.system.files if f.kind == kind), None)
-    selected = latest_outputs(ws, "qm_region", stage).get(kind)
-    if named is None or selected is None:
-        return named or selected
-    from_selection = any(ev.tool == "qm_region" and ev.ok and any(a.path == named
-                                                                  for a in ev.outputs)
-                         for ev in ws.ledger.events())
-    return selected if from_selection else named
+    for tool in sorted(RESELECTS):
+        selected = latest_outputs(ws, tool, stage).get(kind)
+        if selected is None:
+            continue
+        if named is None:
+            return selected
+        if any(ev.tool == tool and ev.ok and any(a.path == named for a in ev.outputs)
+               for ev in ws.ledger.events()):
+            return selected
+    return named
 
 
 def latest_dataset(ws, stage: str | None = None) -> str | None:
@@ -394,8 +448,7 @@ def stages_run(ws) -> set[str]:
     out: set[str] = set()
     for ev in ws.ledger.events():
         if ev.event_id in lin.completed:
-            out |= {stage for path, sha, _ in lin.parameter_files(ev.tool, ev.inputs)
-                    if (stage := lin.stage_of(path, sha))}
+            out |= lin.stages_of(ev)
     return out
 
 

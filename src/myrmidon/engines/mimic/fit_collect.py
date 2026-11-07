@@ -129,7 +129,8 @@ def resolve_layout(cores: int, _facts) -> Layout:
 
 
 def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, cores: int,
-                  extend_ps: float | None = None) -> tuple[int | None, str]:
+                  extend_ps: float | None = None, continuing: bool = False
+                  ) -> tuple[int | None, str]:
     """A fit's walltime, the template's."""
     from myrmidon.knowledge.stage import TemplateStore, templates_for
 

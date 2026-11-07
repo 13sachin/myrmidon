@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from myrmidon.core.contracts import Contract
-from myrmidon.core.lineage import stage_left
+from myrmidon.core.lineage import stage_left, stage_segments
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import FileReader, ToolContext, tool
 from myrmidon.engines.facts import is_run_log
@@ -69,4 +69,31 @@ def run_diagnose(ctx: ToolContext, params: RunDiagnoseParams) -> Observation:
                            "here wrote: nothing could be read from it")
     obs = engine.diagnose(ctx, path)
     obs.summary = said + obs.summary
+    if params.stage and not params.log:
+        _over_segments(ctx, params.stage, obs)
     return obs
+
+
+def _over_segments(ctx: ToolContext, stage: str, obs: Observation) -> None:
+    """A continued stage's run as a whole: the MD steps its segments' logs state, summed over
+    the logs each wrote in a directory of its own (a log a continuation appends to holds all
+    of them already). A segment stopped after its last restart point is counted for every step
+    it ran, which the next one runs again."""
+    logs: dict[str, None] = {}
+    for _, written, _ in stage_segments(ctx.workspace, stage):
+        found = {a.role: a.path for a in written}
+        log = next((found[r] for r in _LOG_ROLES if r in found), None)
+        if log:
+            logs[log] = None
+    if len(logs) < 2:
+        return
+    steps = 0
+    for log in logs:
+        path = ctx.workspace.resolve(log)
+        engine = adapter_of_file(path) if path.is_file() else None
+        if engine is None or engine.run_facts is None:
+            return
+        steps += engine.run_facts(path.read_text(errors="replace")).get("md_steps_completed") or 0
+    obs.segments = len(logs)
+    obs.stage_md_steps = steps
+    obs.summary += f"; stage {stage}: {steps} MD steps over its {len(logs)} segments"

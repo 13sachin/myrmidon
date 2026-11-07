@@ -628,13 +628,22 @@ def test_a_mandates_own_input_is_not_replaced_by_a_selection(ws_ctx):
     assert system_file(ws_ctx, named, "index") == ws_ctx.workspace.relpath(mine)
 
 
-def test_a_continuation_asks_only_what_is_left_of_the_stage(ws_ctx):
+def test_a_continuation_asks_only_what_is_left_of_the_stage(ws_ctx, monkeypatch):
     """A restarted log counts from one, so two runs killed at 30 steps of 1000 leave 970, then
-    940, not 970 twice, and each resumes from the last STORE."""
+    940, not 970 twice, and each resumes from the last STORE; its walltime is booked for
+    those steps."""
     from tests.conftest import coupled_study, wait_for
 
     from myrmidon.core.lineage import stage_left
     from myrmidon.engines.mimic.cpmd_input import keyword_value
+    from myrmidon.knowledge import stage as pricing
+
+    booked: list[int] = []
+    priced = pricing.qm_walltime
+
+    def booking(**kw):
+        booked.append(kw["steps"])
+        return priced(**kw)
 
     killed = (Path(__file__).parents[1] / "fixtures" / "cpmd" / "mimic_heating_berendsen.out"
               ).read_text()
@@ -650,7 +659,8 @@ def test_a_continuation_asks_only_what_is_left_of_the_stage(ws_ctx):
         return int(keyword_value(parse_cpmd(Path(submitted.command[1]).read_text()),
                                  "&CPMD/MAXSTEP"))
 
-    assert [killed_again(), killed_again()] == [970, 940]
+    monkeypatch.setattr(pricing, "qm_walltime", booking)
+    assert [killed_again(), killed_again()] == [970, 940] == booked
 
 
 def test_a_continued_ramp_climbs_on_from_where_the_run_reached(ws_ctx):
@@ -696,14 +706,44 @@ def test_a_coupled_stage_continues_from_its_restart(ws_ctx):
     assert (run_input.parent / "RESTART").is_file()
     step_au = float(keyword_value(sections, "&CPMD/TIMESTEP"))
     assert int(keyword_value(sections, "&CPMD/MAXSTEP")) == round(1.0 / (step_au * PS_PER["au"]))
-    wait_for(ws_ctx, submitted.job_id)
+    assert _harness_lines_unedited(ws_ctx, run_input)
+    assert wait_for(ws_ctx, submitted.job_id).ok
+    _measured_over_both_segments(ws_ctx, "a")
+
+
+def _measured_over_both_segments(ctx, stage):
+    """A continued stage is measured over every segment: the join is a call of its own, each
+    segment's trajectory its input, and what it wrote is the stage's."""
+    from myrmidon.core.lineage import lineage, stage_segments
+    from myrmidon.engines.mimic.diagnostics import cpmd_facts
+    from myrmidon.tools.join import segment_trajectory
+
+    segments = [segment_trajectory(written) for _, written, _ in stage_segments(
+        ctx.workspace, stage)]
+    assert len(set(segments)) == 2
+    measured = REGISTRY.call("observable_measure", ctx, {
+        "stage": stage, "property": "rmsd", "structure": "01_input/acetone_equilibrated.gro",
+        "selection": "resname ACT"})
+    assert measured.ok, measured.summary
+    join = [e for e in ctx.workspace.ledger.events() if e.tool == "trajectory_join"][-1]
+    assert [i.path for i in join.inputs] == segments
+    joined = join.outputs[0]
+    measure = [e for e in ctx.workspace.ledger.events() if e.tool == "observable_measure"][-1]
+    assert joined.sha256 in {i.sha256 for i in measure.inputs}
+    assert lineage(ctx.workspace).stages_behind(joined.sha256) == {stage}
+    logs = [next(a.path for a in written if a.role == "qm_log")
+            for _, written, _ in stage_segments(ctx.workspace, stage)]
+    diagnosed = REGISTRY.call("run_diagnose", ctx, {"stage": stage})
+    assert (diagnosed.segments, diagnosed.stage_md_steps) == (2, sum(
+        cpmd_facts(ctx.workspace.resolve(log).read_text())["md_steps_completed"]
+        for log in logs))
 
 
 def test_a_run_belongs_to_the_stage_it_was_submitted_for(ws_ctx):
     """Two stages may compile to the same bytes: a run of one is still no run of the other."""
     from tests.conftest import coupled_study
 
-    from myrmidon.core.lineage import stage_files, stage_runs
+    from myrmidon.core.lineage import lineage, stage_files, stage_runs, stages_run
 
     gro = {"structure": "01_input/acetone_equilibrated.gro"}
     coupled_study(ws_ctx, [{**MD, "name": "one"}, {**MD, "name": "two", "starts_from": ""}])
@@ -713,6 +753,9 @@ def test_a_run_belongs_to_the_stage_it_was_submitted_for(ws_ctx):
     assert workspace.resolve(stage_files(workspace, "one")["tpr"]).read_text() == (
         workspace.resolve(stage_files(workspace, "two")["tpr"]).read_text())
     assert stage_runs(workspace, "one") and not stage_runs(workspace, "two")
+    assert stages_run(workspace) == {"one"}
+    written = next(a for a in stage_runs(workspace, "one")[0][0] if a.role == "trajectory")
+    assert lineage(workspace).stages_behind(written.sha256) == {"one"}
 
 
 def test_a_stage_starting_from_itself_tries_again_after_a_first_run_that_left_nothing(
@@ -757,6 +800,15 @@ def test_a_coupled_snapshot_is_what_the_next_stage_reads(ws_ctx, named):
                    if ln.strip().upper().startswith("RESTART"))
     assert has_keyword(parse_cpmd(run_input.read_text())["CPMD"], "RESTART")
     assert "GEOFILE" in restart.upper() and (run_input.parent / "GEOMETRY").is_file()
+    assert _harness_lines_unedited(ws_ctx, run_input)
+
+
+def _harness_lines_unedited(ctx, run_input: Path) -> bool:
+    """What the harness rewrote in a run's own copy of its input (the &MIMIC PATHS of the run's
+    directory, a RESTART line's GEOFILE, a continuation's steps) is no edit by hand."""
+    from myrmidon.engines.file_origin import edit_findings
+
+    return edit_findings(ctx, ctx.workspace.relpath(run_input)) == []
 
 
 def test_a_classical_snapshot_starts_a_stage_of_the_same_system(ws_ctx):

@@ -143,7 +143,8 @@ class EngineAdapter:
     stage_inputs: Callable[..., dict] | None = None
     #: (ctx, stage, inputs by kind, walltime) -> what stops or is worth saying of the run
     job_findings: Callable[..., list] | None = None
-    #: (ctx, stage, inputs, layout, cores) -> (minutes, why) its run is booked for
+    #: (ctx, stage, inputs, layout, cores, extend_ps, continuing) -> (minutes, why) its run
+    #: is booked for
     size_walltime: Callable[..., tuple] | None = None
     #: (ctx, stage, inputs by kind, layout, run request) -> the job, single, coupled or batch
     build_job: Callable[..., StageJob] | None = None
@@ -151,6 +152,8 @@ class EngineAdapter:
     collect_dataset: Callable[..., object] | None = None
     #: (ctx, a log it wrote) -> its log read into typed facts, with whether the run is clean
     diagnose: Callable[..., object] | None = None
+    #: (ctx, trajectories in order, the joined file) -> the finished process that joined them
+    join_trajectories: Callable[..., object] | None = None
 
 
 @cache
@@ -196,3 +199,8 @@ def adapter_of_file(path: Path) -> EngineAdapter | None:
 def fit_adapter() -> EngineAdapter | None:
     """The adapter that collects reference datasets for a fit; None where no engine does."""
     return next((a for a in adapters() if a.collect_dataset), None)
+
+
+def trajectory_joiner() -> EngineAdapter | None:
+    """The adapter that joins trajectories one after another; None where no engine does."""
+    return next((a for a in adapters() if a.join_trajectories), None)

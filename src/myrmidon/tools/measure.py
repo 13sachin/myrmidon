@@ -8,10 +8,10 @@ from pydantic import Field, PrivateAttr
 
 from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.contracts import Contract
-from myrmidon.core.lineage import latest_dataset, lineage, stage_run
+from myrmidon.core.lineage import latest_dataset, lineage, stage_run, stage_segments
 from myrmidon.core.mandate import read_mandate
 from myrmidon.core.observation import Observation
-from myrmidon.core.tool import ToolContext, tool
+from myrmidon.core.tool import REGISTRY, ToolContext, tool
 from myrmidon.core.validation import Finding
 from myrmidon.engines.inputs import resolve_in_ws
 from myrmidon.engines.registry import fit_adapter
@@ -27,6 +27,7 @@ from myrmidon.tools.analysis.energy import energy_statistics
 from myrmidon.tools.analysis.trajectory import TrajParams, measure_trajectory
 from myrmidon.tools.diagnose import RunDiagnoseParams, run_diagnose
 from myrmidon.tools.inputsets import system_file
+from myrmidon.tools.join import segment_trajectory
 
 
 class MeasureParams(TrajParams):
@@ -166,6 +167,19 @@ def _on_run(ctx: ToolContext, params: MeasureParams, extractor: str, over: str, 
         roles.setdefault(a.role, []).append(a)
     update: dict = {}
     read: list[ArtifactRef] = []
+    said: list[Finding] = []
+    segments = stage_segments(ctx.workspace, over)
+    if extractor == "trajectory" and len(
+            {segment_trajectory(written) for _, written, _ in segments} - {None}) > 1:
+        joined = REGISTRY.call("trajectory_join", ctx, {"stage": over})
+        if not joined.ok:
+            return _refused(params, f"{what} is measured over stage {over}'s "
+                            f"{len(segments)} segments, and they could not be joined: "
+                            + joined.summary)
+        roles["trajectory"] = [a for a in joined.artifacts if a.role == "trajectory"]
+        said.append(Finding(id="DELIVERABLE_OVER_SEGMENTS", message=f"{what} is measured over "
+                            f"stage {over}'s {len(segments)} segments, joined in "
+                            f"{joined.trajectory}"))
 
     def take(role: str, field: str) -> bool:
         found = roles.get(role)
@@ -207,10 +221,11 @@ def _on_run(ctx: ToolContext, params: MeasureParams, extractor: str, over: str, 
     out = params.model_copy(update=update)
     out._read = read
     if runs > 1:
-        out._said = [Finding(
+        said.append(Finding(
             id="DELIVERABLE_LATEST_RUN",
             message=f"stage {over} has {runs} collected runs; {what} is measured on the latest. "
-            "Measure another by naming its files")]
+            "Measure another by naming its files"))
+    out._said = said
     return out
 
 

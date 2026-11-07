@@ -12,7 +12,7 @@ from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding
-from myrmidon.engines.gromacs.common import run_gmx, stage_output, tail
+from myrmidon.engines.gromacs.common import join_trajectories, stage_output, tail
 from myrmidon.engines.inputs import resolve_in_ws
 from myrmidon.engines.mimic.fm import (
     file_sha256,
@@ -80,8 +80,7 @@ def joined_trajectory(ctx: ToolContext, params: DatasetRequest) -> str | Observa
         return params.trajectory[0]
     stage = ctx.workspace.stage(params.stage)
     out = stage / f"{params.output_prefix}.trr"
-    proc = run_gmx(ctx, ["trjcat", "-f", *[str(resolve_in_ws(ctx, t)) for t in params.trajectory],
-                         "-cat", "-o", str(out)], cwd=stage)
+    proc = join_trajectories(ctx, [resolve_in_ws(ctx, t) for t in params.trajectory], out)
     if proc.returncode != 0 or not out.exists():
         return Observation(ok=False, summary=f"gmx trjcat failed (exit {proc.returncode})",
                            command=list(proc.args), log_tail=tail(proc.stderr))

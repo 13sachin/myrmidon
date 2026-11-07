@@ -22,10 +22,10 @@ def align_mimic_paths(inp, stage):
 
     Returns ``(input_to_run, note)``. The original is never edited: an aligned copy is
     written into the stage, with its ``.myrmidon.json`` sidecar beside it so what the
-    ledger hashes is what ran and its confirmed values travel with it.
+    ledger hashes is what ran and its confirmed values travel with it, the new PATHS
+    recorded as the harness's.
     """
-    import shutil
-
+    from myrmidon.engines.file_origin import rewrite_for_run
     from myrmidon.engines.mimic.cpmd_input import parse_cpmd, paths_dir, render_cpmd, set_paths
 
     here = str(stage.resolve())
@@ -37,10 +37,7 @@ def align_mimic_paths(inp, stage):
     target = stage / inp.name
     if target.resolve() == inp.resolve():
         target = stage / f"{inp.stem}.aligned{inp.suffix}"
-    target.write_text(render_cpmd(set_paths(sections, here)))
-    sidecar = inp.with_name(inp.name + ".myrmidon.json")
-    if sidecar.is_file():
-        shutil.copy2(sidecar, target.with_name(target.name + ".myrmidon.json"))
+    rewrite_for_run(inp, target, render_cpmd(set_paths(sections, here)))
     return target, f"&MIMIC PATHS re-pointed from {named} to this run's directory"
 
 
