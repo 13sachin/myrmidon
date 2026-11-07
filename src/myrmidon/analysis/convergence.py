@@ -9,7 +9,7 @@ is described by its mean with a standard error that counts g, its drift, and the
 between the means of its two halves in units of their combined standard error.
 
 None of this says the run is equilibrated. That is a criterion, and the criterion is the
-researcher's: given one, the sensor says whether it was met; without one it says nothing
+researcher's: given one, the measurement says whether it was met; without one it says nothing
 about it.
 """
 

@@ -17,12 +17,11 @@ from myrmidon.core.validation import Finding
 from myrmidon.engines.gromacs.common import (
     read_gro_info,
     run_gmx,
-    stage_output,
     stage_topology,
     tail,
 )
 from myrmidon.engines.gromacs.prep import artifact, count_solvent_residues
-from myrmidon.engines.inputs import require_input, resolve_in_ws
+from myrmidon.engines.inputs import require_input, resolve_in_ws, stage_output
 
 #: GROMACS' two wordings for a structure file with no atom records
 _NO_ATOMS_RE = re.compile(

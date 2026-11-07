@@ -708,7 +708,7 @@ OUTPUTS = [("em.tpr", "01_em", "01_em/em.tpr"), ("01_em/em.tpr", "01_em", "01_em
 
 @pytest.mark.parametrize("name,stage,written", OUTPUTS)
 def test_an_output_is_written_into_the_tools_own_stage(tmp_path, name, stage, written):
-    from myrmidon.engines.gromacs.common import stage_output
+    from myrmidon.engines.inputs import stage_output
     from myrmidon.errors import MyrmidonError
 
     (tmp_path / stage).mkdir()

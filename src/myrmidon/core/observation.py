@@ -235,6 +235,7 @@ class ProtocolHit(BaseModel):
     # hamiltonian states them
     hamiltonian: dict | None = None
     total_core_h: float = 0.0  # its stages priced on this machine, for no system in particular
+    unpriced: list[str] = Field(default_factory=list)  # stages that total leaves out
     citations: list[str] = Field(default_factory=list)
     pitfalls: list[str] = Field(default_factory=list)
     notes: str = ""

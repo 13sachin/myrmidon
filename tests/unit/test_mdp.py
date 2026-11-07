@@ -29,6 +29,9 @@ def test_parse_normalizes_keys_and_strips_comments():
 RULES = [
     ("integrator = md\ndt = 0.002\nnsteps = 100\ntcoupl = v-rescale\nref_t = 300", {}, set()),
     (MD + "gen_vel = yes\ncontinuation = yes", {"MDP_GEN_VEL_ON_CONTINUATION": "info"}, set()),
+    # a dynamics run with no length integrates nothing and ends clean; a minimiser's is its own
+    ("integrator = md\ndt = 0.002", {"MDP_NSTEPS_UNSET": "info"}, set()),
+    ("integrator = steep\nemtol = 1000", {}, {"MDP_NSTEPS_UNSET"}),
     # an unset seed is surfaced, with what grompp assumes in its place
     (MD + "gen_vel = yes\ncoulombtype = PME", {"MDP_RANDOM_SEED": "info"}, set()),
     (MD + "gen_vel = yes\ngen_seed = 42\ncoulombtype = PME", {}, {"MDP_RANDOM_SEED"}),

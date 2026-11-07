@@ -667,6 +667,7 @@ def protocol_preview(ctx: ToolContext, params: ProtocolPreviewParams) -> Observa
               "index": params.index}
     tried = stages(ctx, protocol, system, params.overrides)
     priced = [s for s in tried if s.core_h]
+    unpriced = [s.name for s in tried if s.core_h is None and s.basis.startswith("unpriced")]
     total = round(sum(s.core_h for s in priced), 3)
     broken = [s.name for s in tried if s.rendered is False or s.built is False]
     built = [s for s in tried if s.built]
@@ -675,6 +676,8 @@ def protocol_preview(ctx: ToolContext, params: ProtocolPreviewParams) -> Observa
         summary=f"{protocol.id}@v{protocol.version}: {len(priced)} stage(s) book jobs, "
         f"{total:g} core-h on this machine"
         + ("" if params.structure and params.topology else " for no system in particular")
+        + (f", not counting {', '.join(unpriced)}, which nothing here prices yet"
+           if unpriced else "")
         + (f"; {len(built)} stage(s) render and build on this system" if built else "")
         + (f"; {', '.join(broken)} do NOT: read `text`" if broken else "")
         + f". mandate_write with protocol={protocol.id}@v{protocol.version} prices them "

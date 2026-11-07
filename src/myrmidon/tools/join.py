@@ -7,11 +7,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from myrmidon.core.artifacts import ArtifactRef, fresh_path
+from myrmidon.core.artifacts import ArtifactRef, fresh_path, sha256_file
 from myrmidon.core.contracts import Contract
 from myrmidon.core.lineage import JOINS, stage_segments
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext, tool
+from myrmidon.core.validation import Finding
 from myrmidon.engines.registry import adapter_with
 
 
@@ -54,19 +55,44 @@ def trajectory_join(ctx: ToolContext, params: TrajectoryJoinParams) -> Observati
     if len(paths) == 1:  # a run appended to one file holds every segment in it
         return Observation(ok=True, summary=f"{paths[0]} holds every segment of stage "
                            f"{params.stage}", trajectory=paths[0], segments=len(params.segments))
-    joiner = adapter_with("join_trajectories")
-    if joiner is None:
-        return Observation(ok=False, summary="no engine here joins trajectories")
     files = [ctx.workspace.resolve(p) for p in paths]
-    out = fresh_path(ctx.workspace.stage(params.stage) / f"{params.stage}_joined"
-                     f"{Path(paths[-1]).suffix}")
-    proc = joiner.join_trajectories(ctx, files, out)
-    if proc.returncode != 0 or not out.is_file():
-        return Observation(ok=False, summary=f"joining stage {params.stage}'s {len(paths)} "
-                           f"segments failed (exit {proc.returncode})", command=list(proc.args),
-                           log_tail=(proc.stderr or "")[-2000:])
+    said = [Finding(
+        id="TRAJECTORY_SEGMENTS_JOINED",
+        message=f"stage {params.stage}'s {len(paths)} segments are joined in order, each "
+        "re-timed to start where the one before ended; a segment stopped at its walltime wrote "
+        "frames past its last restart point, which the next one runs again, so those are in "
+        "the joined file twice")]
+    out = _joined_before(ctx, params, files)
+    command = None
+    if out is None:
+        joiner = adapter_with("join_trajectories")
+        if joiner is None:
+            return Observation(ok=False, summary="no engine here joins trajectories")
+        out = fresh_path(ctx.workspace.stage(params.stage) / f"{params.stage}_joined"
+                         f"{Path(paths[-1]).suffix}")
+        proc = joiner.join_trajectories(ctx, files, out, continuous=True)
+        command = list(proc.args)
+        if proc.returncode != 0 or not out.is_file():
+            return Observation(ok=False, summary=f"joining stage {params.stage}'s {len(paths)} "
+                               f"segments failed (exit {proc.returncode})", command=command,
+                               log_tail=(proc.stderr or "")[-2000:])
     joined = ctx.workspace.relpath(out)
     return Observation(
         ok=True, summary=f"stage {params.stage}: {len(paths)} segments joined into {joined}",
-        command=list(proc.args), trajectory=joined, segments=len(paths), refs=refs,
+        command=command, trajectory=joined, segments=len(paths), refs=refs, findings=said,
         artifacts=[ArtifactRef.from_path(out, "trajectory", root=ctx.workspace.root)])
+
+
+def _joined_before(ctx: ToolContext, params: TrajectoryJoinParams, files: list[Path]
+                   ) -> Path | None:
+    """The file an earlier join of these same segments' bytes wrote, while it holds what that
+    join recorded; None when no join did."""
+    wanted = [sha256_file(f) for f in files]
+    for ev in reversed(list(ctx.workspace.ledger.events())):
+        if (ev.tool == "trajectory_join" and ev.ok and ev.kind == "call" and ev.outputs
+                and ev.params.get("stage") == params.stage
+                and [i.sha256 for i in ev.inputs] == wanted):
+            out = ctx.workspace.resolve(ev.outputs[0].path)
+            if out.is_file() and sha256_file(out) == ev.outputs[0].sha256:
+                return out
+    return None

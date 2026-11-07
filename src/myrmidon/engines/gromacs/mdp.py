@@ -2,9 +2,10 @@
 
 The checks here are what the engine gets wrong without saying so, each with where it was
 learned (``Check``): a MiMiC run's GROMACS half that thermostats, constrains or names no QM
-group, new velocities on a continuation, a seed nobody recorded. A key the version's catalog
-does not read as written is said as the catalog sees it. What grompp itself refuses is
-grompp's to say; general MD physics (a time step, a thermostat, a cut-off) is the agent's.
+group, new velocities on a continuation, a seed nobody recorded, a dynamics run with no
+length. A key the version's catalog does not read as written is said as the catalog sees it.
+What grompp itself refuses is grompp's to say; general MD physics (a time step, a thermostat,
+a cut-off) is the agent's.
 """
 
 from __future__ import annotations
@@ -123,8 +124,11 @@ MIMIC_CONSTRAINTS = Check(id="MDP_MIMIC_CONSTRAINTS", sources=(_MIMIC_MANUAL,), 
 RANDOM_SEED = Check(id="MDP_RANDOM_SEED", sources=(f"{_MDP_OPTIONS}#mdp-gen-seed",))
 GEN_VEL_ON_CONTINUATION = Check(id="MDP_GEN_VEL_ON_CONTINUATION",
                                 sources=(f"{_MDP_OPTIONS}#mdp-continuation",))
+NSTEPS_UNSET = Check(id="MDP_NSTEPS_UNSET", sources=(f"{_MDP_OPTIONS}#mdp-nsteps",))
 CHECKS = (*KEY_CHECKS.values(), MIMIC_NO_QMMM_GRPS, MIMIC_THERMOSTAT, MIMIC_CONSTRAINTS,
-          RANDOM_SEED, GEN_VEL_ON_CONTINUATION)
+          RANDOM_SEED, GEN_VEL_ON_CONTINUATION, NSTEPS_UNSET)
+#: integrators that minimise: their nsteps bounds the search, and unset it is GROMACS's own
+_MINIMISERS = ("steep", "cg", "l-bfgs")
 
 
 def _says(params: dict[str, str], key: str, *words: str) -> bool:
@@ -153,6 +157,12 @@ def mdp_findings(params: dict[str, str]) -> list[Finding]:
                 f"constraints = {params['constraints']} in a MiMiC run",
                 means="constraints on the QM atoms fight the QM forces; the quantum solute has "
                 "to be flexible", suggestion="constraints = none"))
+    if not params.get("nsteps", "").strip() and not _says(params, "integrator", *_MINIMISERS):
+        out.append(NSTEPS_UNSET.finding(
+            "nsteps is not set", means="GROMACS defaults nsteps to 0: the run integrates "
+            "nothing, and ends as one that finished", assumption="nsteps = 0",
+            suggestion="state the stage's steps or duration_ps in the mandate, and "
+            "stage_prepare it again"))
     if _says(params, "gen_vel", *yes):
         if not params.get("gen_seed", "").strip() or _says(params, "gen_seed", "-1"):
             out.append(RANDOM_SEED.finding(

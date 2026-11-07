@@ -350,7 +350,9 @@ def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, core
     if extend_ps:
         steps = _steps_of(sections, extend_ps)
     elif continuing:
-        steps = _steps_left(ctx, stage, sections, _last_log_facts(ctx, stage)) or None
+        steps = _steps_left(ctx, stage, sections, _last_log_facts(ctx, stage))
+        if not steps:
+            return None, "its last run reached every step it was asked"
     else:
         steps = keyword_value(sections, "&CPMD/MAXSTEP")
     # a wavefunction optimisation's MAXSTEP bounds its iterations; from a cold start it costs

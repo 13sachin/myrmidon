@@ -129,6 +129,8 @@ def test_a_protocol_is_priced_on_the_machine_that_looks_it_up(ctx):
                                 {"protocol": "mimic_qmmm_solvated_solute"})
         assert preview.ok, preview.summary
         assert found.protocols[0].total_core_h == preview.estimate_core_h > 0
+        # the classical stages' step is a force field's, which no system names here
+        assert [u.split()[0] for u in found.protocols[0].unpriced] == ["equilibrate"]
         return preview.estimate_core_h
 
     assert priced(256.0) == pytest.approx(2 * priced(128.0), rel=1e-3)

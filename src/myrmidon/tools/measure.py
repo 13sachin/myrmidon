@@ -162,13 +162,20 @@ def _on_run(ctx: ToolContext, params: MeasureParams, extractor: str, over: str, 
         return _refused(params, f"{what} is measured over stage {over}, and no run of it has "
                         f"been collected: stage_prepare stage={over}, stage_run it, collect it")
     outputs, inputs, runs = run
+    segments = stage_segments(ctx.workspace, over)
+    if segments:  # the run measured is the last segment of the chain it is joined over
+        _, outputs, inputs = segments[-1]
     roles = {}
     for a in outputs:
         roles.setdefault(a.role, []).append(a)
     update: dict = {}
     read: list[ArtifactRef] = []
     said: list[Finding] = []
-    segments = stage_segments(ctx.workspace, over)
+    if extractor == "run_log" and len(segments) > 1:
+        said.append(Finding(id="DELIVERABLE_LAST_SEGMENT", message=(
+            f"{what} is read from the log of the last of stage {over}'s {len(segments)} "
+            "segments; each segment wrote a log of its own: run_diagnose stage="
+            f"{over} states the steps over all of them")))
     if extractor == "trajectory" and len(
             {segment_trajectory(written) for _, written, _ in segments} - {None}) > 1:
         joined = REGISTRY.call("trajectory_join", ctx, {"stage": over})
@@ -185,7 +192,8 @@ def _on_run(ctx: ToolContext, params: MeasureParams, extractor: str, over: str, 
         found = roles.get(role)
         if not found:
             return False
-        art = next((a for a in found if a.path.endswith(".xtc")), found[0])
+        path = segment_trajectory(found) if role == "trajectory" else None
+        art = next((a for a in found if a.path == path), found[0])
         now = ArtifactRef.from_path(ctx.workspace.root / art.path, role, root=ctx.workspace.root)
         if now.sha256 != art.sha256:
             return False

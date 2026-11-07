@@ -73,7 +73,7 @@ class QMRegionParams(BaseModel):
 def qm_region(ctx: ToolContext, params: QMRegionParams) -> Observation:
     engine = adapter_with("partition_qm")
     if params._unresolved or engine is None:
-        return Observation(ok=False, summary=f"no part of the system is {params._unresolved}: "
-                           "name a subsystem the mandate or the topology holds, or selections"
+        return Observation(ok=False, summary=f"cannot select {'; '.join(params._unresolved)}: "
+                           "name those atoms as selections"
                            if params._unresolved else "no engine here partitions a QM region")
     return engine.partition_qm(ctx, params)

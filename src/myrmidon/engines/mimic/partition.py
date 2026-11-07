@@ -40,18 +40,26 @@ declare_identity("qm_selection", replaced_by=PARTITION_TOOL)
 
 
 def subsystem_selections(parts: dict, names: list[str]) -> tuple[list[str], list[str]]:
-    """(the selection commands that add each named subsystem's residues, the names no part
-    resolves): a name is a part's own, or the kind of every part of that kind (``ligand``).
-    Each part is the mandate's subsystem or the topology's proposal, as a dict."""
+    """(the selection commands that add each named subsystem's residues, why each name that
+    does not resolve does not): a name is a part's own, or the kind of every part of that
+    kind (``ligand``). A part named by its residue numbers or chains is some copies of its
+    residues, which their names alone would overshoot; one with no residue names has none to
+    select by. Each part is the mandate's subsystem or the topology's proposal, as a dict."""
     commands: list[str] = []
     unresolved: list[str] = []
     for name in names:
         matched = [parts[name]] if name in parts else [
             p for p in parts.values() if p.get("kind") == name]
         resnames = [r for p in matched for r in p.get("resnames") or []]
-        if not resnames:
-            unresolved.append(name)
-        commands += [f"add resname is {r}" for r in dict.fromkeys(resnames)]
+        if not matched:
+            unresolved.append(f"{name}: no part of the system")
+        elif any(p.get("resid") or p.get("chains") for p in matched):
+            unresolved.append(f"{name}: named by residue number or chain, which its residue "
+                              "names alone would overshoot")
+        elif not resnames:
+            unresolved.append(f"{name}: names no residue")
+        else:
+            commands += [f"add resname is {r}" for r in dict.fromkeys(resnames)]
     return commands, unresolved
 
 

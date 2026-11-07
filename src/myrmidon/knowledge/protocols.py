@@ -133,9 +133,14 @@ class Protocol(BaseModel):
             hamiltonian=self.hamiltonian or Hamiltonian()), method=Method(
             protocol=f"{self.id}@v{self.version}", stages=stages))
         methods = methods_for(mandate, MethodStore.default(), None)
-        return {stage.name: price_stage(mandate, stage, templates=TemplateStore.default(),
-                                        methods=methods, atoms=None, paces=paces,
-                                        compute=compute) for stage in stages}
+        out = {stage.name: price_stage(mandate, stage, templates=TemplateStore.default(),
+                                       methods=methods, atoms=None, paces=paces,
+                                       compute=compute) for stage in stages}
+        for stage in stages:  # a classical step is the force field's, which a system names
+            if out[stage.name].core_h is None and methods.step_ps(stage.regime) is None:
+                out[stage.name].basis = ("unpriced: its time step is its force field's, which "
+                                         "the built system names (protocol_preview prices it)")
+        return out
 
     @model_validator(mode="after")
     def _is_runnable_in_order(self) -> Protocol:
@@ -168,7 +173,7 @@ class Protocol(BaseModel):
                     f"{self.id}: step {step.name} cites {step.cites!r}; a step cites the "
                     f"stage it renders as stage:<name>, or stage:<name>/<renders> for one of "
                     f"its files, a stage among {sorted(stages)} and renders among "
-                    f"{sorted(RENDERED_FILES)} (an inputset:<id> cite is a stage's now)")
+                    f"{sorted(RENDERED_FILES)}; an input set is cited by the stage it renders")
         for invariant in self.invariants:
             unknown = sorted(invariant.scopes - {""} - set(names))
             if unknown:

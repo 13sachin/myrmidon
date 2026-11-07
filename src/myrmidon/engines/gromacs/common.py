@@ -8,7 +8,6 @@ from pathlib import Path
 
 from myrmidon.core.artifacts import fresh_path
 from myrmidon.core.tool import ToolContext
-from myrmidon.engines.inputs import stage_output  # noqa: F401  (GROMACS tools import it here)
 from myrmidon.errors import EngineNotFoundError
 from myrmidon.text import tail  # noqa: F401  (engines import it from here)
 
@@ -101,10 +100,14 @@ def extract_energy_terms(ctx: ToolContext, edr: Path, terms: list[str], stage: P
     return xvg, proc
 
 
-def join_trajectories(ctx: ToolContext, paths: list[Path], out: Path
+def join_trajectories(ctx: ToolContext, paths: list[Path], out: Path, continuous: bool = False
                       ) -> subprocess.CompletedProcess:
-    """``gmx trjcat -cat``: the trajectories one after another in the order given, every frame
-    each holds kept (a segment's duplicate time stamps are its own, never dropped for
-    another's); the joined file exists only when the process succeeded."""
-    return run_gmx(ctx, ["trjcat", "-f", *[str(p) for p in paths], "-cat", "-o", str(out)],
-                   cwd=out.parent)
+    """``gmx trjcat``: the trajectories one after another in the order given; the joined file
+    exists only when the process succeeded. ``continuous``: the segments of one run, each
+    re-timed to start where the one before it ended (``-settime``, ``c``), the frame they share
+    at the join kept once; else every frame each holds kept with its own time (``-cat``)."""
+    files = [str(p) for p in paths]
+    if continuous:
+        return run_gmx(ctx, ["trjcat", "-f", *files, "-settime", "-o", str(out)],
+                       cwd=out.parent, stdin="0\n" + "c\n" * (len(files) - 1))
+    return run_gmx(ctx, ["trjcat", "-f", *files, "-cat", "-o", str(out)], cwd=out.parent)

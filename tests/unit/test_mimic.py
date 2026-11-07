@@ -586,6 +586,9 @@ def test_a_stage_reads_the_region_selected_for_it(ws_ctx):
 
     call, mandates = _study_before_selecting(ws_ctx, [_qmmm("one"), _qmmm("two", starts_from="")])
     gro = "01_input/acetone_equilibrated.gro"
+    assert not REGISTRY.call("qm_region", ws_ctx, {
+        "topology": "01_input/acetone_equilibrated.top", "coords": gro, "padding_nm": 0.4,
+        "subsystems": ["cofactor"]}).ok  # no part of this system
     one = _select_on(ws_ctx, gro, stage="one", selections=[], subsystems=["ligand"])
     assert [e for e in ws_ctx.workspace.ledger.events() if e.tool == "qm_region"][-1].params[
         "selections"] == ["add resname is ACT"]  # the topology's ligand, as commands

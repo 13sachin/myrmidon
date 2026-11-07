@@ -352,9 +352,12 @@ def stage_segments(ws, stage: str) -> list[tuple]:
         submission = Lineage._submission(ev, by_id)
         if submission is ev or named_stage(submission) != stage:
             continue
-        if not chains or not submission.params.get("continue_run"):
-            chains.append({})
-        chains[-1][submission.event_id] = (submission, ev)  # its latest collection
+        held = next((c for c in chains if submission.event_id in c), None)
+        if held is None:
+            if not chains or not submission.params.get("continue_run"):
+                chains.append({})
+            held = chains[-1]
+        held[submission.event_id] = (submission, ev)  # its latest collection
     for chain in reversed(chains):
         segments = list(chain.values())
         while segments and not segments[-1][1].ok:

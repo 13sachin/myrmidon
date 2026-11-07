@@ -46,6 +46,7 @@ def _protocol_hit(ctx: ToolContext, w, *, full: bool = False) -> ProtocolHit:
         hamiltonian=(w.hamiltonian.model_dump(mode="json", exclude_none=True, exclude={"mm"})
                      if w.hamiltonian is not None else None),
         total_core_h=round(sum(p.core_h or 0.0 for p in prices.values()), 3),
+        unpriced=[f"{name} ({p.basis})" for name, p in prices.items() if p.core_h is None],
         citations=[s.text for s in w.sources] if full else [],
         pitfalls=w.pitfalls,
         notes=w.notes if full else "",
