@@ -403,7 +403,8 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
                for kind, path in files.items() if not path.is_file()]
     if missing:
         return missing
-    outside = sorted(set(params.frames) - set(stage.scan.values if stage.scan else ()))
+    outside = sorted({int(f) for f in params.frames}
+                     - {int(f) for f in (stage.scan.values if stage.scan else ())})
     if outside:
         return [Precondition(id="STAGE_FRAMES_NOT_SCANNED",
                              message=f"frames {outside} are none of stage {stage.name}'s scan",

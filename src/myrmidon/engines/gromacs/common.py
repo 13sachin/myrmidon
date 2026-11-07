@@ -118,6 +118,9 @@ def bonded_structure(ctx: ToolContext, run_input: Path, structure: Path, out: Pa
     """``gmx trjconv -conect``: ``structure``'s atoms as a .pdb with the bonds ``run_input``
     holds, as CONECT records, for a reader that cannot take the run input itself; None when
     it could not be written."""
+    n_atoms, _ = read_gro_info(structure) if structure.suffix == ".gro" else (0, None)
+    if n_atoms > 99_999:  # a PDB's serials wrap there, and its CONECT records name wrong atoms
+        return None
     proc = run_gmx(ctx, ["trjconv", "-s", str(run_input), "-f", str(structure), "-o", str(out),
                          "-conect"], cwd=out.parent, stdin="0\n")
     return out if proc.returncode == 0 and out.is_file() else None

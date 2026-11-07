@@ -275,10 +275,14 @@ def _region_charges(mandate: mandates.Mandate, parts: dict[str, dict]) -> list[s
             return None
         return sum(p["charge"] for p in laid)
 
+    locked = {path: value for d in mandate.decisions.yours for path, value in d.locks.items()}
     asked = []
     for stage in mandate.method.stages:
         region = stage.qm_region
         if region is None or region.charge is not None:
+            continue
+        if isinstance(locked.get(f"{stage.name}.qm_region.charge"), int):
+            region.charge = locked[f"{stage.name}.qm_region.charge"]  # the researcher's
             continue
         charges = [charge(n) for n in region.subsystems]
         total = sum(charges) if None not in charges else None

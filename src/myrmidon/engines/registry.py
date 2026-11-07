@@ -172,8 +172,8 @@ class EngineAdapter:
     stage_inputs: Callable[..., dict] | None = None
     #: (ctx, stage, inputs by kind, walltime) -> what stops or is worth saying of the run
     job_findings: Callable[..., list] | None = None
-    #: (ctx, stage, inputs, layout, cores, extend_ps, continuing) -> (minutes, why) its run
-    #: is booked for
+    #: (ctx, stage, inputs, layout, cores, extend_ps, continuing, frames) -> (minutes, why)
+    #: its run is booked for
     size_walltime: Callable[..., tuple] | None = None
     #: (ctx, stage, inputs by kind, layout, run request) -> the job, single, coupled or batch
     build_job: Callable[..., StageJob] | None = None

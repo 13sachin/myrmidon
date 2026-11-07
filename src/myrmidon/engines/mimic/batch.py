@@ -126,14 +126,16 @@ def frames_in(structure: Path, trajectory: Path) -> int | None:
 
 def frames_in_flight(ctx, stage) -> set[int]:
     """The frames a submitted run of a scan stage computes whose job has not been collected."""
-    from myrmidon.core.lineage import lineage, named_stage
+    from myrmidon.core.lineage import COLLECTS, named_stage
 
     ws = ctx.workspace
-    collected = lineage(ws).submissions
-    return {int(f) for ev in ws.ledger.events()
-            if ev.tool == "stage_run" and ev.ok and ev.kind == "call"
-            and named_stage(ev) == stage.name and ev.event_id not in collected
-            for f in ev.params.get("frames") or ()}
+    events = [ev for ev in ws.ledger.events() if ev.kind == "call"]
+    # any collection ends its job, whatever it found
+    collected = {ref[len(COLLECTS):] for ev in events for ref in ev.knowledge_refs
+                 if ref.startswith(COLLECTS)}
+    return {int(f) for ev in events
+            if ev.tool == "stage_run" and ev.ok and named_stage(ev) == stage.name
+            and ev.event_id not in collected for f in ev.params.get("frames") or ()}
 
 
 def frames_to_run(ctx, stage, asked: list[int]) -> list[int]:

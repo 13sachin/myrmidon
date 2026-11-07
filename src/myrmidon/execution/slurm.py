@@ -315,4 +315,3 @@ class SlurmBackend(ExecutionBackend):
             cores = nodes * self.cores_per_node if self.cores_per_node else cpus
             return round(cores * elapsed / 3600.0, 3)
         return None
-

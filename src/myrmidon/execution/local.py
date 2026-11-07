@@ -175,4 +175,3 @@ def _alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
-
