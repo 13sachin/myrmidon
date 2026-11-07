@@ -176,3 +176,47 @@ def _stopped_and_continued(ctx):
     join = [e for e in ws.ledger.events() if e.tool == "trajectory_join"][-1]
     assert len(join.inputs) == 2 and measured.n_frames > 1
     assert lineage(ws).stages_behind(join.outputs[0].sha256) == {"hot"}
+
+
+def test_acetone_reference_over_frames(ctx, approve_mandate):
+    """Reference forces over a classical run's frames, with no QM region selected by hand:
+    the mandate's charge is the topology's, stage_prepare partitions the region from the
+    stage's subsystems, the first frame runs as a probe and the rest as one job, each frame
+    partitioned by prepqm inside it, and the dataset is collected from every frame."""
+    call(ctx, "study_create", name="acetone-reference", description="real MiMiC scan")
+    ws = ctx.workspace
+    inputs = ws.stage("inputs")
+    for f in FIXTURES.iterdir():
+        if f.is_dir():
+            shutil.copytree(f, inputs / f.name)
+        else:
+            shutil.copy(f, inputs / f.name)
+    rel = lambda name: ws.relpath(inputs / name)  # noqa: E731
+    held = approve_mandate(
+        ctx, "QM/MM reference forces over three frames of acetone in water", 200.0,
+        stages=[{"name": "md", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300,
+                 "steps": 200, "sampling_ps": 0.05},
+                {"name": "reference", "kind": "single_point", "regime": "qmmm",
+                 "starts_from": "md", "scan": {"parameter": "frames", "values": [0, 1, 2]},
+                 "qm_region": {"subsystems": ["solute"]}}],
+        hamiltonian={"mm": "amber", "qm": {"method": "blyp_mt", "cutoff_ry": 70},
+                     "coupling": {"scheme": "mimic"}},
+        subsystems={"solute": {"kind": "ligand", "resnames": ["ACT"]},
+                    "solvent": {"kind": "solvent", "molecules": ["SOL"]}},
+        structure=rel("acetone_equilibrated.gro"), topology=rel("acetone_equilibrated.top"))
+    assert held.method.stage("reference").qm_region.charge == 0  # read from the topology
+
+    call(ctx, "stage_prepare", stage="md")
+    md = call(ctx, "stage_run", stage="md", cores=8)
+    assert wait_job(ctx, md.job_id).state == "COMPLETED"
+    prepared = call(ctx, "stage_prepare", stage="reference")
+    assert prepared.partition["qm_atoms"] == 10
+    for frames in ([0], []):
+        job = call(ctx, "stage_run", stage="reference", cores=CPMD_RANKS + 1, frames=frames)
+        done = wait_job(ctx, job.job_id)
+        assert done.state == "COMPLETED", f"{done.summary}\n{done.log_tail or ''}"
+    collected = call(ctx, "dataset_collect", stage="reference")
+    event = [e for e in ws.ledger.events() if e.tool == "dataset_collect"][-1]
+    assert len([i for i in event.inputs if i.role.startswith("fmdata")]) == 3, collected.summary
+    partitions = [e for e in ws.ledger.events() if e.tool == "qm_region"]
+    assert len(partitions) == 1 and partitions[0].params["subsystems"] == ["solute"]
