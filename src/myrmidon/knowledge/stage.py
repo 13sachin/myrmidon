@@ -387,7 +387,7 @@ def derived(stage: dict, mandate: Mandate, step_ps: float | None,
     out["geometry"] = "membrane" if membrane else "bulk"
     out["pressure_axes"] = 2 if membrane else 1  # in the plane, along the normal
     region = stage.get("qm_region") or {}
-    out["open_shell"] = bool(region) and region.get("multiplicity", 1) > 1
+    out["open_shell"] = bool(region) and (region.get("multiplicity") or 1) > 1
     out["temperature_k"] = ramp.get("to_k") if ramp is not None else temp
     out["ramp_start_k"] = ramp.get("start_k") if ramp is not None else None
     out["temperature_ramp"] = (
@@ -916,16 +916,20 @@ def price_stage(mandate: Mandate, stage: Stage, *, templates: TemplateStore,
             ns=steps * step_ps / 1000.0, atoms=atoms, cores=billing.cores_per_node,
             paces=paces, compute=compute, margin=margin)
     elif pricing.get("throughput") == "s_per_step":
-        pace, factor = pace_for(paces, "s_per_step", billing.cores_per_node)
+        cutoff = methods.values.get("qm", {}).get("cutoff_ry")
+        cutoff_ry = float(cutoff[0]) if cutoff else None
+        # a step's cost grows steeply with the region and the cutoff: no other measurement serves
+        same = [p for p in paces
+                if (qm_atoms is None or p.atoms == qm_atoms)
+                and (p.cutoff_ry is None or cutoff_ry is None or p.cutoff_ry == cutoff_ry)]
+        pace, factor = pace_for(same, "s_per_step", billing.cores_per_node)
         if not steps:
             price.basis = "unpriced: no length"
             return price
         if pace is None:
-            cutoff = methods.values.get("qm", {}).get("cutoff_ry")
-            seconds, why = plausible_s_per_step(compute, qm_atoms,
-                                                float(cutoff[0]) if cutoff else None,
+            seconds, why = plausible_s_per_step(compute, qm_atoms, cutoff_ry,
                                                 billing.cores_per_node)
-            minutes = steps * seconds / 60 * margin
+            minutes = max(steps * seconds / 60 * margin, compute.unmeasured_walltime_min)
             price.basis = f"{steps} steps; {why}"
         else:
             minutes = steps * pace.s_per_step / factor / 60 * margin

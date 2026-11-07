@@ -657,6 +657,45 @@ def test_a_run_killed_at_its_walltime_is_told_how_to_go_on(tmp_path, integrator,
     assert advice in walltime_diagnosis(log, text)
 
 
+def test_a_continuation_extends_the_run_input_that_wrote_the_checkpoint(ws_ctx):
+    """Each extension goes further than the last; preparing the stage afresh starts a new line,
+    and what continues then is that one, never an older extension in the same directory."""
+    import re
+
+    from tests.conftest import NVT_STAGE, approved_study, prepare_and_run, wait_for
+
+    ws = ws_ctx.workspace
+    stage = ws.stage("input")
+    (stage / "conf.gro").write_text(
+        "mock\n 3\n" + "    1ALA     CA    1   0.1   0.2   0.3\n" * 3 + "   2.5 2.5 2.5\n")
+    (stage / "topol.top").write_text("[ system ]\nMock\n[ molecules ]\nProtein 1\n")
+    approved_study(ws_ctx, "01_input/conf.gro", "01_input/topol.top", [NVT_STAGE])
+
+    def steps_of(submitted):
+        dump = ws.resolve(submitted.command[submitted.command.index("-s") + 1]).read_text()
+        return int(re.search(r"nsteps\s*=\s*(\S+)", dump).group(1))
+
+    refused = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "extend_ps": 1.0})
+    assert not refused.ok
+    _, first = prepare_and_run(ws_ctx, "nvt", {"structure": "01_input/conf.gro"})
+    assert wait_for(ws_ctx, first.job_id).ok
+    miswritten = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "extend_ps": 1.0})
+    assert miswritten.error.code == "STAGE_EXTEND_WITHOUT_CONTINUE"
+    reach = []
+    for _ in range(2):
+        extended = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "continue_run": True,
+                                                       "extend_ps": 1.0})
+        assert extended.ok, extended.summary
+        assert wait_for(ws_ctx, extended.job_id).ok
+        reach.append(steps_of(extended))
+    assert reach[1] > reach[0] > NVT_STAGE["steps"]
+    _, again = prepare_and_run(ws_ctx, "nvt", {"structure": "01_input/conf.gro"})
+    assert wait_for(ws_ctx, again.job_id).ok
+    goes_on = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "continue_run": True})
+    assert goes_on.ok, goes_on.summary
+    assert steps_of(goes_on) == NVT_STAGE["steps"]
+
+
 # (what an output is named, the stage the tool writes into, the file — or refused): the
 # file name, into the tool's own stage, whatever directory the call names with it — but
 # never through another directory onto a file the stage already holds ("held.gro")

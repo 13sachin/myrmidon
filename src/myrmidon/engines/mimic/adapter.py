@@ -41,7 +41,7 @@ def _stage_text(request: StageRender) -> StageText:
     system_input = request.system.get("cpmd_input")
     if system_input is None or region is None:
         return StageText(stated)
-    charge, multiplicity = region.charge, region.multiplicity
+    charge, multiplicity = region.charge, region.multiplicity or 1
     sections = cpmd_input.apply_method(cpmd_input.parse_cpmd(system_input.read_text()),
                                        cpmd_input.parse_cpmd(stated))
     sections = cpmd_input.set_spin(sections, charge, multiplicity)

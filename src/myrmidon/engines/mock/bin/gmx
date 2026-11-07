@@ -165,6 +165,54 @@ def write_gro(path, n_atoms, box="2.50000   2.50000   2.50000"):
     path_write(path, "\n".join(lines) + "\n")
 
 
+def write_final_gro(path, tpr_fields, step):
+    """The structure a run leaves: the atoms its tpr holds, titled with its last step as a real
+    one is, so that it is never the file the run started from. A tpr with no coordinates: the
+    mock's own system."""
+    conf = tpr_fields.get("mock-conf")
+    if not conf:
+        write_gro(path, 670)
+        return
+    title, *rest = base64.b64decode(conf).decode().splitlines()
+    path_write(path, "\n".join([f"{title} step= {step}", *rest]) + "\n")
+
+
+def _gro_coordinates(tpr_fields):
+    """(positions in nm, the box's three lengths) of a tpr's coordinates."""
+    conf = tpr_fields.get("mock-conf")
+    if not conf:
+        return [(0.1 * i % 2.4, 0.2, 0.3) for i in range(670)], [2.5, 2.5, 2.5]
+    lines = base64.b64decode(conf).decode().splitlines()
+    atoms = int(lines[1])
+    # the columns of a real .gro; a hand-written one's numbers are its last three words
+    return ([(float(ln[20:28]), float(ln[28:36]), float(ln[36:44])) if len(ln) >= 44
+             else tuple(float(x) for x in ln.split()[-3:]) for ln in lines[2:2 + atoms]],
+            [float(x) for x in lines[2 + atoms].split()[:3]])
+
+
+def write_trr(path, tpr_fields):
+    """A GROMACS .trr in its real XDR form, so that what reads a real one reads this: frames at
+    multiples of nstxout, at most twenty of them, since a mock run has no need of thousands. The
+    atoms drift by a thousandth of a nm per frame, enough to tell frames apart."""
+    import struct
+
+    positions, box = _gro_coordinates(tpr_fields)
+    nsteps = int(float(tpr_fields.get("nsteps", "5000")))
+    every = int(float(tpr_fields.get("nstxout", "0"))) or nsteps or 1
+    dt = float(tpr_fields.get("dt", "0.001"))
+    written = nsteps // every
+    with open(path, "wb") as fh:
+        for frame, step in enumerate(range(0, written * every + 1,
+                                           every * max(1, -(-written // 19)))):
+            fh.write(struct.pack(">ii", 1993, 13) + struct.pack(">i", 12) + b"GMX_trn_file")
+            fh.write(struct.pack(">13i", 0, 0, 36, 0, 0, 0, 0, 12 * len(positions), 0, 0,
+                                 len(positions), step, 0))
+            fh.write(struct.pack(">ff", step * dt, 0.0))
+            fh.write(struct.pack(">9f", box[0], 0, 0, 0, box[1], 0, 0, 0, box[2]))
+            for x, y, z in positions:
+                fh.write(struct.pack(">3f", x + 0.001 * frame, y, z))
+
+
 def path_write(path, text):
     with open(path, "w") as fh:
         fh.write(text)
@@ -704,11 +752,11 @@ def main():
             # same inputs produce a byte-identical tpr in any directory, so its hash
             # in the ledger does not depend on where the study lives.
             f"   mock-charges                   = {','.join(f'{q:g}' for q in mock_charges(top)) if top else ''}\n"
-            # a minimisation's run input carries its coordinates, as a real tpr does: the
-            # minimised structure mdrun writes has the atoms it was given
+            + f"   nstxout                        = {fields.get('nstxout', '0')}\n"
+            # a run input carries its coordinates, as a real tpr does: the structure and the
+            # frames mdrun writes have the atoms it was given
             + (f"   mock-conf                      = {mock_conf(conf)}\n"
-               if fields.get("integrator", "md") in MINIMISERS and conf
-               and os.path.exists(conf) else "")
+               if conf and os.path.exists(conf) else "")
             # every real tpr holds the coordinates it was built from: two systems never
             # share a run input's bytes
             + (f"   mock-coordinates               = "
@@ -730,7 +778,7 @@ def main():
         return 1
 
     if sub == "trjcat":
-        # concatenate the input trajectories (mock trrs are text)
+        # concatenate the input trajectories: a trr's frames follow one another
         files = []
         take = False
         for a in sys.argv[2:]:
@@ -743,7 +791,8 @@ def main():
             if take:
                 files.append(a)
         out = arg_after("-o", "trajout.trr")
-        path_write(out, "".join(open(f).read() for f in files))
+        with open(out, "wb") as fh:
+            fh.write(b"".join(open(f, "rb").read() for f in files))
         return 0
 
     if sub == "mdrun":
@@ -830,11 +879,7 @@ def main():
                 "Finished mdrun on rank 0 Thu Jan  1 12:00:44 2026\n",
             )
             path_write(deffnm + ".edr", "MOCKEDR\n")
-            conf = tpr_fields.get("mock-conf")
-            if conf:
-                path_write(deffnm + ".gro", base64.b64decode(conf).decode())
-            else:
-                write_gro(deffnm + ".gro", 670)
+            write_final_gro(deffnm + ".gro", tpr_fields, tpr_fields.get("nsteps", "0"))
             return 0
         try:
             nsteps = int(float(tpr_fields.get("nsteps", "5000")))
@@ -886,8 +931,8 @@ def main():
                 dst.write(src.read())
         else:
             path_write(deffnm + ".xtc", "MOCKXTC\n")
-        path_write(deffnm + ".trr", "MOCKTRR\n")
-        write_gro(deffnm + ".gro", 670)
+        write_trr(deffnm + ".trr", tpr_fields)
+        write_final_gro(deffnm + ".gro", tpr_fields, tpr_fields.get("nsteps", "5000"))
         return 0
 
     if sub == "convert-tpr":

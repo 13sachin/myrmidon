@@ -243,14 +243,16 @@ with open("RESTART.1", "w") as fh:
     fh.write(f"MOCK CPMD RESTART\nT_FINAL {t_final:.3f}\n")
 with open("LATEST", "w") as fh:
     fh.write("{:<1024}\n{:>12}\n".format("./RESTART.1", 1))
+# real CPMD writes ENERGIES every step, and TRAJECTORY at steps 1, 1 + N, ... of its SAMPLE stride
 with open("ENERGIES", "w") as fh:
-    for nfi in nfis:
+    for nfi in range(1, n_steps + 1):
         fh.write(f"   {nfi}   0.00000000   {max(0.0, temperature(nfi)):.3f}  -17.12345678\n")
 with open("GEOMETRY", "w") as fh:
     fh.write("  0.0  0.0  0.0  0.0  0.0  0.0\n")
 # real CPMD's rows: every atom's position and velocity at each stored step
+sample = _value_after(cpmd, "TRAJECTORY SAMPLE")
 with open("TRAJECTORY", "w") as fh:
-    for nfi in nfis:
+    for nfi in range(1, n_steps + 1, max(1, int(sample[0])) if sample else 1):
         fh.write(f"   {nfi}  0.0  0.0  0.0  0.0  0.0  0.0\n")
 if "DIPOLE DYNAMICS" in inp_text:
     # real CPMD's rows: the step, the electronic and the total dipole per cell volume (a.u.)

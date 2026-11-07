@@ -522,11 +522,12 @@ def _from_run_keys(template, store) -> set[str]:
 
 
 def system_file(ctx: ToolContext, mandate, kind: str) -> str | None:
-    """The study's file of a system kind: the mandate's, else what the QM selection wrote."""
+    """The study's file of a system kind: what the latest QM selection wrote, which re-selecting
+    on a later frame replaces, else the mandate's."""
     from myrmidon.core.lineage import latest_outputs
 
-    named = next((f.path for f in mandate.system.files if f.kind == kind), None)
-    return named or latest_outputs(ctx.workspace, "qm_region").get(kind)
+    selected = latest_outputs(ctx.workspace, "qm_region").get(kind)
+    return selected or next((f.path for f in mandate.system.files if f.kind == kind), None)
 
 
 def _starting_facts(ctx: ToolContext, mandate, stage, template) -> dict:

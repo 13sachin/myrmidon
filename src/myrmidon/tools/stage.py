@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from myrmidon.core.artifacts import ArtifactRef, sha256_file
 from myrmidon.core.contracts import Contract, includes_of
-from myrmidon.core.lineage import stage_files
+from myrmidon.core.lineage import stage_files, stage_left
 from myrmidon.core.lineage import stage_run as collected_run
 from myrmidon.core.mandate import read_mandate
 from myrmidon.core.observation import Observation, ToolError
@@ -47,15 +47,23 @@ class StagePrepareParams(BaseModel):
 
 def _starting_structure(ctx: ToolContext, mandate, stage) -> tuple[str | None, str]:
     """(the structure a stage's run input is compiled against, why when there is none yet): the
-    one the classical run it descends from left, the first stage's the system's. A coupled stage
-    continuing a coupled one takes its coordinates from the restart, so it compiles against what
-    the first of them did: the last classical structure before the chain."""
-    seen: set[str] = set()
+    one the run it starts from left; the first stage's, the system's. A stage extending itself
+    starts from what the stage before it left. A coupled stage continuing a coupled one takes its
+    coordinates from the restart, so it compiles against what the first of them did: the last
+    classical structure before the chain."""
+    seen: set[str] = {stage.name}
+    names = [s.name for s in mandate.method.stages]
     begins = mandate.method.starts_from(stage)
-    while begins is not None and begins.name not in seen and begins.regime != "mm":
+    if begins is not None and begins.name == stage.name:
+        at = names.index(stage.name)
+        begins = mandate.method.stages[at - 1] if at else None
+    while stage.regime != "mm" and begins is not None and begins.regime != "mm":
+        if begins.name in seen:
+            begins = None
+            break
         seen.add(begins.name)
         begins = mandate.method.starts_from(begins)
-    if begins is None or begins.name in seen:
+    if begins is None:
         return system_file(ctx, mandate, "structure"), ""
     run = collected_run(ctx.workspace, begins.name)
     left = next((a.path for a in (run[0] if run else []) if a.role == "structure"), None)
@@ -63,25 +71,46 @@ def _starting_structure(ctx: ToolContext, mandate, stage) -> tuple[str | None, s
                                   "starts from the structure it leaves")
 
 
-def _region_on_other_coordinates(ctx: ToolContext, stage, structure: str | None,
-                                 stated: bool) -> list[Finding]:
-    """A QM region selected on coordinates other than those this stage starts from: on a fresh
-    start CPMD takes the QM atoms from the input the selection wrote and GROMACS the rest from
-    the structure, so the two halves would hold different configurations."""
-    if stage.qm_region is None or structure is None or stated:
+def _region_findings(ctx: ToolContext, mandate, stage, structure: str | None) -> list[Finding]:
+    """What keeps a stage's QM region from being the approved one on these coordinates: chemistry
+    a selection made since leaves open; other atoms than the mandate's selection; and, on a fresh
+    start, where CPMD takes the QM atoms from the input the selection wrote and GROMACS the rest
+    from the structure, a selection made on other coordinates. A stage that restarts takes both
+    from what it restarts."""
+    if stage.qm_region is None:
         return []
+    from myrmidon.tools.mandate import open_chemistry
+
+    found = [Precondition(id="QM_REGION_OPEN", message=question,
+                          suggestion="ask the researcher; the answer goes into the stage's "
+                          "qm_region, a revision they approve")
+             for question in open_chemistry(ctx.workspace, [stage], mandate.decisions.yours)]
     selected = next((ev for ev in reversed(list(ctx.workspace.ledger.events()))
                      if ev.tool == "qm_region" and ev.ok and ev.kind == "call"), None)
-    coords = next((i for i in selected.inputs if i.role == "coords"), None) if selected else None
-    path = ctx.workspace.resolve(structure)
-    if coords is None or not path.is_file() or sha256_file(path) == coords.sha256:
-        return []
-    return [Precondition(
-        id="QM_REGION_ON_OTHER_COORDINATES",
-        message=f"the QM region was selected on {coords.path}, and stage {stage.name} starts from "
-        f"{structure}: the QM and MM halves would hold different configurations",
-        suggestion="qm_region again on the structure the stage starts from, or name the "
-        "structure to prepare it on")]
+    if selected is None:
+        return found
+    approved = next((f for f in mandate.system.files if f.kind == "qm_selection"), None)
+    wrote = next((a for a in selected.outputs if a.role == "qm_selection"), None)
+    if approved and wrote and ctx.workspace.resolve(approved.path).is_file() and (
+            ctx.workspace.resolve(wrote.path).read_text()
+            != ctx.workspace.resolve(approved.path).read_text()):
+        found.append(Precondition(
+            id="QM_SELECTION_NOT_APPROVED",
+            message=f"the latest QM selection ({wrote.path}) is not the one the approved mandate "
+            f"holds ({approved.path}): which atoms are quantum is the researcher's",
+            suggestion="select the approved atoms, or revise the mandate with the reason"))
+    begins = mandate.method.starts_from(stage)
+    coupled_before = begins is not None and begins.regime != "mm" and begins.name != stage.name
+    coords = next((i for i in selected.inputs if i.role == "coords"), None)
+    if (not coupled_before and coords is not None and structure is not None
+            and ctx.workspace.resolve(structure).is_file()
+            and sha256_file(ctx.workspace.resolve(structure)) != coords.sha256):
+        found.append(Precondition(
+            id="QM_REGION_ON_OTHER_COORDINATES",
+            message=f"the QM region was selected on {coords.path}, and stage {stage.name} starts "
+            f"from {structure}: the QM and MM halves would hold different configurations",
+            suggestion="qm_region again on the structure the stage starts from"))
+    return found
 
 
 def _refused(summary: str, code: str, findings: list, hint: str = "", **fields) -> Observation:
@@ -113,10 +142,11 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
         return _refused(f"no template tells an engine stage {stage.name} ({stage.kind}, "
                         f"{stage.regime}, {stage.ensemble})", "MANDATE_STAGE_TEMPLATE", [])
     structure, later = _starting_structure(ctx, mandate, stage)
-    apart = _region_on_other_coordinates(ctx, stage, structure, bool(params.structure))
-    if apart:
-        return _refused(apart[0].message, apart[0].id, apart, apart[0].suggestion or "")
     structure = params.structure or structure
+    stopping = _region_findings(ctx, mandate, stage, structure)
+    if stopping:
+        return _refused(stopping[0].message, stopping[0].id, stopping,
+                        stopping[0].suggestion or "")
     topology = params.topology or system_file(ctx, mandate, "topology")
     index = params.index or system_file(ctx, mandate, "index")
     stage_dir = ctx.workspace.stage(stage.name)
@@ -245,11 +275,15 @@ class StageRunParams(BaseModel):
         if engine is None:
             return self
         begins = mandate.method.starts_from(stage)
-        continuing = self.continue_run or (begins is not None and begins.name == stage.name)
+        # a stage that starts from itself extends a run it has, and its first run is a first run
+        continuing = self.continue_run or bool(
+            begins is not None and begins.name == stage.name
+            and stage_left(ctx.workspace, stage.name))
         inputs = {**stage_files(ctx.workspace, stage.name), **self.inputs}
         inputs |= {**engine.stage_inputs(ctx, mandate, stage, inputs, continuing), **self.inputs}
-        if self.snapshot:
-            inputs["geometry"] = self.snapshot
+        snapshot = self.snapshot or self.inputs.get("geometry")
+        if snapshot:
+            inputs["geometry"] = snapshot
         inputs = {k: v for k, v in inputs.items() if k in _RUN_KINDS or k in self.inputs}
         files = {k: ctx.workspace.resolve(v) for k, v in inputs.items()}
         _, node = ctx.config.compute.billing(self.partition)
@@ -265,7 +299,7 @@ class StageRunParams(BaseModel):
                 why += f"; capped at the {minutes} min the partition grants: continue the stage"
         return self.model_copy(update={
             "inputs": inputs, "cores": cores, "walltime_min": minutes,
-            "continue_run": continuing,
+            "continue_run": continuing, "snapshot": snapshot,
             "layout": {"ntasks": found.ntasks, "cpus_per_task": found.cpus_per_task,
                        "partner_ntasks": found.partner_ntasks, "why": found.why,
                        "walltime_why": why}})
@@ -312,6 +346,12 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
                for kind, path in files.items() if not path.is_file()]
     if missing:
         return missing
+    if params.extend_ps and not params.continue_run:
+        return [Precondition(
+            id="STAGE_EXTEND_WITHOUT_CONTINUE",
+            message="extend_ps goes further than a run went, and this call starts one afresh",
+            suggestion="continue_run: true, to extend the stage's last run",
+            needs=["continue_run"])]
     if params.continue_run and not {"checkpoint", "restart"} & set(files):
         return [Precondition(
             id="STAGE_NOTHING_TO_CONTINUE",

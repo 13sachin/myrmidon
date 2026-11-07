@@ -544,13 +544,15 @@ def test_a_coupled_stage_is_priced_from_the_seconds_a_qmmm_step_took_here():
                                       "method": {"stages": [_qmmm_stage(steps=1000)]}})
     priced = [price_stage(mandate, mandate.method.stages[0], templates=TemplateStore.builtin(),
                           methods=methods_for(mandate, MethodStore.builtin()), atoms=None,
-                          paces=paces, compute=ComputeDefaults(cores_per_node=48,
-                                                               node_exclusive=True))
-              for paces in ([], [Pace(engine="cpmd", atoms=10, cores=48, s_per_step=seconds)])]
+                          paces=paces, qm_atoms=10, compute=ComputeDefaults(cores_per_node=48,
+                                                                            node_exclusive=True))
+              for paces in ([], [Pace(engine="cpmd", atoms=10, cores=48, s_per_step=seconds)],
+                            [Pace(engine="cpmd", atoms=3, cores=48, s_per_step=0.05)])]
     # unmeasured, the machine's reference step of this region, 3.2 s on 5 cores, scaled to the
-    # node's 48; measured, 1000 steps × 15.27 s × 1.5; both in the scheduler's 5-min steps
-    assert [(p.core_h is None, p.measured) for p in priced] == [(False, False), (False, True)]
-    assert [p.walltime_min for p in priced] == [30, 385]
+    # node's 48; measured, 1000 steps × 15.27 s × 1.5; another region's pace prices nothing;
+    # all in the scheduler's 5-min steps
+    assert [p.measured for p in priced] == [False, True, False]
+    assert [p.walltime_min for p in priced] == [30, 385, 30]
 
 
 def test_a_file_the_topology_includes_is_the_system_and_an_input(ws_ctx, complex_system):
@@ -774,6 +776,11 @@ def test_a_stage_after_a_classical_run_starts_with_a_fresh_wavefunction(ws_ctx):
     assert run.ok, run.summary
     assert REGISTRY.call("job_status", ws_ctx, {"job_id": run.job_id,
                                                 "wait_seconds": 15}).ok
+    left = next(a.path for a in collected(ws, "em")[0] if a.role == "structure")
+    selected = REGISTRY.call("qm_region", ws_ctx, {
+        "topology": "01_input/acetone_equilibrated.top", "coords": left,
+        "selections": ["add resname is ACT"], "padding_nm": 0.4})
+    assert selected.ok, selected.summary
     after = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "first"})
     assert after.ok, after.summary
     sections = parse_cpmd(ws.resolve(after.files["cpmd_input"]).read_text())

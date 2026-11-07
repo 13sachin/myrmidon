@@ -35,7 +35,11 @@ from myrmidon.execution.collect import collector
 
 #: the kinds a fit reads, none of which it can run without
 FIT_INPUTS = ("topology", "structure", "reference_dataset", "trajectory", "index", "qm_selection",
-              "fm_input")
+              "fm_input", "mdp")
+
+
+#: what mimicpy names a fitted file after the one it read: a fit's, a charges-only fit's
+FITTED_PREFIXES = ("opt_", "resp_")
 
 
 def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: bool) -> dict:
@@ -51,6 +55,15 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
         named = next((f.path for f in mandate.system.files if f.kind == kind), selected.get(kind))
         if named and kind not in prepared:
             out[kind] = named
+    # the bonded target's classical rerun: the input of a classical single point of the method
+    from myrmidon.core.lineage import stage_files
+
+    rerun = next((s for s in mandate.method.stages
+                  if s.kind == "single_point" and s.regime == "mm"), None)
+    if rerun is not None and "mdp" not in prepared:
+        found = stage_files(ctx.workspace, rerun.name).get("mdp")
+        if found:
+            out["mdp"] = found
     dataset = latest_dataset(ctx.workspace, begins.name if begins is not None else None)
     if dataset:
         out["reference_dataset"] = dataset
@@ -80,8 +93,9 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
         return [Precondition(
             id="STAGE_NOT_PREPARED",
             message=f"stage {stage.name} has no {', '.join(missing)}",
-            suggestion="stage_prepare the fit; dataset_collect the reference run it fits "
-            "against; qm_region writes the selection and the index")]
+            suggestion="stage_prepare the fit and a classical single_point stage, whose mdp is "
+            "the fit's rerun; dataset_collect the reference run it fits against; qm_region "
+            "writes the selection and the index")]
     findings = list(itp_atomtypes_warnings(inputs["topology"]))
     if "mdp" in inputs:
         from myrmidon.engines.gromacs.mdp import parse_mdp_file
@@ -133,8 +147,7 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
             "-ndx", str(inputs["index"]), "-sele", str(inputs["qm_selection"]),
             "-fi", str(inputs["fm_input"]), "-gmx", gmx_bin(ctx),
             "-n_processes", str(layout.cpus_per_task), *gmx_data_flags(ctx)]
-    if "mdp" in inputs:
-        argv += ["-mdp", str(inputs["mdp"])]
+    argv += ["-mdp", str(inputs["mdp"])]
     flag = {"charges": "-dresp", "bonded": "-opt_ff"}.get(request.fit_mode)
     if flag:
         argv.append(flag)
@@ -172,7 +185,7 @@ def collect_fit(ctx: ToolContext, stage_dir: Path, original_itp: str | None = No
     opt_itps: list[Path] = []
     for name in facts.get("itp_files", []):
         candidate = log_path.parent / name
-        if candidate.exists() and name.startswith("opt_"):
+        if candidate.exists() and name.startswith(FITTED_PREFIXES):
             opt_itps.append(candidate)
             artifacts.append(
                 ArtifactRef.from_path(candidate, "fitted_topology", root=ctx.workspace.root)
@@ -186,10 +199,11 @@ def collect_fit(ctx: ToolContext, stage_dir: Path, original_itp: str | None = No
                 break
     opt_itp = None
     if original_itp and opt_itps:
-        # the fitted twin of the original: opt_<name>.itp, else the only one
+        # the fitted twin of the original, else the only one
         original = resolve_in_ws(ctx, original_itp)
-        twin = log_path.parent / f"opt_{original.name}"
-        opt_itp = twin if twin in opt_itps else (opt_itps[0] if len(opt_itps) == 1 else None)
+        twins = [log_path.parent / f"{prefix}{original.name}" for prefix in FITTED_PREFIXES]
+        opt_itp = next((t for t in twins if t in opt_itps),
+                       opt_itps[0] if len(opt_itps) == 1 else None)
     if original_itp and opt_itp is not None:
         before = dict(atom_charges(resolve_in_ws(ctx, original_itp).read_text()))
         after = dict(atom_charges(opt_itp.read_text()))

@@ -129,8 +129,8 @@ def test_generate_reference_pair(ctx, approve_mandate):
     fitting = call(ctx, "stage_prepare", stage="fit")
     assert fitting.files["fm_input"].endswith("fminput.dat")
     # the bonded target's classical rerun: an mdp of its own, never the coupled run's
-    rerun = call(ctx, "stage_prepare", stage="rerun", structure=rel("acetone_equilibrated.gro"))
-    fit = call(ctx, "stage_run", stage="fit", inputs={"mdp": rerun.files["mdp"]})
+    call(ctx, "stage_prepare", stage="rerun", structure=rel("acetone_equilibrated.gro"))
+    fit = call(ctx, "stage_run", stage="fit")
     fit_done = wait_job(ctx, fit.job_id)
     assert fit_done.state == "COMPLETED", f"{fit_done.summary}\n{fit_done.log_tail or ''}"
     assert fit_done.optimizer_success is True

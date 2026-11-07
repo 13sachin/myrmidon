@@ -314,8 +314,9 @@ def stage_runs(ws, stage: str) -> list[tuple]:
 
 
 def stage_left(ws, stage: str) -> list:
-    """What the latest run of ``stage`` left, whether or not it succeeded: a run stopped at its
-    walltime is continued from the checkpoint it wrote. None collected: empty."""
+    """What the latest run of ``stage`` left, whether or not it succeeded, what its submission
+    recorded first: a run stopped at its walltime is continued from the checkpoint it wrote and
+    the run input it ran. None collected: empty."""
     events = list(ws.ledger.events())
     by_id = {ev.event_id: ev for ev in events if ev.kind == "call"}
     for ev in reversed(events):
@@ -323,7 +324,7 @@ def stage_left(ws, stage: str) -> list:
             continue
         submission = Lineage._submission(ev, by_id)
         if submission is not ev and f"{STAGE}{stage}" in submission.knowledge_refs:
-            return ev.outputs
+            return [*submission.outputs, *ev.outputs]
     return []
 
 

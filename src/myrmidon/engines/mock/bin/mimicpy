@@ -229,6 +229,15 @@ def main():
                   "an aligned pair (PREFIX.trr + PREFIX.h5).")
         return 0
     if sub == "fm":
+        # the real command reads -mdp unconditionally, and refuses a coupled run's
+        rerun = arg("-mdp")
+        if rerun is None:
+            sys.stderr.write("TypeError: expected str, bytes or os.PathLike object, "
+                             "not NoneType\n")
+            return 1
+        if "integrator = mimic" in open(rerun).read().lower():
+            sys.stderr.write(f"MiMiCPyError: rerun mdp {rerun} is a MiMiC production mdp\n")
+            return 1
         if os.environ.get("MOCK_FM_FAIL"):
             with open("fm.log", "w") as fh:
                 fh.write("Number of snapshots used for fitting: 10\n"
@@ -236,7 +245,8 @@ def main():
                          "        message: `xtol` termination condition NOT satisfied. \n")
             sys.stderr.write("mock fm: optimization failed\n")
             return 1
-        with open("opt_mock.itp", "w") as fh:
+        fitted = "resp_mock.itp" if "-dresp" in sys.argv else "opt_mock.itp"
+        with open(fitted, "w") as fh:
             fh.write("; Created by mimicpy (mock)\n[ moleculetype ]\n ACT 3\n\n[ atoms ]\n"
                      " 1 c  1 ACT C1 1  0.75000 12.0\n"
                      " 2 o  1 ACT O1 2 -0.60000 16.0\n"
@@ -270,7 +280,7 @@ def main():
                 "        message: `ftol` termination condition is satisfied. \n"
                 "        success: True \n"
                 "Force field parameter optimization completed.\n"
-                "Successfully wrote .itp files for molecules containing QM atoms: opt_mock.itp\n"
+                f"Successfully wrote .itp files for molecules containing QM atoms: {fitted}\n"
                 "MiMiCPy Force matching workflow completed 1970-01-01 00:00:00.\n"
                 "wall time: 0:00:03.500000\n"
             )

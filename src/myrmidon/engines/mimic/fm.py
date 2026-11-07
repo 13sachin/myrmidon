@@ -472,11 +472,11 @@ def includes_of(top: Path) -> list[str]:
 
 
 def fitted_pairs(top: Path, opt_itps: list[Path]) -> dict[str, Path]:
-    """include name -> fitted itp, for every opt_<name>.itp whose original the topology
-    includes (mimicpy names a fitted file after the one it read)."""
+    """include name -> fitted itp, for every opt_<name>.itp or resp_<name>.itp whose original the
+    topology includes (mimicpy names a fitted file after the one it read)."""
     pairs: dict[str, Path] = {}
     for fitted in opt_itps:
-        name = fitted.name[len("opt_"):]
+        name = fitted.name.split("_", 1)[1]
         inc = next((i for i in includes_of(top) if Path(i).name == name), None)
         if inc:
             pairs[inc] = fitted

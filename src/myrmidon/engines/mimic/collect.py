@@ -226,18 +226,17 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
     if "cpmd_input" not in prepared:
         return out
     sections = parse_cpmd(ctx.workspace.resolve(prepared["cpmd_input"]).read_text())
-    if not has_keyword(sections.get("CPMD", []), "RESTART"):
-        return out
-    begins = stage if continuing else mandate.method.starts_from(stage)
-    if begins is None:
-        return out
-    if begins is stage:
+    restarts = has_keyword(sections.get("CPMD", []), "RESTART")
+    if continuing:
         outputs = stage_left(ctx.workspace, stage.name)
     else:
+        begins = mandate.method.starts_from(stage)
+        if begins is None or not restarts:
+            return out
         run = stage_run(ctx.workspace, begins.name)
         outputs = run[0] if run else []
     left = {a.role: a.path for a in outputs}
-    for kind in ("restart", "geometry"):
+    for kind in ("restart", "geometry") if restarts else ("restart",):
         if kind in left and kind not in prepared:
             out[kind] = left[kind]
     return out
@@ -285,7 +284,8 @@ def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, core
     if "cpmd_input" not in inputs:
         return None, "no run input"
     sections = parse_cpmd(inputs["cpmd_input"].read_text())
-    steps = keyword_value(sections, "&CPMD/MAXSTEP")
+    steps = (_steps_of(sections, extend_ps) if extend_ps
+             else keyword_value(sections, "&CPMD/MAXSTEP"))
     # a wavefunction optimisation's MAXSTEP bounds its iterations; from a cold start it costs
     # several steps' worth of work
     length = (load("cpmd").decomposition.get("single_point_steps", 10)
@@ -302,6 +302,45 @@ def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, core
         return None, why
     least = ctx.config.compute.unmeasured_walltime_min
     return max(booked_minutes(minutes), least), why
+
+
+def _steps_of(sections: dict, length_ps: float) -> int:
+    """The MD steps that make up a length, at the input's own time step."""
+    from myrmidon.engines.mimic.cpmd_input import keyword_value
+    from myrmidon.knowledge.stage import PS_PER
+
+    step_au = float((keyword_value(sections, "&CPMD/TIMESTEP") or "5").split()[0])
+    return max(1, round(length_ps / (step_au * PS_PER["au"])))
+
+
+def _continuing(run_input: Path, run_dir: Path, ctx, request, stage) -> Path:
+    """The run input as a continuation runs it, in the run's own directory, with its sidecar: a
+    RESTART line if it has none, and the steps it has left, or those an extension adds."""
+    import shutil
+
+    from myrmidon.core.lineage import stage_left
+    from myrmidon.engines.mimic.cpmd_input import has_keyword, keyword_value, set_keyword
+    from myrmidon.engines.mimic.diagnostics import parse_cpmd_output
+
+    sections = parse_cpmd(run_input.read_text())
+    cpmd = sections.get("CPMD", [])
+    if not has_keyword(cpmd, "RESTART"):
+        cpmd = ["RESTART COORDINATES VELOCITIES WAVEFUNCTION", *cpmd]
+    if request.extend_ps:
+        steps = _steps_of(sections, request.extend_ps)
+    else:
+        log = next((a.path for a in stage_left(ctx.workspace, stage.name) if a.role == "qm_log"),
+                   None)
+        done = (parse_cpmd_output(ctx.workspace.resolve(log).read_text(errors="replace"))
+                .get("md_steps_completed") if log else 0) or 0
+        steps = max(1, int(float(keyword_value(sections, "&CPMD/MAXSTEP") or done + 1)) - done)
+    sections["CPMD"] = set_keyword(cpmd, "MAXSTEP", str(steps))
+    target = run_dir / run_input.name
+    target.write_text(render_cpmd(sections))
+    sidecar = run_input.with_name(run_input.name + ".myrmidon.json")
+    if sidecar.is_file() and sidecar.parent != run_dir:
+        shutil.copy2(sidecar, target.with_name(target.name + ".myrmidon.json"))
+    return target
 
 
 def _reads_geometry(run_input: Path, run_dir: Path) -> Path:
@@ -329,6 +368,8 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
     root = ctx.workspace.root
     run_dir = ctx.workspace.run_dir(ctx.workspace.stage(stage.name), stage.name)
     run_input, aligned = align_mimic_paths(inputs["cpmd_input"], run_dir)
+    if request.continue_run:
+        run_input = _continuing(run_input, run_dir, ctx, request, stage)
     if request.snapshot:
         run_input = _reads_geometry(run_input, run_dir)
     staged = []

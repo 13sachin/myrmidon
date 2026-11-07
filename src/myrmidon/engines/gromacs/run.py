@@ -314,12 +314,8 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
         left = {a.role: a.path for a in stage_left(ctx.workspace, stage.name)}
         if "checkpoint" in left:
             out["checkpoint"] = left["checkpoint"]
-            # the run input the last continuation extended to, not the stage's first
-            beside_it = ctx.workspace.resolve(left["checkpoint"]).parent
-            extended = sorted(beside_it.glob(f"{stage.name}_ext*.tpr"),
-                              key=lambda p: p.stat().st_mtime)
-            if extended:
-                out["tpr"] = ctx.workspace.relpath(extended[-1])
+            if "tpr" in left:  # the run input that wrote it, however far it had been extended
+                out["tpr"] = left["tpr"]
     if frame_batch(stage) and "trajectory" not in prepared:
         begins = mandate.method.starts_from(stage)
         run = stage_run(ctx.workspace, begins.name) if begins else None

@@ -168,7 +168,8 @@ class QMRegion(_Strict):
 
     subsystems: Words = Field(min_length=1)
     charge: int
-    multiplicity: int = Field(default=1, ge=1)
+    #: unset, what the region's electrons decide, as the QM selection read them
+    multiplicity: int | None = Field(default=None, ge=1)
     padding_nm: float | None = None
 
 

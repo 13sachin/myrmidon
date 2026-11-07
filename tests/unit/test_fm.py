@@ -107,7 +107,8 @@ def test_a_fit_that_fails_is_reported_from_its_log(ws_ctx, monkeypatch):
     and the index the QM region wrote. Its stride past the dataset refuses before it books."""
     from tests.conftest import REGION, coupled_study
 
-    coupled_study(ws_ctx, [{"name": "fit", "kind": "parameter_fit", "qm_region": REGION}])
+    coupled_study(ws_ctx, [{"name": "rerun", "kind": "single_point", "regime": "mm"},
+                           {"name": "fit", "kind": "parameter_fit", "qm_region": REGION}])
     files = _dataset_files(ws_ctx.workspace)
     collected = REGISTRY.call("dataset_collect", ws_ctx, {
         "fmdata": files["fmdata"], "trajectory": files["trajectory"],
@@ -117,6 +118,12 @@ def test_a_fit_that_fails_is_reported_from_its_log(ws_ctx, monkeypatch):
     too_far = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit",
                                                       "overrides": {"stride": "[0,50,1]"}})
     assert too_far.ok, too_far.summary
+    # a fit's bonded target needs its classical rerun input, the rerun stage's
+    no_rerun = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit"})
+    assert not no_rerun.ok and no_rerun.error.code == "STAGE_NOT_PREPARED"
+    rerun = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "rerun",
+                                                    "structure": files["coords"]})
+    assert rerun.ok, rerun.summary
     refused = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit"})
     assert not refused.ok and refused.error.code == "FM_STRIDE_BEYOND_DATASET"
     prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit",
@@ -131,6 +138,14 @@ def test_a_fit_that_fails_is_reported_from_its_log(ws_ctx, monkeypatch):
     assert not res.ok
     assert res.optimizer_success is False
     assert res.log_tail
+    # a fit of the charges alone leaves its topology under its own prefix
+    monkeypatch.delenv("MOCK_FM_FAIL")
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit", "cores": 2, "fit_mode": "charges"})
+    assert job.ok, job.summary
+    res = _wait(ws_ctx, job.job_id)
+    assert res.ok, res.summary
+    assert [Path(a.path).name for a in res.artifacts if a.role == "fitted_topology"] == [
+        "resp_mock.itp"]
 
 
 def test_parse_cpmd_series_real_nose_log():

@@ -474,3 +474,238 @@ def test_a_selection_derives_spin_only_when_its_electrons_decide_it(selections, 
     chemistry, findings = region_chemistry(sections, charge, selections, {})
     assert (chemistry["multiplicity"], chemistry["electrons"]) == (multiplicity, electrons)
     assert "PP_LMAX_ALL_S_ON_HEAVY_ATOMS" in {f.id for f in findings}
+
+
+# -- what a stage starts from ---------------------------------------------------------------
+
+
+MD = {"name": "md", "kind": "dynamics", "ensemble": "NVT", "temperature_k": 300, "steps": 100}
+
+
+def _qmmm(name, **over):
+    from tests.conftest import REGION
+
+    return {"name": name, "kind": "dynamics", "regime": "qmmm", "ensemble": "NVE", "steps": 10,
+            "qm_region": REGION, **over}
+
+
+def _ran(ctx, stage, prepare=None, **run):
+    """A stage prepared and run to its end: its submission."""
+    from tests.conftest import prepare_and_run, wait_for
+
+    _, submitted = prepare_and_run(ctx, stage, prepare, **run)
+    done = wait_for(ctx, submitted.job_id)
+    assert done.ok, done.summary
+    return submitted
+
+
+def _left(ctx, stage, role="structure"):
+    from myrmidon.core.lineage import stage_run
+
+    return next(a.path for a in stage_run(ctx.workspace, stage)[0] if a.role == role)
+
+
+def _select_on(ctx, coords, selection="add resname is ACT", **over):
+    selected = REGISTRY.call("qm_region", ctx, {
+        "topology": "01_input/acetone_equilibrated.top", "coords": coords,
+        "selections": [selection], "padding_nm": 0.4, **over})
+    assert selected.ok, selected.summary
+    return selected
+
+
+def test_a_coupled_stage_compiles_on_the_coordinates_its_region_was_selected_on(ws_ctx):
+    """After a classical run the region has to be selected again: naming the run's structure is
+    no way round that, the render reads the new selection, and other atoms are not approved."""
+    from tests.conftest import coupled_study
+
+    from myrmidon.core.mandate import read_mandate
+    from myrmidon.tools.inputsets import system_file
+
+    coupled_study(ws_ctx, [MD, _qmmm("first")])
+    _ran(ws_ctx, "md")
+    left = _left(ws_ctx, "md")
+    for named in ({}, {"structure": left}):
+        refused = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "first", **named})
+        assert refused.error.code == "QM_REGION_ON_OTHER_COORDINATES"
+    selected = _select_on(ws_ctx, left, stage="reselected")
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "first"})
+    assert prepared.ok, prepared.summary
+    held = read_mandate(ws_ctx.workspace)
+    assert system_file(ws_ctx, held, "cpmd_input") == next(
+        a.path for a in selected.artifacts if a.role == "cpmd_input")
+    assert REGISTRY.call("stage_run", ws_ctx, {"stage": "first", "preview": True}).ok
+    _select_on(ws_ctx, left, stage="other_atoms",
+               selections=["add resname is ACT", "add resid is 2"])
+    other = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "first"})
+    assert other.error.code == "QM_SELECTION_NOT_APPROVED"
+
+
+def test_a_stage_restarting_a_coupled_one_takes_its_coordinates_from_the_restart(ws_ctx):
+    """c follows b, whose region was selected on a later frame: c reads b's restart, so what the
+    latest selection read says nothing about it."""
+    from tests.conftest import coupled_study
+
+    coupled_study(ws_ctx, [_qmmm("a"), _qmmm("b"), _qmmm("c")])
+    _ran(ws_ctx, "a")
+    left = _left(ws_ctx, "a")
+    _select_on(ws_ctx, left)
+    _ran(ws_ctx, "b", {"structure": left})
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "c"})
+    assert prepared.ok, prepared.summary
+
+
+def test_a_classical_stage_after_a_coupled_one_compiles_on_what_that_left(ws_ctx):
+    from tests.conftest import coupled_study
+
+    coupled_study(ws_ctx, [_qmmm("hot"), MD])
+    _ran(ws_ctx, "hot")
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "md"}).ok
+    event = [e for e in ws_ctx.workspace.ledger.events() if e.tool == "stage_prepare"][-1]
+    assert _left(ws_ctx, "hot") in {i.path for i in event.inputs}
+
+
+def test_a_stage_that_starts_from_itself_runs_afresh_until_it_has_a_run(ws_ctx):
+    from tests.conftest import coupled_study
+
+    coupled_study(ws_ctx, [{**MD, "starts_from": "md"}])
+    _ran(ws_ctx, "md")
+    goes_on = REGISTRY.call("stage_run", ws_ctx, {"stage": "md", "preview": True})
+    assert goes_on.ok, goes_on.summary
+    event = [e for e in ws_ctx.workspace.ledger.events() if e.tool == "stage_run"][-1]
+    assert event.params["continue_run"] is True
+
+
+# (the call's extension in ps, or none: the steps the run has left)
+CONTINUED = [None, 1.0]
+
+
+@pytest.mark.parametrize("extend_ps", CONTINUED)
+def test_a_coupled_stage_continues_from_its_restart(ws_ctx, extend_ps):
+    """A fresh stage continues from the restart it left, reads it, and runs only what is asked:
+    a stated length at the input's time step, else what its last run did not reach."""
+    from tests.conftest import coupled_study, wait_for
+
+    from myrmidon.engines.mimic.cpmd_input import has_keyword, keyword_value
+    from myrmidon.knowledge.stage import PS_PER
+
+    coupled_study(ws_ctx, [_qmmm("a")])
+    _ran(ws_ctx, "a")
+    call = {"stage": "a", "continue_run": True} | ({"extend_ps": extend_ps} if extend_ps else {})
+    submitted = REGISTRY.call("stage_run", ws_ctx, call)
+    assert submitted.ok, submitted.summary
+    run_input = Path(submitted.command[1])
+    sections = parse_cpmd(run_input.read_text())
+    assert has_keyword(sections["CPMD"], "RESTART")
+    assert (run_input.parent / "RESTART").is_file()
+    step_au = float(keyword_value(sections, "&CPMD/TIMESTEP"))
+    assert int(keyword_value(sections, "&CPMD/MAXSTEP")) == (
+        round(extend_ps / (step_au * PS_PER["au"])) if extend_ps else 1)
+    wait_for(ws_ctx, submitted.job_id)
+
+
+# how a coupled stage is told of the snapshot it starts from
+SNAPSHOT_AS = [lambda path: {"snapshot": path}, lambda path: {"inputs": {"geometry": path}}]
+
+
+@pytest.mark.parametrize("named", SNAPSHOT_AS, ids=["snapshot", "inputs"])
+def test_a_coupled_snapshot_is_what_the_next_stage_reads(ws_ctx, named):
+    """Cut from a run of this study it passes the gate and CPMD reads it; another's is refused."""
+    from tests.conftest import coupled_study
+
+    from myrmidon.engines.mimic.cpmd_input import has_keyword
+
+    coupled_study(ws_ctx, [_qmmm("a"), _qmmm("b")])
+    _ran(ws_ctx, "a")
+    cut = REGISTRY.call("snapshot_select", ws_ctx, {"stage": "a", "target_temperature_k": 0.5})
+    assert cut.ok, cut.summary
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "b"}).ok
+    stranger = ws_ctx.workspace.stage("elsewhere") / "GEOMETRY"
+    stranger.write_text(" 2 2 2 0 0 0\n")
+    refused = REGISTRY.call("stage_run", ws_ctx, {
+        "stage": "b", **named(ws_ctx.workspace.relpath(stranger))})
+    assert not refused.ok
+    submitted = REGISTRY.call("stage_run", ws_ctx, {"stage": "b",
+                                                    **named(cut.frames[0]["geometry"])})
+    assert submitted.ok, submitted.summary
+    run_input = Path(submitted.command[1])
+    restart = next(ln for ln in parse_cpmd(run_input.read_text())["CPMD"]
+                   if ln.strip().upper().startswith("RESTART"))
+    assert has_keyword(parse_cpmd(run_input.read_text())["CPMD"], "RESTART")
+    assert "GEOFILE" in restart.upper() and (run_input.parent / "GEOMETRY").is_file()
+
+
+def test_a_classical_snapshot_starts_a_stage_of_the_same_system(ws_ctx):
+    """A frame of a mock run reads as a real one does, and stands on the run it was cut from."""
+    from tests.conftest import coupled_study
+
+    coupled_study(ws_ctx, [MD, {**MD, "name": "next", "starts_from": "md"}])
+    _ran(ws_ctx, "md")
+    frames = REGISTRY.call("snapshot_select", ws_ctx, {"stage": "md", "n_frames": 1})
+    assert frames.ok, frames.summary
+    _ran(ws_ctx, "next", {"structure": frames.frames[0]["path"]})
+
+
+def _study_before_selecting(ws_ctx, stages, **extra):
+    """Acetone in water under an approved mandate that was written before any selection."""
+    import shutil
+
+    from tests.conftest import ACETONE, QM_HAMILTONIAN
+
+    from myrmidon.core import mandate as mandates
+
+    ws = ws_ctx.workspace
+    stage = ws.stage("input")
+    for name in ("acetone_equilibrated.top", "acetone.itp", "acetone_equilibrated.gro"):
+        (stage / name).write_text((ACETONE / name).read_text())
+    shutil.copytree(ACETONE / "amber03.ff", stage / "amber03.ff")
+    return {"question": "q", "ceiling_core_h": 5000.0, "hamiltonian": QM_HAMILTONIAN,
+            "system_files": [{"path": "01_input/acetone_equilibrated.gro", "kind": "structure"},
+                             {"path": "01_input/acetone_equilibrated.top", "kind": "topology"}],
+            "subsystems": {"solute": {"kind": "ligand", "resnames": ["ACT"]},
+                           "solvent": {"kind": "solvent", "molecules": ["SOL"]}},
+            "stages": stages, **extra}, mandates
+
+
+# (the stage's stated multiplicity, what preparing it says)
+LEFT_OPEN = [(None, "QM_REGION_OPEN"), (2, None)]
+
+
+@pytest.mark.parametrize("multiplicity,code", LEFT_OPEN)
+def test_chemistry_a_later_selection_leaves_open_stops_the_stage_until_it_is_settled(
+        ws_ctx, multiplicity, code):
+    """Written before the selection the mandate could not ask; preparing the stage still does."""
+    from tests.conftest import REGION
+
+    region = {**REGION, **({"multiplicity": multiplicity} if multiplicity else {})}
+    call, mandates = _study_before_selecting(ws_ctx, [_qmmm("first", qm_region=region)])
+    written = REGISTRY.call("mandate_write", ws_ctx, call)
+    assert written.ok, written.summary
+    mandates.record_approval(ws_ctx.workspace, mandates.read_mandate(ws_ctx.workspace),
+                             approver="researcher", via="terminal")
+    selected = _select_on(ws_ctx, "01_input/acetone_equilibrated.gro",
+                          "add-bound resname is ACT")
+    assert selected.derived_multiplicity is None
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "first"})
+    assert prepared.ok is (code is None), prepared.summary
+    assert (prepared.error.code if prepared.error else None) == code
+
+
+def test_a_lock_on_the_spin_does_not_settle_an_open_charge(ws_ctx):
+    import json
+
+    from tests.conftest import REGION
+
+    call, _ = _study_before_selecting(ws_ctx, [_qmmm("first", qm_region={
+        **REGION, "multiplicity": 1})])
+    selected = _select_on(ws_ctx, "01_input/acetone_equilibrated.gro",
+                          "add-bound resname is ACT")
+    side = ws_ctx.workspace.resolve(next(a.path for a in selected.artifacts
+                                         if a.role == "provenance"))
+    side.write_text(json.dumps({**json.loads(side.read_text()), "charge": None}))
+    spin = {"said": "a singlet", "locks": {"first.qm_region.multiplicity": 1}}
+    asked = REGISTRY.call("mandate_write", ws_ctx, {**call, "decisions_yours": [spin]})
+    assert asked.status != "ready"
+    charge = {"said": "neutral", "locks": {"first.qm_region.charge": 0}}
+    settled = REGISTRY.call("mandate_write", ws_ctx, {**call, "decisions_yours": [charge]})
+    assert settled.status == "ready", settled.summary
+
