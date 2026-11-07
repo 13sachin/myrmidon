@@ -92,11 +92,10 @@ def _partition(ctx: ToolContext, mandate, stage, structure: str | None,
     method), as a ``qm_region`` call of its own in the ledger: on the first coupled stage of a
     topology, and again on a fresh coupled start from other coordinates, another topology or
     another padding than the stage states. None when the stage reads a partition already: the
-    researcher's own
-    selection (``qm_region`` called with selections of their own, or a selection file the
-    mandate holds), the restart of the coupled stage it continues, which holds both halves, or
-    one made from the same subsystems on this structure and topology at the padding the stage
-    states, if it states one."""
+    researcher's own selection (``qm_region`` called with selections of their own, or a
+    selection file the mandate holds), the restart of the coupled stage it continues, which
+    holds both halves, or one made from the same subsystems on this structure and topology at
+    the padding the stage states, if it states one."""
     region = stage.qm_region
     engine = adapter_with("partition_qm")
     if region is None or stage.regime == "mm" or not structure or engine is None:
@@ -413,7 +412,8 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
                              message=f"frames {outside} are none of stage {stage.name}'s scan",
                              suggestion="name frames the stage's scan holds, or revise the "
                              "mandate's scan", needs=["frames"])]
-    if scanned and engine.scan_frames and not params.frames:
+    if scanned and engine.scan_frames and not params.frames \
+            and engine.scan_frames(ctx, stage, []) == []:
         return [Precondition(
             id="STAGE_NOTHING_TO_RUN",
             message=f"every frame of stage {stage.name}'s scan has been computed, or is in a "

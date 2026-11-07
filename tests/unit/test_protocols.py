@@ -60,6 +60,25 @@ def test_a_mandate_is_written_from_a_protocol(ws_ctx, solvated):
     # a protocol states no charge: the region's is the topology's, proposed with its source
     assert held.method.stage("production").qm_region.charge == 0
     assert "production.qm_region.charge" in {k for p in held.decisions.proposed for k in p.locks}
+    # the ligand charged anew, a revision reads its charge again: a proposal is no statement
+    from myrmidon.core.mandate import record_approval
+
+    record_approval(ws_ctx.workspace, held, approver="researcher", via="terminal")
+    itp = ws_ctx.workspace.resolve(solvated["topology"]).parent / "acetone.itp"
+    rows = itp.read_text().splitlines()
+    at = next(i for i, ln in enumerate(rows) if ln.strip().startswith("[ atoms ]")) + 1
+    while rows[at].strip().startswith(";") or not rows[at].strip():
+        at += 1
+    cols = rows[at].split()
+    cols[6] = f"{float(cols[6]) - 1:.4f}"
+    rows[at] = " ".join(cols)
+    itp.write_text("\n".join(rows) + "\n")
+    revised = REGISTRY.call("mandate_write", ws_ctx, {
+        "question": "acetone under QM/MM", "revise": True, "reason": "the ligand reprotonated",
+        "system_files": [{"path": solvated["structure"], "kind": "structure"},
+                         {"path": solvated["topology"], "kind": "topology"}]})
+    assert revised.ok, revised.summary
+    assert read_mandate(ws_ctx.workspace).method.stage("production").qm_region.charge == -1
 
 
 # --- what the schema refuses -------------------------------------------------------

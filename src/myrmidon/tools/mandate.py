@@ -274,24 +274,37 @@ def _region_charges(mandate: mandates.Mandate, parts: dict[str, dict]) -> list[s
             return None
         return sum(p["charge"] for p in laid)
 
-    def charge(name: str) -> float | None:
-        """A subsystem's charge by its name, or the sum of every subsystem of that kind, as a
-        region's selection resolves the name."""
-        matched = [subs[name]] if name in subs else [s for s in subs.values() if s.kind == name]
-        charges = [one(sub) for sub in matched]
+    def charge(names: list[str]) -> float | None:
+        """The charge of the subsystems a region names, each once: a subsystem by its name, or
+        every subsystem of that kind, as the region's selection resolves the names."""
+        matched = {key: sub for name in names
+                   for key, sub in ([(name, subs[name])] if name in subs else
+                                    [(k, s) for k, s in subs.items() if s.kind == name])}
+        charges = [one(sub) for sub in matched.values()]
         return sum(charges) if charges and None not in charges else None
 
     locked = {path: value for d in mandate.decisions.yours for path, value in d.locks.items()}
+    # a charge this derivation proposed and the researcher has not confirmed is derived again,
+    # from the topology as it is now: a revision keeps no charge an older topology gave
+    proposed = {path: value for p in mandate.decisions.proposed for path, value in p.locks.items()
+                if path.endswith(".qm_region.charge")}
     asked = []
     for stage in mandate.method.stages:
         region = stage.qm_region
-        if region is None or region.charge is not None:
+        path = f"{stage.name}.qm_region.charge"
+        if region is None:
             continue
-        if isinstance(locked.get(f"{stage.name}.qm_region.charge"), int):
-            region.charge = locked[f"{stage.name}.qm_region.charge"]  # the researcher's
+        if region.charge is not None and path in proposed and path not in locked \
+                and proposed[path] == region.charge:
+            region.charge = None
+            mandate.decisions.proposed = [p for p in mandate.decisions.proposed
+                                          if path not in p.locks]
+        if region.charge is not None:
             continue
-        charges = [charge(n) for n in region.subsystems]
-        total = sum(charges) if None not in charges else None
+        if isinstance(locked.get(path), int):
+            region.charge = locked[path]  # the researcher's
+            continue
+        total = charge(list(region.subsystems))
         if total is None or abs(total - round(total)) > 1e-3:
             asked.append(f"What is stage {stage.name}'s QM region charge? (its subsystems' "
                          "topology charges " + ("sum to no integer" if total is not None
@@ -312,10 +325,11 @@ def _protocol_invariants(ctx: ToolContext, mandate: mandates.Mandate) -> list:
     return list(protocol.invariants) if protocol is not None else []
 
 
-def _from_protocol(ctx: ToolContext, params: MandateWriteParams) -> MandateWriteParams:
+def _from_protocol(ctx: ToolContext, params: MandateWriteParams) -> MandateWriteParams | None:
     """The call with what its protocol states as its defaults: its stages and their
     deliverables, and its Hamiltonian, where the call states none of its own; the
-    researcher's edits are the mandate's."""
+    researcher's edits are the mandate's. None when this machine has no protocol of that
+    name."""
     from myrmidon.knowledge.protocols import ProtocolStore
 
     if not params.protocol:
@@ -324,7 +338,7 @@ def _from_protocol(ctx: ToolContext, params: MandateWriteParams) -> MandateWrite
     try:
         protocol = store.get_versioned(params.protocol)[0]
     except (KeyError, ValueError):
-        return params
+        return None
     update: dict = {"protocol": protocol.ref}
     if not params.stages:  # its deliverables are measured over its own stages
         update["stages"] = [s.model_copy(deep=True) for s in protocol.stages]
@@ -584,7 +598,14 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
     existing = mandates.read_mandate(ws)
     if params.revise and existing is not None:
         params = _carried(params, existing)
+    stated = params
     params = _from_protocol(ctx, params)
+    if params is None:
+        from myrmidon.knowledge.protocols import ProtocolStore
+
+        known = ", ".join(sorted(p.id for p in (ctx.protocols or ProtocolStore.default()).all()))
+        return Observation(ok=False, summary=f"no protocol {stated.protocol!r} on this machine; "
+                           f"published: {known}")
     if not params.question.strip():
         return Observation(ok=False, summary="a mandate states the researcher's question, "
                            "verbatim: give `question`")
@@ -650,11 +671,11 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
     facts = mandate_facts(ctx, mandate)
     parts = _topology_parts(ctx, mandate)
     read = _read_system(ctx, mandate, params, facts, parts)
+    unmeasured, subsystem_notes = _subsystem_reading(ctx, mandate, parts)
     asked = _region_charges(mandate, parts)
     if asked:
         mandate.questions = [*mandate.questions, *asked][:mandates.MAX_QUESTIONS]
         mandate.status = "needs_input"
-    unmeasured, subsystem_notes = _subsystem_reading(ctx, mandate, parts)
     dropped = _held_elsewhere_dropped(mandate)
     unbound = [*mandates.lock_findings(mandate), *unmeasured]
     if not unbound:

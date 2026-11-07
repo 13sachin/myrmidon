@@ -201,6 +201,17 @@ def prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) ->
                      and any(a.path == merged for a in ev.outputs)), None)
     if selected is None:
         return found
+    declared = _sidecar_charge(ws, selected)
+    if (declared is not None and selected.params.get("subsystems")
+            and declared != stage.qm_region.charge):
+        found.append(Precondition(
+            id="QM_CHARGE_DISAGREES",
+            message=f"the atoms of stage {stage.name}'s QM region sum to charge {declared} in "
+            f"the topology it was partitioned from, and the stage states "
+            f"{stage.qm_region.charge}: CPMD would run the region at a charge its atoms do not "
+            "carry",
+            suggestion="write the mandate again so the charge is read from the topology as it "
+            "is, or state the charge the researcher means in a decision"))
     approved = [f.path for f in mandate.system.files if f.kind == "qm_selection"
                 and ws.resolve(f.path).is_file()]
     wrote = next((a for a in selected.outputs if a.role == "qm_selection"), None)
@@ -227,6 +238,18 @@ def prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) ->
             f"from {structure}: the QM and MM halves would hold different configurations",
             suggestion="qm_region again on the structure the stage starts from"))
     return found
+
+
+def _sidecar_charge(ws, partition) -> int | None:
+    """The integer charge a partition's atoms carry, as its sidecar states it; None when they
+    sum to no integer or it states none."""
+    import json
+
+    side = next((a.path for a in partition.outputs if a.role == "provenance"), None)
+    try:
+        return json.loads(ws.resolve(side).read_text()).get("charge") if side else None
+    except (OSError, ValueError):
+        return None
 
 
 def restart_as_recorded(ctx: ToolContext, restart, given: str) -> list[Finding]:
