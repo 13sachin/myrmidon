@@ -849,6 +849,31 @@ def _study_before_selecting(ws_ctx, stages, **extra):
             "stages": stages, **extra}, mandates
 
 
+def test_the_harness_partitions_a_region_from_what_its_stage_states(ws_ctx):
+    """No selection before the mandate: the region's unstated charge is its subsystems'
+    topology charge, proposed with that source, never a silent default; preparing the first
+    coupled stage partitions the region from its subsystems, as a qm_region call of its own,
+    and a stage restarting it reads that partition."""
+    call, mandates = _study_before_selecting(ws_ctx, [
+        _qmmm("first", qm_region={"subsystems": ["solute"]}),
+        _qmmm("second", qm_region={"subsystems": ["solute"]})])
+    written = REGISTRY.call("mandate_write", ws_ctx, call)
+    assert written.ok and written.status == "ready", written.summary
+    held = mandates.read_mandate(ws_ctx.workspace)
+    assert held.method.stage("first").qm_region.charge == 0
+    assert {"first.qm_region.charge", "second.qm_region.charge"} <= {
+        lock for p in held.decisions.proposed for lock in p.locks}
+    mandates.record_approval(ws_ctx.workspace, held, approver="researcher", via="terminal")
+    for name in ("first", "second"):
+        prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": name})
+        assert prepared.ok, prepared.summary
+        if name == "first":  # what the partition holds, for the agent to review
+            assert (prepared.partition["qm_atoms"], prepared.partition["declared_charge"]) \
+                == (10, 0)
+    partitions = [e for e in ws_ctx.workspace.ledger.events() if e.tool == "qm_region"]
+    assert [p.params["selections"] for p in partitions] == [["add resname is ACT"]]
+
+
 # (the stage's stated multiplicity, what preparing it says)
 LEFT_OPEN = [(None, "QM_REGION_OPEN"), (2, None)]
 

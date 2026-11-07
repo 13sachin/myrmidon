@@ -44,19 +44,33 @@ class QMRegionParams(BaseModel):
         return self
 
     def sized(self, ctx: ToolContext) -> QMRegionParams:
-        """Each subsystem as the commands it comes to, so the ledger records what made the
-        region: the mandate's parts, else the topology's."""
-        engine = adapter_with("select_subsystems")
-        if not self.subsystems or engine is None:
+        """Each subsystem as the commands it comes to, so the ledger records what made it."""
+        if not self.subsystems:
             return self
-        mandate = read_mandate(ctx.workspace)
-        parts = ({name: part.model_dump() for name, part in mandate.system.subsystems.items()}
-                 if mandate is not None else system_parts(
-                     {"topology": resolve_in_ws(ctx, self.topology)}, data_dir_of(ctx.engines)))
-        commands, unresolved = engine.select_subsystems(parts, self.subsystems)
+        commands, unresolved = region_selections(ctx, self.topology, self.subsystems)
         out = self.model_copy(update={"selections": [*commands, *self.selections]})
         out._unresolved = unresolved
         return out
+
+
+def region_selections(ctx: ToolContext, topology: str, names: list[str]
+                      ) -> tuple[list[str], list[str]]:
+    """(the selection commands the named subsystems come to, why a name does not resolve):
+    the mandate's parts, else the topology's, a part named by molecule type taking the
+    residue names the topology gives that type."""
+    engine = adapter_with("select_subsystems")
+    if engine is None:
+        return [], [f"{n}: no engine here selects a QM region" for n in names]
+    laid_out = system_parts({"topology": resolve_in_ws(ctx, topology)}, data_dir_of(ctx.engines))
+    mandate = read_mandate(ctx.workspace)
+    parts = ({k: p.model_dump() for k, p in mandate.system.subsystems.items()}
+             if mandate is not None else laid_out)
+    for part in parts.values():
+        if not part.get("resnames") and part.get("molecules"):
+            part["resnames"] = [r for p in laid_out.values()
+                                if set(p.get("molecules") or ()) & set(part["molecules"])
+                                for r in p.get("resnames") or ()]
+    return engine.select_subsystems(parts, names)
 
 
 @tool(

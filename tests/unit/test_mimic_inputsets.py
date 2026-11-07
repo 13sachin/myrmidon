@@ -234,14 +234,6 @@ def test_each_dynamics_stage_is_the_annealing_input_plus_its_documented_changes(
     assert not any(k.startswith("&CPMD/RESTART") for k in anneal.values)
 
 
-def test_the_qm_charge_is_never_a_default_of_a_stage():
-    """Chemistry is never a default: a stage's QM region states its charge, which the mandate's
-    approval makes the researcher's."""
-    from myrmidon.core.mandate import QMRegion
-
-    assert QMRegion.model_fields["charge"].is_required()
-
-
 @pytest.mark.parametrize("reference", [r for r in FILE_BACKED if r.endswith(".mdp")])
 def test_tutorial_mdp_stages_pass_the_harness_mdp_audit(reference):
     stage, engine, system = FILE_BACKED[reference]
@@ -276,7 +268,7 @@ def _qm_study(ws_ctx, protocol: str, stages: list[dict] | None = None) -> dict:
     """The acetone system as a study's mandate, with the protocol's stages and methods;
     the files a render reads, by kind."""
     stage = ws_ctx.workspace.stage("input")
-    for name in ("acetone_equilibrated.gro", "acetone_equilibrated.top"):
+    for name in ("acetone_equilibrated.gro", "acetone_equilibrated.top", "acetone.itp"):
         shutil.copy(ACETONE / name, stage / name)
     shutil.copytree(ACETONE / "amber03.ff", stage / "amber03.ff")
     (stage / "index.ndx").write_text("[ System ]\n1 2 3 4\n[ QMatoms ]\n1 2 3\n")

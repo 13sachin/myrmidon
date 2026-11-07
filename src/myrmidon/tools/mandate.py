@@ -255,6 +255,46 @@ def compiled(ctx: ToolContext, mandate: mandates.Mandate, facts: dict | None = N
         compute=ctx.config.compute, invariants=_protocol_invariants(ctx, mandate))
 
 
+def _region_charges(mandate: mandates.Mandate, parts: dict[str, dict]) -> list[str]:
+    """Each coupled stage's QM region charge the stage leaves unstated, as the sum of its
+    subsystems' topology charges (a subsystem's own, else that of the parts of the topology
+    it names by molecule type or residue), proposed with the topology as its source; the
+    questions for a region whose sum is unknown or no integer (a region that cuts a
+    molecule's charge distribution)."""
+    subs = mandate.system.subsystems
+    topology = next((f.path for f in mandate.system.files if f.kind == "topology"), "")
+
+    def charge(name: str) -> float | None:
+        sub = subs.get(name)
+        if sub is None or sub.charge is not None:
+            return sub.charge if sub is not None else None
+        laid = [p for p in parts.values()
+                if set(p.get("molecules") or ()) & set(sub.molecules)
+                or set(p.get("resnames") or ()) & set(sub.resnames)]
+        if not laid or sub.resid or sub.chains or any(p.get("charge") is None for p in laid):
+            return None
+        return sum(p["charge"] for p in laid)
+
+    asked = []
+    for stage in mandate.method.stages:
+        region = stage.qm_region
+        if region is None or region.charge is not None:
+            continue
+        charges = [charge(n) for n in region.subsystems]
+        total = sum(charges) if None not in charges else None
+        if total is None or abs(total - round(total)) > 1e-3:
+            asked.append(f"What is stage {stage.name}'s QM region charge? (its subsystems' "
+                         "topology charges " + ("sum to no integer" if total is not None
+                                                else "are not all read") + ")")
+            continue
+        region.charge = round(total)
+        mandate.decisions.proposed.append(mandates.Proposal(
+            what=f"stage {stage.name}'s QM region carries charge {region.charge}, the sum of "
+            f"the topology charges of {', '.join(region.subsystems)}",
+            locks={f"{stage.name}.qm_region.charge": region.charge}, source=topology))
+    return asked
+
+
 def _protocol_invariants(ctx: ToolContext, mandate: mandates.Mandate) -> list:
     from myrmidon.tools.inputsets import protocol_of
 
@@ -600,6 +640,10 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
     facts = mandate_facts(ctx, mandate)
     parts = _topology_parts(ctx, mandate)
     read = _read_system(ctx, mandate, params, facts, parts)
+    asked = _region_charges(mandate, parts)
+    if asked:
+        mandate.questions = [*mandate.questions, *asked][:mandates.MAX_QUESTIONS]
+        mandate.status = "needs_input"
     unmeasured, subsystem_notes = _subsystem_reading(ctx, mandate, parts)
     dropped = _held_elsewhere_dropped(mandate)
     unbound = [*mandates.lock_findings(mandate), *unmeasured]

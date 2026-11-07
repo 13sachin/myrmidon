@@ -8,7 +8,7 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
-from myrmidon.core.artifacts import ArtifactRef
+from myrmidon.core.artifacts import ArtifactRef, sha256_file
 from myrmidon.core.contracts import Contract, includes_of
 from myrmidon.core.lineage import stage_files, stage_left
 from myrmidon.core.lineage import stage_run as collected_run
@@ -17,12 +17,20 @@ from myrmidon.core.observation import Observation, ToolError
 from myrmidon.core.tool import PREVIEW_HELP, REGISTRY, ToolContext, precheck, tool
 from myrmidon.core.validation import Finding, Precondition
 from myrmidon.engines.inputs import resolve_in_ws
-from myrmidon.engines.registry import Layout, adapter, adapter_running, adapters, run_kinds
+from myrmidon.engines.registry import (
+    Layout,
+    adapter,
+    adapter_running,
+    adapter_with,
+    adapters,
+    run_kinds,
+)
 from myrmidon.execution.backend import Resources
 from myrmidon.execution.jobs import submit_job
 from myrmidon.knowledge.inputsets import RENDERED_FILES
 from myrmidon.knowledge.stage import TemplateStore, templates_for
 from myrmidon.tools.inputsets import system_file
+from myrmidon.tools.qm_region import region_selections
 
 adapters()  # each engine registers what collects its jobs
 
@@ -77,6 +85,57 @@ def _prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) -
             for f in a.prepare_findings(ctx, mandate, stage, structure)]
 
 
+def _partition(ctx: ToolContext, mandate, stage, structure: str | None,
+               topology: str | None) -> Observation | None:
+    """The stage's QM region partitioned by the harness from what the stage states (its
+    subsystems; its padding, else its QM method's; the method's pseudopotentials), as a
+    ``qm_region`` call of its own in the ledger: on the first coupled stage of a topology, and
+    again on a fresh coupled start from other coordinates or another topology. None when the
+    stage reads a partition already: the researcher's own selection (``qm_region`` called with
+    selections, or a selection file the mandate holds), the restart of the coupled stage it
+    continues, which holds both halves, or one made from these subsystems on this structure
+    and topology."""
+    from myrmidon.knowledge.stage import MethodStore, methods_for
+
+    region = stage.qm_region
+    engine = adapter_with("partition_qm")
+    if region is None or stage.regime == "mm" or not structure or engine is None:
+        return None
+    begins = mandate.method.starts_from(stage)
+    if begins is not None and begins.regime != "mm" and begins.name != stage.name:
+        return None
+    ws = ctx.workspace
+    topology = topology or system_file(ctx, mandate, "topology", stage.name)
+    if not topology or not ws.resolve(structure).is_file():
+        return None
+    made = [ev for ev in ws.ledger.events()
+            if ev.tool == "qm_region" and ev.ok and ev.kind == "call"]
+    if not made and any(f.kind == "qm_selection" for f in mandate.system.files):
+        return None
+    latest = next((ev for ev in reversed(made) if ev.params.get("stage") == stage.name),
+                  made[-1] if made else None)
+    if latest is not None:
+        if not latest.params.get("subsystems"):
+            return None
+        read = {i.role: i.sha256 for i in latest.inputs}
+        if (latest.params.get("selections")
+                == region_selections(ctx, topology, list(region.subsystems))[0]
+                and read.get("coords") == sha256_file(ws.resolve(structure))
+                and read.get("topology") == sha256_file(ws.resolve(topology))):
+            return None
+    qm = {name: value for name, (value, _) in methods_for(
+        mandate, MethodStore.default(), None).values.get("qm", {}).items()}
+    padding = region.padding_nm or qm.get("qm_cell_padding_nm")
+    call = {"topology": topology, "coords": structure, "subsystems": list(region.subsystems),
+            "stage": stage.name, **({"padding_nm": padding} if padding else {})}
+    table = engine.pp_table(qm) if engine.pp_table else ""
+    if table:
+        path = ws.stage(stage.name) / "pp_info.dat"
+        path.write_text(table)
+        call["pp_info"] = ws.relpath(path)
+    return REGISTRY.call("qm_region", ctx, call)
+
+
 def _refused(summary: str, code: str, findings: list, hint: str = "", **fields) -> Observation:
     return Observation(ok=False, summary=summary, findings=findings,
                        error=ToolError(code=code, message=summary, hint=hint), **fields)
@@ -107,6 +166,12 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
                         f"{stage.regime}, {stage.ensemble})", "MANDATE_STAGE_TEMPLATE", [])
     structure, later = _starting_structure(ctx, mandate, stage)
     structure = params.structure or structure
+    partitioned = _partition(ctx, mandate, stage, structure, params.topology)
+    if partitioned is not None and not partitioned.ok:
+        return _refused(f"stage {stage.name}'s QM region could not be partitioned: "
+                        + partitioned.summary,
+                        partitioned.error.code if partitioned.error else "QM_PARTITION_FAILED",
+                        partitioned.findings)
     stopping = _prepare_findings(ctx, mandate, stage, structure)
     if stopping:
         return _refused(stopping[0].message, stopping[0].id, stopping,
@@ -116,7 +181,7 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
     stage_dir = ctx.workspace.stage(stage.name)
     prepared: dict[str, str] = {}
     values: dict[str, dict] = {}
-    findings: list = []
+    findings: list = [*(partitioned.findings if partitioned is not None else [])]
     for template in templates:
         engine = adapter(template.engine)
         output = stage_dir / (template.file_name
@@ -144,6 +209,10 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
                            "restraint_reference": params.restraint_reference}, later)
     obs.values = values
     obs.invariants = [r.model_dump() for r in checked]
+    if partitioned is not None:  # what the selection the harness made holds, to review
+        obs.partition = {key: getattr(partitioned, key, None) for key in (
+            "selections", "qm_atoms", "declared_charge", "derived_multiplicity", "electrons",
+            "guessed_elements", "min_vacuum_bohr", "qm_cell_bohr", "pseudopotentials")}
     obs.quiet = {"values"}  # each value and its origin is in the sidecar beside its file
     return obs
 

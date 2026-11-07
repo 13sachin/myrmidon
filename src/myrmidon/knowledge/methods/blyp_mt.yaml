@@ -12,6 +12,16 @@ parameters:
   pseudopotentials:
     value: MT_BLYP
     source: 1
+  pseudopotential_lmax:
+    value: {H: S, C: P, N: P, O: P}
+    rationale: the angular channels of the Troullier-Martins pseudopotentials, s for hydrogen
+      and s and p for a first-row atom; a heavy atom written LMAX=S loses its p projector
+    source: 1
+  qm_cell_padding_nm:
+    value: 0.4
+    rationale: vacuum per side between the QM atoms and the QM cell wall, 7.6 bohr; the
+      isolated-cell Poisson solver needs several bohr, and none at all segfaults the run
+    source: 2
   cutoff_ry:
     value: 70.0
     rationale: plane-wave cutoff at which Troullier-Martins BLYP forces converge for first-row
@@ -41,4 +51,4 @@ sources:
   text: Olsen et al., J. Chem. Theory Comput. 15, 3810 (2019) — MiMiC; Born-Oppenheimer QM/MM
     dynamics at a 10 a.u. step.
   locator: doi:10.1021/acs.jctc.9b00093
-version: 1
+version: 2

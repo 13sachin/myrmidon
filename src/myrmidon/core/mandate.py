@@ -167,7 +167,9 @@ class QMRegion(_Strict):
     """The subsystems a stage treats quantum mechanically, with the region's chemistry."""
 
     subsystems: Words = Field(min_length=1)
-    charge: int
+    #: unset, the sum of its whole subsystems' topology charges, which mandate_write proposes
+    #: with the topology as its source; a sum that is no integer is the researcher's to state
+    charge: int | None = None
     #: unset, what the region's electrons decide, as the QM selection read them
     multiplicity: int | None = Field(default=None, ge=1)
     padding_nm: float | None = None

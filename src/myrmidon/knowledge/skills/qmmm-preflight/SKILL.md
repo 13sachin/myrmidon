@@ -30,36 +30,38 @@ not among your tools, `tool_lookup` names the engine it needs: say so and stop.
 
 Into `decisions_yours`, quoted:
 
-- which atoms are quantum: `qm_region`'s `selections`, naming this system's own
-  residues and atoms;
+- which atoms are quantum: the stage's `qm_region.subsystems`, or for a region they cannot
+  express, `qm_region`'s `selections`, naming this system's own residues and atoms;
 - whether a selection that cuts a covalent bond is acceptable, and its boundary treatment
   (`add-bound` marks a boundary atom; the harness places no link atom);
 - the QM method when the question names one, and the ceiling.
 
-Into `decisions_proposed`, with the source: the charge and multiplicity `qm_region`
-derived (`declared_charge`, `derived_multiplicity`, why in its sidecar), the QM method the protocol's `hamiltonian` names, the
-padding around the QM atoms (the stage's `qm_region.padding_nm`). Yours, recorded: the order
-the protocol states.
+Into `decisions_proposed`, with the source: the charge `mandate_write` read from the
+topology and the multiplicity the partition derived (`derived_multiplicity`, why in its
+sidecar), the QM method the protocol's `hamiltonian` names, the padding around the QM atoms
+(the stage's `qm_region.padding_nm`, else the method's). Yours, recorded: the order the
+protocol states.
 
 ## Drive
 
 The preflight runs in the session and spends nothing:
 
-1. `qm_region` with the topology, the coordinates, the researcher's `selections`, the padding
-   as `padding_nm` and `pp_info`. It writes the system's CPMD input, the index with the QM
-   group and the selection file, and returns the review surface: `qm_atoms` (count and order
-   against what the researcher described), `declared_charge`, `derived_multiplicity`,
-   `electrons`, `guessed_elements` (an element misread goes back through `atomtypes_map`),
-   `min_vacuum_bohr` and `qm_cell_bohr`.
-2. `mandate_write` names the structure and topology as the system, and what the selection wrote
-   joins them; the Hamiltonian (`hamiltonian.qm` with the method and any cutoff to converge,
-   `hamiltonian.coupling`); the coupled stages in physical terms, each with `regime: qmmm`, its
-   `starts_from` when it branches, and its `qm_region` (subsystems, the charge and multiplicity
-   step 1 derived, proposed with its source), a cutoff scan as a stage with a `scan`; the
-   decisions, locking the lengths the researcher stated; the deliverables; the ceiling. It
-   compiles and prices each stage, a first coupled stage from the machine's reference step.
-3. `stage_prepare` with `stage=<the first coupled stage>`: the complete run input and its
-   compiled MM half. Read its findings and `file_read` the input in full.
+1. `mandate_write` names the structure and topology as the system; the Hamiltonian
+   (`hamiltonian.qm` with the method and any cutoff to converge, `hamiltonian.coupling`); the
+   coupled stages in physical terms, each with `regime: qmmm`, its `starts_from` when it
+   branches, and its `qm_region`: the subsystems that are quantum, the multiplicity when the
+   researcher states one, `padding_nm` when not the method's; a cutoff scan as a stage with a
+   `scan`; the decisions, locking the lengths the researcher stated; the deliverables; the
+   ceiling. A charge left unstated is the subsystems' topology charge, proposed with that
+   source. It compiles and prices each stage, a first coupled stage from the machine's
+   reference step.
+2. `stage_prepare` with `stage=<the first coupled stage>` partitions the region from those
+   subsystems (prepqm, the method's pseudopotentials) and compiles the complete run input and
+   its MM half. Review its `partition`: `qm_atoms` (count against what the researcher
+   described), `declared_charge`, `derived_multiplicity`, `electrons`, `guessed_elements`,
+   `min_vacuum_bohr` and `qm_cell_bohr`; read its findings and `file_read` the input in full.
+   A region the subsystems cannot express (`add-bound`, a cut through a residue) is
+   `qm_region` with the researcher's `selections` first; `stage_prepare` then reads that.
    The approval is the researcher's: `/approve` in Hermes, the dialog in Pi, or
    `myrmidon approve` at a terminal.
 
@@ -69,12 +71,12 @@ each deliverable; `snapshot_select` picks a frame for a later stage to start fro
 
 ## Stop
 
-- `qm_region` leaves the charge or the multiplicity open: ask; the answer goes into
+- The partition leaves the charge or the multiplicity open: ask; the answer goes into
   `decisions_yours`, and the stage's `qm_region` states it.
 - A selection prepqm refuses: report the commands it names; never shrink the region.
 - A boundary the selection cuts: say what it cuts and hand the decision back.
-- `mandate_write` returns `needs_input` (ask); step 6's `ready`: say the cost and the
-  digest and end the turn.
+- `mandate_write` returns `needs_input` (ask); its `ready`: say the cost and the digest and
+  end the turn.
 - After a submission, or one the gate did not make: say what it said and stop.
 
 ## Report

@@ -99,6 +99,7 @@ ADAPTER = EngineAdapter(
     run_reads=("cpmd_input", "tpr", "restart", "geometry", "structure"),
     partition_qm=partition.partition_qm,
     select_subsystems=partition.subsystem_selections,
+    pp_table=partition.pp_table,
     region_questions=partition.open_chemistry,
     prepare_findings=collect.prepare_findings,
     input_findings=_input_findings,

@@ -203,6 +203,9 @@ class EngineAdapter:
     #: (the system's parts by name, as dicts; the names asked) -> (the selection commands that
     #: take them into a QM region, the names none resolves)
     select_subsystems: Callable[..., tuple] | None = None
+    #: (a QM method's values by name) -> the pseudopotential table its partition reads, ""
+    #: when the method names none
+    pp_table: Callable[[dict], str] | None = None
     #: (ws, stages, decisions, the stage selected for) -> what the latest partition left open
     #: of the region's chemistry, as questions for the researcher
     region_questions: Callable[..., list] | None = None

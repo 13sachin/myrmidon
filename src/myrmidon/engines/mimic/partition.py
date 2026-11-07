@@ -39,6 +39,17 @@ PARTITION_TOOL = "qm_region"
 declare_identity("qm_selection", replaced_by=PARTITION_TOOL)
 
 
+def pp_table(qm: dict) -> str:
+    """The pseudopotential table prepqm reads (``-pp``: element, file, boundary file, the
+    nonlocal type, LMAX, LOC), from a QM method's pseudopotential family and each element's
+    channels; empty when the method names neither."""
+    family, lmax = qm.get("pseudopotentials"), qm.get("pseudopotential_lmax") or {}
+    if not family or not lmax:
+        return ""
+    return "".join(f"{el} {el}_{family} - KLEINMAN-BYLANDER {channel} -\n"
+                   for el, channel in lmax.items())
+
+
 def subsystem_selections(parts: dict, names: list[str]) -> tuple[list[str], list[str]]:
     """(the selection commands that add each named subsystem's residues, why each name that
     does not resolve does not): a name is a part's own, or the kind of every part of that
