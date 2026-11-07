@@ -54,6 +54,8 @@ def test_a_mandate_is_written_from_a_protocol(ws_ctx, solvated):
 
     held = read_mandate(ws_ctx.workspace)
     assert held.method.protocol == protocol.ref
+    unknown = REGISTRY.call("mandate_write", ws_ctx, {"question": "q", "protocol": "no_such"})
+    assert unknown.error.code == "PROTOCOL_UNKNOWN"
     assert [s.name for s in held.method.stages] == [s.name for s in protocol.stages]
     assert [d.name for d in held.deliverables] == [d.name for d in protocol.deliverables]
     assert held.system.hamiltonian.qm.method == protocol.hamiltonian.qm.method

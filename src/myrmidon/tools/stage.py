@@ -405,9 +405,7 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
         return missing
     scanned = stage.scan is not None and stage.scan.parameter == "frames"
     outside = sorted({int(f) for f in params.frames}
-                     - {int(f) for f in stage.scan.values}) if scanned and params.frames else []
-    if params.frames and not scanned:
-        outside = sorted(params.frames)
+                     - ({int(f) for f in stage.scan.values} if scanned else set()))
     if outside:
         return [Precondition(id="STAGE_FRAMES_NOT_SCANNED",
                              message=f"frames {outside} are none of stage {stage.name}'s scan",

@@ -514,6 +514,22 @@ def locks_on(mandate: Mandate, stage: str | None) -> list[tuple[str, Any, str]]:
     return out
 
 
+def charge_lock(decisions: list, stage: str):
+    """The QM region charge the researcher's decisions lock for ``stage``: a lock on its
+    ``qm_region.charge`` or every stage's (``*.qm_region.charge``, ``qm_region.charge``), or
+    on its ``qm_region`` with a charge among the fields it states; None when none does."""
+    for decision in decisions:
+        for path, constraint in decision.locks.items():
+            on, field = lock_path(path)
+            if on not in ("*", stage):
+                continue
+            if field == "qm_region.charge":
+                return constraint
+            if field == "qm_region" and isinstance(constraint, dict) and "charge" in constraint:
+                return constraint["charge"]
+    return None
+
+
 def lock_findings(mandate: Mandate) -> list[str]:
     """What keeps the decisions' locks from binding the method as written: a stage the
     method does not name, a field a stage does not have, a stage whose value breaks a lock

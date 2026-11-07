@@ -204,8 +204,9 @@ def prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) ->
     declared = _sidecar_charge(ws, selected)
     # a charge the researcher decided is theirs to differ from the topology's (an oxidised
     # state, a radical cation of a neutral ligand); any other is the atoms' own
-    decided = any(path in (f"{stage.name}.qm_region.charge", f"{stage.name}.qm_region")
-                  for d in mandate.decisions.yours for path in d.locks)
+    from myrmidon.core.mandate import charge_lock
+
+    decided = charge_lock(mandate.decisions.yours, stage.name) is not None
     if declared is not None and not decided and declared != stage.qm_region.charge:
         found.append(Precondition(
             id="QM_CHARGE_DISAGREES",

@@ -265,12 +265,13 @@ def _region_charges(mandate: mandates.Mandate, parts: dict[str, dict]) -> list[s
     topology = next((f.path for f in mandate.system.files if f.kind == "topology"), "")
 
     def one(sub) -> float | None:
-        """The subsystem's charge in the topology as it is now, else the one it states."""
+        """The subsystem's charge in the topology as it is now, else the one it states; a
+        subsystem of some copies of its residues, the one it states alone."""
         laid = [p for p in parts.values()
                 if set(p.get("molecules") or ()) & set(sub.molecules)
                 or set(p.get("resnames") or ()) & set(sub.resnames)]
         if sub.resid or sub.chains:
-            return None  # some copies of its residues: the topology's sum is not theirs
+            return sub.charge  # some copies of its residues: the topology's sum is not theirs
         if laid and all(p.get("charge") is not None for p in laid):
             return sum(p["charge"] for p in laid)
         return sub.charge
@@ -278,13 +279,14 @@ def _region_charges(mandate: mandates.Mandate, parts: dict[str, dict]) -> list[s
     def charge(names: list[str]) -> float | None:
         """The charge of the subsystems a region names, each once: a subsystem by its name, or
         every subsystem of that kind, as the region's selection resolves the names."""
-        matched = {key: sub for name in names
-                   for key, sub in ([(name, subs[name])] if name in subs else
-                                    [(k, s) for k, s in subs.items() if s.kind == name])}
+        found = {name: ([(name, subs[name])] if name in subs else
+                        [(k, s) for k, s in subs.items() if s.kind == name]) for name in names}
+        if not all(found.values()):
+            return None  # a name no subsystem answers to: the question is asked
+        matched = {key: sub for pairs in found.values() for key, sub in pairs}
         charges = [one(sub) for sub in matched.values()]
         return sum(charges) if charges and None not in charges else None
 
-    locked = {path: value for d in mandate.decisions.yours for path, value in d.locks.items()}
     # a charge this derivation proposed and the researcher has not confirmed is derived again,
     # from the topology as it is now: a revision keeps no charge an older topology gave
     proposed = {path: value for p in mandate.decisions.proposed for path, value in p.locks.items()
@@ -295,15 +297,16 @@ def _region_charges(mandate: mandates.Mandate, parts: dict[str, dict]) -> list[s
         path = f"{stage.name}.qm_region.charge"
         if region is None:
             continue
+        locked = mandates.charge_lock(mandate.decisions.yours, stage.name)
         if path in proposed:
             # a proposal is read again when the stage still holds it, and gone when the stage
             # states a charge of its own or the researcher decides one
-            if proposed[path] == region.charge or path in locked:
+            if proposed[path] == region.charge or locked is not None:
                 region.charge = None
             mandate.decisions.proposed = [p for p in mandate.decisions.proposed
                                           if path not in p.locks]
-        if region.charge is None and isinstance(locked.get(path), int):
-            region.charge = locked[path]  # the researcher's
+        if region.charge is None and isinstance(locked, int):
+            region.charge = locked  # the researcher's
         if region.charge is not None:
             continue
         total = charge(list(region.subsystems))

@@ -130,15 +130,21 @@ CHARGE
 """
 
 
-# (total charge, multiplicity, MULTIPLICITY written, LSD written). CPMD accepts
-# MULTIPLICITY only in a spin-polarised run, so a closed shell omits it — and the confirmed
-# value still travels in the sidecar the run gate reads.
-SPIN = [(-1, 1, None, False), (0, 2, "2", True)]
+# (total charge, multiplicity, MULTIPLICITY written, LSD written, the researcher's lock).
+# CPMD accepts MULTIPLICITY only in a spin-polarised run, so a closed shell omits it — and the
+# confirmed value still travels in the sidecar the run gate reads. A charge the neutral
+# acetone does not carry runs only on a decision that locks the charge, in any of its forms;
+# none, or a lock on the region that states no charge, stops the stage.
+SPIN = [(-1, 1, None, False, {"run.qm_region.charge": -1}),
+        (-1, 1, None, False, {"*.qm_region.charge": -1}),
+        (0, 2, "2", True, {}),
+        (-1, 1, "QM_CHARGE_DISAGREES", None, {}),
+        (-1, 1, "QM_CHARGE_DISAGREES", None, {"run.qm_region": {"multiplicity": 1}})]
 
 
-@pytest.mark.parametrize("charge,multiplicity,written,lsd", SPIN)
+@pytest.mark.parametrize("charge,multiplicity,written,lsd,locks", SPIN)
 def test_a_stage_writes_the_charge_and_the_spin_cpmd_will_accept(ws_ctx, charge, multiplicity,
-                                                                 written, lsd):
+                                                                 written, lsd, locks):
     import json
 
     from tests.conftest import coupled_study
@@ -147,10 +153,12 @@ def test_a_stage_writes_the_charge_and_the_spin_cpmd_will_accept(ws_ctx, charge,
                             "ensemble": "NVE", "steps": 50, "qm_region": {
                                 "subsystems": ["solute"], "charge": charge,
                                 "multiplicity": multiplicity}}],
-                  # a charge the neutral acetone does not carry is the researcher's decision
-                  decisions_yours=[{"said": f"charge {charge}",
-                                    "locks": {"run.qm_region.charge": charge}}])
+                  decisions_yours=[{"said": "the researcher's", "locks": locks}] if locks
+                  else [])
     obs = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "run"})
+    if lsd is None:
+        assert obs.error.code == written
+        return
     assert obs.ok, obs.summary
     out = obs.files["cpmd_input"]
     sections = parse_cpmd((ws_ctx.workspace.root / out).read_text())
