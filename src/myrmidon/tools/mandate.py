@@ -264,16 +264,22 @@ def _region_charges(mandate: mandates.Mandate, parts: dict[str, dict]) -> list[s
     subs = mandate.system.subsystems
     topology = next((f.path for f in mandate.system.files if f.kind == "topology"), "")
 
-    def charge(name: str) -> float | None:
-        sub = subs.get(name)
-        if sub is None or sub.charge is not None:
-            return sub.charge if sub is not None else None
+    def one(sub) -> float | None:
+        if sub.charge is not None:
+            return sub.charge
         laid = [p for p in parts.values()
                 if set(p.get("molecules") or ()) & set(sub.molecules)
                 or set(p.get("resnames") or ()) & set(sub.resnames)]
         if not laid or sub.resid or sub.chains or any(p.get("charge") is None for p in laid):
             return None
         return sum(p["charge"] for p in laid)
+
+    def charge(name: str) -> float | None:
+        """A subsystem's charge by its name, or the sum of every subsystem of that kind, as a
+        region's selection resolves the name."""
+        matched = [subs[name]] if name in subs else [s for s in subs.values() if s.kind == name]
+        charges = [one(sub) for sub in matched]
+        return sum(charges) if charges and None not in charges else None
 
     locked = {path: value for d in mandate.decisions.yours for path, value in d.locks.items()}
     asked = []

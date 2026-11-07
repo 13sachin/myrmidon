@@ -890,7 +890,7 @@ def test_the_harness_partitions_a_region_from_what_its_stage_states(ws_ctx):
     and a stage restarting it reads that partition."""
     call, mandates = _study_before_selecting(ws_ctx, [
         _qmmm("first", qm_region={"subsystems": ["solute"]}),
-        _qmmm("second", qm_region={"subsystems": ["solute"]})])
+        _qmmm("second", qm_region={"subsystems": ["ligand"]})])  # by its kind
     written = REGISTRY.call("mandate_write", ws_ctx, call)
     assert written.ok and written.status == "ready", written.summary
     held = mandates.read_mandate(ws_ctx.workspace)

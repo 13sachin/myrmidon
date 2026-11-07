@@ -403,13 +403,23 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
                for kind, path in files.items() if not path.is_file()]
     if missing:
         return missing
+    scanned = stage.scan is not None and stage.scan.parameter == "frames"
     outside = sorted({int(f) for f in params.frames}
-                     - {int(f) for f in (stage.scan.values if stage.scan else ())})
+                     - {int(f) for f in stage.scan.values}) if scanned and params.frames else []
+    if params.frames and not scanned:
+        outside = sorted(params.frames)
     if outside:
         return [Precondition(id="STAGE_FRAMES_NOT_SCANNED",
                              message=f"frames {outside} are none of stage {stage.name}'s scan",
                              suggestion="name frames the stage's scan holds, or revise the "
                              "mandate's scan", needs=["frames"])]
+    if scanned and engine.scan_frames and not params.frames:
+        return [Precondition(
+            id="STAGE_NOTHING_TO_RUN",
+            message=f"every frame of stage {stage.name}'s scan has been computed, or is in a "
+            "job not yet collected", needs=["frames"],
+            suggestion=f"job_status on a running one; dataset_collect stage={stage.name}; or "
+            "name frames to compute again")]
     if params.extend_ps and not params.continue_run:
         return [Precondition(
             id="STAGE_EXTEND_WITHOUT_CONTINUE",

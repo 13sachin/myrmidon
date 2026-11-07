@@ -182,6 +182,12 @@ def prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) ->
 
     if stage.qm_region is None:
         return []
+    if stage.qm_region.charge is None:  # the researcher's to state, or the topology's to read
+        return [Precondition(
+            id="QM_REGION_OPEN",
+            message=f"stage {stage.name}'s QM region states no charge",
+            suggestion="mandate_write reads it from the topology, or asks the researcher: "
+            "write the mandate again and answer what it asks")]
     ws = ctx.workspace
     found: list[Finding] = [
         Precondition(id="QM_REGION_OPEN", message=question,
@@ -320,7 +326,7 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
     """What stops a coupled stage's run: the gate on its input, its compiled MM half, and the
     state it restarts from. A continuation's RESTART line is added when its job is built."""
     root = ctx.workspace.root
-    from myrmidon.engines.mimic.batch import frames_in, frames_to_run, is_scan
+    from myrmidon.engines.mimic.batch import frames_in, is_scan
 
     if is_scan(stage):
         absent = [k for k in ("cpmd_input", "mdp", "trajectory", "topology", "qm_selection")
@@ -333,12 +339,6 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
                 suggestion=f"stage_prepare stage={stage.name}, and name the trajectory the "
                 "frames are in (inputs {trajectory: <path>}) unless a stage it starts from "
                 "wrote one")]
-        if not frames_to_run(ctx, stage, []):
-            return [Precondition(
-                id="STAGE_NOTHING_TO_RUN",
-                message=f"every frame of stage {stage.name}'s scan has been computed, or is "
-                "in a job not yet collected",
-                suggestion=f"job_status on a running one; dataset_collect stage={stage.name}")]
         total = (frames_in(inputs["structure"], inputs["trajectory"])
                  if "structure" in inputs else None)
         past = [f for f in stage.scan.values if total and not 0 <= int(f) < total]

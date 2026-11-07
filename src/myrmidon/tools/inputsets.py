@@ -623,7 +623,8 @@ def rendered_by_stage(ctx: ToolContext) -> dict[str, dict]:
     if root is None:
         return known
     # oldest first, so the latest render of a stage's file is what stands
-    for path in sorted(Path(root).rglob("*.myrmidon.json"), key=lambda f: f.stat().st_mtime):
+    # a stage's own renders, directly in its directory: a run's copy holds what one run read
+    for path in sorted(Path(root).glob("*/*.myrmidon.json"), key=lambda f: f.stat().st_mtime):
         try:
             data = json.loads(path.read_text())
         except (OSError, ValueError):
