@@ -16,8 +16,8 @@ continues from it continues from where the last one ended, which is what makes a
 extension mean something on the mocks. The header prints the ION DYNAMICS line the real
 log prints, so the drift parser knows an NVE run from a thermostatted one.
 
-Five step lines are printed at NFI = MAXSTEP·k/5, so a log says how many steps it ran
-without being MAXSTEP lines long.
+A step line is printed for every MD step, each with its SCF block and subsystem temperatures,
+as real CPMD prints them: what reads a real log by its rows reads this one.
 
 Failures: MOCK_CPMD_FAIL=scf produces a non-convergence failure; =lsd the multiplicity
 error; =segv a segfault; =pp a pseudopotential file it cannot find; =shake the
@@ -220,7 +220,7 @@ print(f" {control}")
 print(" NFI      GEMAX       CNORM           ETOT        DETOT      TCPU")
 print("   1     5.153E-05   1.2E-03      -17.130293     0.000E+00    31.66")
 print("       NFI   TEMPP           EKS      ECLASSIC         DIS    TCPU")
-nfis = sorted({max(1, round(n_steps * k / 5)) for k in range(1, 6)})
+nfis = range(1, max(1, n_steps) + 1)
 t_final = None
 for nfi in nfis:
     # a temperature is never below zero, and a "-0.0" would read as an energy column
