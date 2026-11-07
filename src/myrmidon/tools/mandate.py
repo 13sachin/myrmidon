@@ -204,30 +204,12 @@ def _unread_targets(ctx: ToolContext, decisions: list[mandates.Decision]
 
 def open_chemistry(ws, stages: list, decisions: list, selected_for: str | None = None
                    ) -> list[str]:
-    """What the latest QM selection (for a stage, if named) left open of the region's chemistry
-    and no stage or decision settles: a charge whose atoms sum to no integer is the researcher's
-    unless they locked it, a multiplicity the electrons do not decide unless a stage states it."""
-    import json
+    """What the latest QM partition (for a stage, if named) left open of the region's chemistry
+    and no stage or decision settles, as the engine that partitions a region asks it."""
+    from myrmidon.engines.registry import adapter_with
 
-    from myrmidon.core.lineage import latest_outputs
-
-    regions = [s.qm_region for s in stages if s.qm_region is not None]
-    side = latest_outputs(ws, "qm_region", selected_for).get("provenance")
-    if not regions or side is None:
-        return []
-    try:
-        left = json.loads(ws.resolve(side).read_text())
-    except (OSError, ValueError):
-        return []
-    questions = []
-    decided = any("qm_region.charge" in path or path.endswith("qm_region")
-                  for d in decisions for path in d.locks)
-    if left.get("charge") is None and not decided:
-        questions.append("What is the QM region's net charge? (the selected atoms' topology "
-                         "charges sum to no integer: say what the selection cuts)")
-    if left.get("multiplicity") is None and any(r.multiplicity is None for r in regions):
-        questions.append(f"What is the QM region's spin multiplicity? ({left.get('spin_why')})")
-    return questions
+    engine = adapter_with("region_questions")
+    return engine.region_questions(ws, stages, decisions, selected_for) if engine else []
 
 
 def _selection_files(ws, stated: set[str]) -> list[mandates.SystemFile]:

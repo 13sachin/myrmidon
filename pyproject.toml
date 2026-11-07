@@ -100,3 +100,15 @@ layers = [
     "myrmidon.config : myrmidon.errors : myrmidon.text : myrmidon.client_registry : myrmidon.client_entries",
 ]
 
+
+# A tool reaches an engine through its adapter (engines/registry.py), never by importing
+# the engine's package: only the GROMACS tools are GROMACS's own. `core` importing no engine
+# is the layers contract's.
+[[tool.importlinter.contracts]]
+name = "Tools reach an engine through its adapter"
+type = "forbidden"
+source_modules = ["myrmidon.tools"]
+forbidden_modules = ["myrmidon.engines.mimic", "myrmidon.engines.gromacs"]
+ignore_imports = ["myrmidon.tools.gromacs -> myrmidon.engines.gromacs.**",
+                  "myrmidon.tools.gromacs.** -> myrmidon.engines.gromacs.**"]
+allow_indirect_imports = true

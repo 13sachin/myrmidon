@@ -56,7 +56,7 @@ class StageJob:
 class DatasetRequest:
     """What a dataset is collected from, as the call and the ledger state it."""
 
-    fmdata: list[str]
+    reference_files: list[str]
     trajectory: list[str]
     topology: str
     coords: str
@@ -66,11 +66,40 @@ class DatasetRequest:
     align_if_desynced: bool = True
     output_prefix: str = "merged"
     monitor_pairs: dict[str, list[int]] = field(default_factory=dict)
-    cpmd_logs: list[str] = field(default_factory=list)
+    run_logs: list[str] = field(default_factory=list)
     duplicate_rmsd_a: float = 0.05
     overlaps_input: str | None = None
-    fmdata_one: str = ""
+    reference_file: str = ""
     output: str = "frame_report.csv"
+
+
+@dataclass(frozen=True)
+class FitReaders:
+    """How a fitting engine's files read, for a report that names no engine: its log, its
+    alignment check, its optimisation and validation results, and the topology it fits."""
+
+    parse_fm_log: Callable[[str], dict]
+    parse_fmcheck_report: Callable[[str], dict]
+    parse_optimization_results: Callable[[str], dict]
+    parse_validation_force_residuals: Callable[..., dict]
+    #: the file of per-atom force residuals the fit writes beside its log
+    residuals_file: str
+    force_type_table: Callable[[dict], str]
+    unphysical_force_constants: Callable[[str], list]
+    parse_itp_atoms: Callable[[str], dict]
+    parse_itp_bonded: Callable[[str], dict]
+    #: a bonded section -> how many atoms a term of it names
+    bonded_n_atoms: Mapping[str, int]
+
+
+@dataclass
+class InputCheck:
+    """What an engine says of one of its input files as it is on disk."""
+
+    kind: str  # the kind file_check reports it as
+    label: str  # how a summary names the check
+    findings: list
+    checked: list[str]
 
 
 @dataclass
@@ -154,6 +183,29 @@ class EngineAdapter:
     diagnose: Callable[..., object] | None = None
     #: (ctx, trajectories in order, the joined file) -> the finished process that joined them
     join_trajectories: Callable[..., object] | None = None
+    #: (ctx, an energy file, its terms by label, the directory to write in) -> (the series
+    #: file, the finished process that wrote it)
+    energy_series: Callable[..., tuple] | None = None
+    #: (ctx, an input file as the call named it, the file, the run input it pairs with) -> what
+    #: the engine says of it as it is on disk; None for a file that is not its own
+    input_findings: Callable[..., InputCheck | None] | None = None
+    #: (a topology) -> the force field it includes, as a system fact; None when it names none
+    forcefield: Callable[[Path], object] | None = None
+    #: how the files of a fit it ran read
+    fit_readers: FitReaders | None = None
+    #: the file kinds a stage's run of this engine reads
+    run_reads: tuple[str, ...] = ()
+    #: (ctx, the partition call's parameters) -> the system split into its QM region and the
+    #: rest, with what the selection leaves of the region's chemistry
+    partition_qm: Callable[..., object] | None = None
+    #: (the system's parts by name, as dicts; the names asked) -> (the selection commands that
+    #: take them into a QM region, the names none resolves)
+    select_subsystems: Callable[..., tuple] | None = None
+    #: (ws, stages, decisions, the stage selected for) -> what the latest partition left open
+    #: of the region's chemistry, as questions for the researcher
+    region_questions: Callable[..., list] | None = None
+    #: (ctx, mandate, stage, the structure it starts from) -> what stops the stage's render
+    prepare_findings: Callable[..., list] | None = None
 
 
 @cache
@@ -201,6 +253,13 @@ def fit_adapter() -> EngineAdapter | None:
     return next((a for a in adapters() if a.collect_dataset), None)
 
 
-def trajectory_joiner() -> EngineAdapter | None:
-    """The adapter that joins trajectories one after another; None where no engine does."""
-    return next((a for a in adapters() if a.join_trajectories), None)
+def adapter_with(capability: str) -> EngineAdapter | None:
+    """The first adapter that has this capability (a field of :class:`EngineAdapter`); None
+    where no engine here has it."""
+    return next((a for a in adapters() if getattr(a, capability)), None)
+
+
+def run_kinds() -> frozenset[str]:
+    """The file kinds a stage's run reads, under any engine: what its preparation wrote
+    that no run reads (sidecars, provenance) is no input of it."""
+    return frozenset(k for a in adapters() for k in a.run_reads)

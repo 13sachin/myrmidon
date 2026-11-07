@@ -7,7 +7,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from myrmidon.core.contracts import declare_identity
 from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding
 from myrmidon.engines.mimic.system import (
@@ -21,9 +20,6 @@ from myrmidon.knowledge.sensors import evaluate
 
 #: the selection commands a run and a parameter fit read back, written beside the input
 SELECTION_FILE = "sele.dat"
-#: which atoms are quantum is a system's identity; a selection writes the system's CPMD input
-#: and index anew for the stage it was made for
-declare_identity("qm_selection", replaced_by="qm_region")
 #: the commands prepqm's prompt dispatches (mimicpy/cli/prepqm.py). 'view' and 'help' only
 #: print, and 'q'/'quit' end the input, which the tool appends itself
 SELECTION_COMMANDS = ("add", "add-bound", "delete", "clear")

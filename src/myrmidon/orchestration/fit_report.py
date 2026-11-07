@@ -11,20 +11,14 @@ from pathlib import Path
 from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.provenance import ProvenanceEvent
 from myrmidon.core.workspace import Workspace
-from myrmidon.engines.fit_files import (
-    BONDED_N_ATOMS,
-    VALIDATION_RESIDUALS_FILENAME,
-    force_type_table,
-    parse_fm_log,
-    parse_fmcheck_report,
-    parse_itp_atoms,
-    parse_itp_bonded,
-    parse_optimization_results,
-    parse_validation_force_residuals,
-    unphysical_force_constants,
-)
+from myrmidon.engines.registry import FitReaders, fit_adapter
 from myrmidon.knowledge.observables import measured_property
 from myrmidon.orchestration.summary import summarize
+
+
+def _readers() -> FitReaders:
+    """How the files of the fitting engine here read."""
+    return fit_adapter().fit_readers
 
 # -- .itp parsers (grounded: the fitted files are the engine's output) ----------
 
@@ -95,7 +89,7 @@ def bonded_diff(before: dict, after: dict, atoms: dict[str, list[dict]] | None =
     at_floor = 0
     for mol, sections in after.items():
         for section, terms in sections.items():
-            n_atoms = BONDED_N_ATOMS[section]
+            n_atoms = _readers().bonded_n_atoms[section]
             for key, p_after in terms.items():
                 p_before = before.get(mol, {}).get(section, {}).get(key)
                 if p_before is None or len(p_before) != len(p_after):
@@ -242,7 +236,7 @@ def _dataset_block(root: Path, rnd: FMRound) -> dict:
         check = _read(root, (_art(rnd.collect, "fmcheck_log") or ArtifactRef(
             path="", role="", sha256="", size_bytes=0)).path)
         if check:
-            facts = parse_fmcheck_report(check)
+            facts = _readers().parse_fmcheck_report(check)
             d["frames"] = facts.get("h5_frames")
             d["trr_frames"] = facts.get("trr_frames")
             d["index_aligned"] = facts.get("index_aligned")
@@ -281,10 +275,10 @@ def _fit_block(root: Path, rnd: FMRound) -> dict:
     facts: dict = {}
     text = _read(root, log_ref.path if log_ref else None)
     if text:
-        facts = parse_fm_log(text)
+        facts = _readers().parse_fm_log(text)
         res = root / Path(log_ref.path).parent / "optimization_results.txt"
         if res.exists():
-            for k, v in parse_optimization_results(res.read_text()).items():
+            for k, v in _readers().parse_optimization_results(res.read_text()).items():
                 facts.setdefault(k, v)
     d = {k: facts.get(k) for k in (
         "n_snapshots", "n_train", "n_val", "validation_sdf", "validation_cost",
@@ -298,9 +292,10 @@ def _fit_block(root: Path, rnd: FMRound) -> dict:
     d["attempts"] = rnd.attempts
     d["forces"] = {}
     if log_ref:
-        csv_path = root / Path(log_ref.path).parent / VALIDATION_RESIDUALS_FILENAME
+        csv_path = root / Path(log_ref.path).parent / _readers().residuals_file
         if csv_path.exists():
-            d["forces"] = parse_validation_force_residuals(csv_path.read_text(errors="replace"))
+            d["forces"] = _readers().parse_validation_force_residuals(
+                csv_path.read_text(errors="replace"))
             if d["forces"]:
                 d["forces"]["file"] = _ref(ArtifactRef.from_path(csv_path, "force_residuals",
                                                                  root=root))
@@ -352,7 +347,7 @@ def _parameters_block(root: Path, rnd: FMRound) -> list[dict]:
             entry["note"] = "fitted file missing from disk"
             out.append(entry)
             continue
-        entry["unphysical"] = unphysical_force_constants(fitted_text)
+        entry["unphysical"] = _readers().unphysical_force_constants(fitted_text)
         orig = pairs.get(a.path)
         orig_text = _read(root, orig)
         if orig_text is None:
@@ -361,9 +356,12 @@ def _parameters_block(root: Path, rnd: FMRound) -> list[dict]:
             out.append(entry)
             continue
         entry["original"] = _ref(ArtifactRef.from_path(root / orig, "topology", root=root))
-        atoms_before, atoms_after = parse_itp_atoms(orig_text), parse_itp_atoms(fitted_text)
+        read = _readers()
+        atoms_before = read.parse_itp_atoms(orig_text)
+        atoms_after = read.parse_itp_atoms(fitted_text)
         entry["charges"] = charge_diff(atoms_before, atoms_after)
-        entry["bonded"] = bonded_diff(parse_itp_bonded(orig_text), parse_itp_bonded(fitted_text),
+        entry["bonded"] = bonded_diff(read.parse_itp_bonded(orig_text),
+                                      read.parse_itp_bonded(fitted_text),
                                       atoms_after, floor_fraction=floor)
         out.append(entry)
     return out
@@ -680,7 +678,7 @@ def render_fit_report(data: dict, max_rows: int = 40) -> str:
                            [[n, b.get("n_frames"), b["rmse"], b["ref_rms"], b["rel_rmse"],
                              len(b.get("outliers", []))]
                             for n, b in sorted(fr.items(), key=lambda kv: kv[1]["rmse"])])
-            table = force_type_table(fr)
+            table = _readers().force_type_table(fr)
             if table:
                 L += ["", "per atom type:", "", "```", table, "```"]
             for n, b in fr.items():

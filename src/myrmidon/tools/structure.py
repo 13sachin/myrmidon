@@ -20,8 +20,7 @@ from myrmidon.core.observation import (
 )
 from myrmidon.core.tool import ToolContext, tool
 from myrmidon.core.validation import Finding
-from myrmidon.engines.gromacs.common import stage_output
-from myrmidon.engines.inputs import resolve_in_ws
+from myrmidon.engines.inputs import resolve_in_ws, stage_output
 from myrmidon.engines.structure import (
     PdbAtom,
     build_missing_atoms,

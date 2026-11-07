@@ -21,7 +21,7 @@ from myrmidon.core.contracts import Contract, Produces
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext, tool
 from myrmidon.core.validation import Finding
-from myrmidon.engines.gromacs.common import read_gro_info, stage_output, stage_topology
+from myrmidon.engines.gromacs.common import read_gro_info, stage_topology
 from myrmidon.engines.gromacs.complex import (
     gro_line,
     itp_block,
@@ -35,7 +35,7 @@ from myrmidon.engines.gromacs.itp import (
     molecule_layout,
     parse_itp_atoms,
 )
-from myrmidon.engines.inputs import resolve_in_ws
+from myrmidon.engines.inputs import resolve_in_ws, stage_output
 
 
 class ComplexParams(BaseModel):

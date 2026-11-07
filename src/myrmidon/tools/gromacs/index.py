@@ -24,14 +24,14 @@ from myrmidon.core.contracts import Contract, Produces
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext, tool
 from myrmidon.core.validation import Finding, Precondition
-from myrmidon.engines.gromacs.common import run_gmx, stage_output, tail
+from myrmidon.engines.gromacs.common import run_gmx, tail
 from myrmidon.engines.gromacs.index import (
     ndx_groups,
     rejected_ndx_commands,
     resolve_repeated_names,
 )
 from myrmidon.engines.gromacs.itp import expanded_topology, molecule_layout, molecule_of
-from myrmidon.engines.inputs import resolve_in_ws
+from myrmidon.engines.inputs import resolve_in_ws, stage_output
 
 _GROUP_LINE = re.compile(r"^\s*(\d+)\s+(.+?)\s*:\s+(\d+) atoms\s*$", re.MULTILINE)
 

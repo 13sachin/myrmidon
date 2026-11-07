@@ -12,7 +12,7 @@ from myrmidon.core.contracts import Contract
 from myrmidon.core.lineage import JOINS, stage_segments
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext, tool
-from myrmidon.engines.registry import trajectory_joiner
+from myrmidon.engines.registry import adapter_with
 
 
 def segment_trajectory(outputs) -> str | None:
@@ -54,7 +54,7 @@ def trajectory_join(ctx: ToolContext, params: TrajectoryJoinParams) -> Observati
     if len(paths) == 1:  # a run appended to one file holds every segment in it
         return Observation(ok=True, summary=f"{paths[0]} holds every segment of stage "
                            f"{params.stage}", trajectory=paths[0], segments=len(params.segments))
-    joiner = trajectory_joiner()
+    joiner = adapter_with("join_trajectories")
     if joiner is None:
         return Observation(ok=False, summary="no engine here joins trajectories")
     files = [ctx.workspace.resolve(p) for p in paths]

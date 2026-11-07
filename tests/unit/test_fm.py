@@ -196,9 +196,9 @@ def test_a_dataset_reports_its_frames(ws_ctx):
         "&MIMIC\nPATHS\n1\n/x\nOVERLAPS\n2\n2 900 1 10\n2 901 1 11\n&END\n"
     )
     obs = frame_report(ws_ctx, DatasetRequest(
-        fmdata=[], trajectory=[], topology="", coords="", selection="",
+        reference_files=[], trajectory=[], topology="", coords="", selection="",
         monitor_pairs={"pair": [900, 901], "gone": [10, 999]},
-        cpmd_logs=[ws_ctx.workspace.relpath(log)],
+        run_logs=[ws_ctx.workspace.relpath(log)],
         overlaps_input=ws_ctx.workspace.relpath(stage / "run.inp"),
     ), ws_ctx.workspace.relpath(stage / "ref.h5"))
     assert obs.ok, obs.summary
@@ -296,8 +296,8 @@ def test_a_dataset_merges_its_h5_sources(ws_ctx):
                 fh.create_group(f"config_{i}").create_dataset("atoms", data=atoms)
         (stage / name.replace(".h5", ".trr")).write_text(f"TRR{name}\n")
     obs = merge_sources(ws_ctx, DatasetRequest(
-        fmdata=[ws_ctx.workspace.relpath(stage / "a.h5"),
-                ws_ctx.workspace.relpath(stage / "b.h5")],
+        reference_files=[ws_ctx.workspace.relpath(stage / "a.h5"),
+                         ws_ctx.workspace.relpath(stage / "b.h5")],
         trajectory=[], topology="", coords="", selection=""))
     assert obs.ok, obs.summary
     assert obs.frames == 5
@@ -306,7 +306,7 @@ def test_a_dataset_merges_its_h5_sources(ws_ctx):
         assert sorted(fh.keys(), key=lambda k: int(k.split("_")[1]))[-1] == "config_4"
     # the runs' trajectories are joined in the same order by the generic tool
     joined = joined_trajectory(ws_ctx, DatasetRequest(
-        fmdata=[], trajectory=[ws_ctx.workspace.relpath(stage / "a.trr"),
+        reference_files=[], trajectory=[ws_ctx.workspace.relpath(stage / "a.trr"),
                                ws_ctx.workspace.relpath(stage / "b.trr")],
         topology="", coords="", selection=""))
     text = (ws_ctx.workspace.root / joined).read_text()

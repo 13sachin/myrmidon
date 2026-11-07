@@ -95,9 +95,10 @@ def _series_from_energy(ctx: ToolContext, edr: Path, terms: list[str], stage: Pa
     """The named terms of an energy file as an .xvg beside the analysis, through the
     engine; (the file, None), or (the energy file, the failure)."""
     from myrmidon.analysis.energy import energy_menu
-    from myrmidon.engines.gromacs.common import extract_energy_terms, tail
+    from myrmidon.engines.registry import adapter_with
+    from myrmidon.text import tail
 
-    xvg, proc = extract_energy_terms(ctx, edr, terms, stage)
+    xvg, proc = adapter_with("energy_series").energy_series(ctx, edr, terms, stage)
     if proc.returncode != 0 or not xvg.exists():
         return edr, Observation(
             ok=False,

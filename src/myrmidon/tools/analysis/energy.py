@@ -10,15 +10,16 @@ from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.observation import EnergyTermStats, Observation
 from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding
-from myrmidon.engines.gromacs.common import extract_energy_terms, tail
 from myrmidon.engines.inputs import resolve_in_ws
+from myrmidon.engines.registry import adapter_with
+from myrmidon.text import tail
 
 
 def energy_statistics(ctx: ToolContext, edr_path: str, wanted: list[str]) -> Observation:
     """Named energy terms of a run's energy file, with their statistics."""
     stage = ctx.workspace.stage("analysis")
     edr = resolve_in_ws(ctx, edr_path)
-    xvg, proc = extract_energy_terms(ctx, edr, wanted, stage)
+    xvg, proc = adapter_with("energy_series").energy_series(ctx, edr, wanted, stage)
     command = list(proc.args)
     if proc.returncode != 0 or not xvg.exists():
         menu = energy_menu(proc.stderr + "\n" + proc.stdout)

@@ -8,7 +8,7 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
-from myrmidon.core.artifacts import ArtifactRef, sha256_file
+from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.contracts import Contract, includes_of
 from myrmidon.core.lineage import stage_files, stage_left
 from myrmidon.core.lineage import stage_run as collected_run
@@ -17,7 +17,7 @@ from myrmidon.core.observation import Observation, ToolError
 from myrmidon.core.tool import PREVIEW_HELP, REGISTRY, ToolContext, precheck, tool
 from myrmidon.core.validation import Finding, Precondition
 from myrmidon.engines.inputs import resolve_in_ws
-from myrmidon.engines.registry import Layout, adapter, adapter_running, adapters
+from myrmidon.engines.registry import Layout, adapter, adapter_running, adapters, run_kinds
 from myrmidon.execution.backend import Resources
 from myrmidon.execution.jobs import submit_job
 from myrmidon.knowledge.inputsets import RENDERED_FILES
@@ -71,52 +71,10 @@ def _starting_structure(ctx: ToolContext, mandate, stage) -> tuple[str | None, s
                                   "starts from the structure it leaves")
 
 
-def _region_findings(ctx: ToolContext, mandate, stage, structure: str | None) -> list[Finding]:
-    """What keeps a stage's QM region from being the approved one on these coordinates: chemistry
-    its selection leaves open; atoms none of the mandate's selections holds; and, on a coupled
-    fresh start, where CPMD takes the QM atoms from the input the selection wrote and GROMACS the
-    rest from the structure, a selection made on other coordinates. A stage that restarts takes
-    both from what it restarts."""
-    if stage.qm_region is None:
-        return []
-    from myrmidon.tools.mandate import open_chemistry
-
-    ws = ctx.workspace
-    found: list[Finding] = [
-        Precondition(id="QM_REGION_OPEN", message=question,
-                     suggestion="ask the researcher, then revise the mandate: a stated "
-                     "multiplicity goes in the stage's qm_region, a charge in a decision locking "
-                     "qm_region.charge")
-        for question in open_chemistry(ws, [stage], mandate.decisions.yours, stage.name)]
-    merged = system_file(ctx, mandate, "cpmd_input", stage.name)
-    selected = next((ev for ev in reversed(list(ws.ledger.events()))
-                     if ev.tool == "qm_region" and ev.ok and ev.kind == "call"
-                     and any(a.path == merged for a in ev.outputs)), None)
-    if selected is None:
-        return found
-    approved = [f.path for f in mandate.system.files if f.kind == "qm_selection"
-                and ws.resolve(f.path).is_file()]
-    wrote = next((a for a in selected.outputs if a.role == "qm_selection"), None)
-    if approved and wrote and ws.resolve(wrote.path).read_text() not in {
-            ws.resolve(path).read_text() for path in approved}:
-        found.append(Precondition(
-            id="QM_SELECTION_NOT_APPROVED",
-            message=f"the QM selection this stage reads ({wrote.path}) is none the approved "
-            f"mandate holds ({', '.join(approved)}): which atoms are quantum is the researcher's",
-            suggestion="select the approved atoms, or revise the mandate with the reason, "
-            "stating system_files with this selection: a revision keeps the files it held"))
-    begins = mandate.method.starts_from(stage)
-    coupled_before = begins is not None and begins.regime != "mm" and begins.name != stage.name
-    coords = next((i for i in selected.inputs if i.role == "coords"), None)
-    if (stage.regime != "mm" and not coupled_before and coords is not None
-            and structure is not None and ws.resolve(structure).is_file()
-            and sha256_file(ws.resolve(structure)) != coords.sha256):
-        found.append(Precondition(
-            id="QM_REGION_ON_OTHER_COORDINATES",
-            message=f"the QM region was selected on {coords.path}, and stage {stage.name} starts "
-            f"from {structure}: the QM and MM halves would hold different configurations",
-            suggestion="qm_region again on the structure the stage starts from"))
-    return found
+def _prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) -> list[Finding]:
+    """What each engine says stops the stage's render on these coordinates."""
+    return [f for a in adapters() if a.prepare_findings
+            for f in a.prepare_findings(ctx, mandate, stage, structure)]
 
 
 def _refused(summary: str, code: str, findings: list, hint: str = "", **fields) -> Observation:
@@ -149,7 +107,7 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
                         f"{stage.regime}, {stage.ensemble})", "MANDATE_STAGE_TEMPLATE", [])
     structure, later = _starting_structure(ctx, mandate, stage)
     structure = params.structure or structure
-    stopping = _region_findings(ctx, mandate, stage, structure)
+    stopping = _prepare_findings(ctx, mandate, stage, structure)
     if stopping:
         return _refused(stopping[0].message, stopping[0].id, stopping,
                         stopping[0].suggestion or "")
@@ -292,7 +250,7 @@ class StageRunParams(BaseModel):
         snapshot = self.snapshot or self.inputs.get("geometry")
         if snapshot:
             inputs["geometry"] = snapshot
-        inputs = {k: v for k, v in inputs.items() if k in _RUN_KINDS or k in self.inputs}
+        inputs = {k: v for k, v in inputs.items() if k in run_kinds() or k in self.inputs}
         files = {k: ctx.workspace.resolve(v) for k, v in inputs.items()}
         _, node = ctx.config.compute.billing(self.partition)
         cores = self.cores or node.cores_per_node
@@ -311,13 +269,6 @@ class StageRunParams(BaseModel):
             "layout": {"ntasks": found.ntasks, "cpus_per_task": found.cpus_per_task,
                        "partner_ntasks": found.partner_ntasks, "why": found.why,
                        "walltime_why": why}})
-
-
-#: the kinds a stage's run reads: what its preparation wrote that a run does not (sidecars,
-#: provenance) is no input of it
-_RUN_KINDS = frozenset({
-    "mdp", "tpr", "cpmd_input", "fm_input", "restart", "geometry", "checkpoint", "structure",
-    "topology", "index", "qm_selection", "reference_dataset", "trajectory"})
 
 
 def _engine_of(stage):
@@ -344,11 +295,11 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
                              message=f"no engine here runs stage {stage.name} ({stage.kind}, "
                              f"{stage.regime})")]
     files = {k: ctx.workspace.resolve(v) for k, v in params.inputs.items()}
-    unknown = sorted(set(files) - _RUN_KINDS)
+    unknown = sorted(set(files) - run_kinds())
     if unknown:
         return [Precondition(id="STAGE_INPUT_UNKNOWN",
                              message=f"a stage's run reads no {', '.join(unknown)}; it reads "
-                             + ", ".join(sorted(_RUN_KINDS)), needs=["inputs"])]
+                             + ", ".join(sorted(run_kinds())), needs=["inputs"])]
     missing = [Precondition(id=f"INPUT_MISSING_{kind.upper()}",
                             message=f"{kind} not found: {params.inputs[kind]}")
                for kind, path in files.items() if not path.is_file()]

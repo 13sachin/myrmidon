@@ -8,24 +8,9 @@ from pathlib import Path
 
 from myrmidon.core.artifacts import fresh_path
 from myrmidon.core.tool import ToolContext
-from myrmidon.errors import EngineNotFoundError, MyrmidonError
+from myrmidon.engines.inputs import stage_output  # noqa: F401  (GROMACS tools import it here)
+from myrmidon.errors import EngineNotFoundError
 from myrmidon.text import tail  # noqa: F401  (engines import it from here)
-
-
-def stage_output(stage: Path, name: str) -> Path:
-    """The path of an output a tool writes into its own stage: the file name the call
-    gives, whatever directory it names with it. The tool scopes its outputs to its stage
-    and returns the paths it wrote; a directory in the name ("01_prep/boxed.gro") would
-    point where no directory exists, which GROMACS reports only as "File input/output
-    error"."""
-    if not Path(name).name or Path(name).name in (".", ".."):
-        raise MyrmidonError(f"output {name!r} names no file")
-    out = stage / Path(name).name
-    elsewhere = Path(name).parent not in (Path("."), Path(stage.name))
-    if elsewhere and out.exists():
-        raise MyrmidonError(f"output {name!r} would land on {stage.name}/{out.name}, which "
-                            "exists; this tool writes into its own stage: name a new file")
-    return out
 
 
 def gmx_bin(ctx: ToolContext) -> str:

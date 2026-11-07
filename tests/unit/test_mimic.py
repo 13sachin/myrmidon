@@ -586,7 +586,9 @@ def test_a_stage_reads_the_region_selected_for_it(ws_ctx):
 
     call, mandates = _study_before_selecting(ws_ctx, [_qmmm("one"), _qmmm("two", starts_from="")])
     gro = "01_input/acetone_equilibrated.gro"
-    one = _select_on(ws_ctx, gro, stage="one")
+    one = _select_on(ws_ctx, gro, stage="one", selections=[], subsystems=["ligand"])
+    assert [e for e in ws_ctx.workspace.ledger.events() if e.tool == "qm_region"][-1].params[
+        "selections"] == ["add resname is ACT"]  # the topology's ligand, as commands
     two = _select_on(ws_ctx, gro, stage="two",
                      selections=["add resname is ACT", "add resid is 2"])
     picks = {name: {a.role: a.path for a in obs.artifacts}

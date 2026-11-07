@@ -12,8 +12,8 @@ from myrmidon.core.artifacts import ArtifactRef
 from myrmidon.core.observation import Observation
 from myrmidon.core.tool import ToolContext
 from myrmidon.core.validation import Finding
-from myrmidon.engines.gromacs.common import join_trajectories, stage_output, tail
-from myrmidon.engines.inputs import resolve_in_ws
+from myrmidon.engines.gromacs.common import join_trajectories, tail
+from myrmidon.engines.inputs import resolve_in_ws, stage_output
 from myrmidon.engines.mimic.fm import (
     file_sha256,
     gmx_data_flags,
@@ -37,16 +37,16 @@ def collect_dataset(ctx: ToolContext, params: DatasetRequest) -> Observation:
     """One dataset from what the request names: several runs merged, then validated, then what
     its frames hold summarised."""
     extra: list[ArtifactRef] = []
-    sources = ", ".join(params.fmdata)
-    if len(params.fmdata) > 1:
+    sources = ", ".join(params.reference_files)
+    if len(params.reference_files) > 1:
         merged = merge_sources(ctx, params)
         if not merged.ok:
             return merged
         extra = [a for a in merged.artifacts if a.role == "fm_dataset_json"]
-        params.fmdata_one = next(a.path for a in merged.artifacts
+        params.reference_file = next(a.path for a in merged.artifacts
                                  if a.role == "reference_dataset")
     else:
-        params.fmdata_one = params.fmdata[0]
+        params.reference_file = params.reference_files[0]
     trajectory = joined_trajectory(ctx, params)
     if isinstance(trajectory, Observation):
         return trajectory
@@ -91,7 +91,7 @@ def _validated(ctx: ToolContext, params: DatasetRequest) -> Observation:
     """Convert to .h5 if needed, count frames (h5info), spot-check the trajectory against the
     dataset (fmcheck), and hash both files."""
     stage = ctx.workspace.stage(params.stage)
-    fmdata = resolve_in_ws(ctx, params.fmdata_one)
+    fmdata = resolve_in_ws(ctx, params.reference_file)
     trr = resolve_in_ws(ctx, params.trajectory[0])
     top = resolve_in_ws(ctx, params.topology)
     coords = resolve_in_ws(ctx, params.coords)
@@ -116,7 +116,7 @@ def _validated(ctx: ToolContext, params: DatasetRequest) -> Observation:
     if proc.returncode != 0 or "frames" not in info:
         return Observation(
             ok=False,
-            summary=f"h5info failed (exit {proc.returncode}) — is {params.fmdata_one} an "
+            summary=f"h5info failed (exit {proc.returncode}) — is {params.reference_file} an "
             "FMTRAJECTORY dataset?",
             command=argv,
             log_tail=tail(proc.stderr + "\n" + proc.stdout, 30),
@@ -237,7 +237,7 @@ def merge_sources(ctx: ToolContext, params: DatasetRequest) -> Observation:
     """Reference data from several runs (scan windows) as one dataset: FMTRAJECTORY jsons
     concatenated and converted, .h5 sources copied."""
     stage = ctx.workspace.stage(params.stage)
-    sources = [resolve_in_ws(ctx, src) for src in params.fmdata]
+    sources = [resolve_in_ws(ctx, src) for src in params.reference_files]
     merged_json = None
     frames = 0
     if any(src.suffix == ".h5" for src in sources):
@@ -298,7 +298,7 @@ def merge_sources(ctx: ToolContext, params: DatasetRequest) -> Observation:
             )
     return Observation(
         ok=True,
-        summary=f"merged {len(params.fmdata)} dataset(s): {frames} configurations -> "
+        summary=f"merged {len(params.reference_files)} dataset(s): {frames} configurations -> "
         f"{ctx.workspace.relpath(merged_h5)}",
         artifacts=[
             ArtifactRef.from_path(merged_h5, "reference_dataset", root=ctx.workspace.root),
@@ -309,7 +309,7 @@ def merge_sources(ctx: ToolContext, params: DatasetRequest) -> Observation:
             else []
         ),
         frames=frames,
-        n_sources=len(params.fmdata),
+        n_sources=len(params.reference_files),
         merged_sha256=file_sha256(merged_h5),
     )
 
@@ -408,7 +408,7 @@ def frame_report(ctx: ToolContext, params: DatasetRequest, dataset: str) -> Obse
 
     segments: list[dict] = []
     all_steps: list[dict] = []
-    for log in params.cpmd_logs:
+    for log in params.run_logs:
         log_path = resolve_in_ws(ctx, log)
         text = log_path.read_text(errors="replace")
         series = parse_cpmd_series(text)

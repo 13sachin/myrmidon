@@ -13,8 +13,9 @@ from myrmidon.core.observation import (
     Observation,
 )
 from myrmidon.core.tool import ToolContext, tool
-from myrmidon.core.validation import Finding, decide
+from myrmidon.core.validation import decide
 from myrmidon.engines.inputs import materialize_symlink, symlink_component
+from myrmidon.engines.registry import InputCheck, adapters
 
 
 class FileWriteParams(BaseModel):
@@ -225,32 +226,17 @@ def file_check(ctx: ToolContext, params: FileCheckParams) -> Observation:
             path=params.path,
         )
     real = resolve_in_ws(ctx, params.path)
-    head = real.read_text(errors="replace")[:4000]
-    if real.suffix.lower() == ".mdp":
-        kind = "mdp"
-    elif real.suffix.lower() == ".inp" or "&CPMD" in head or "&MIMIC" in head:
-        kind = "cpmd"
-    else:
-        kind = "other"
-
-    warnings: list[Finding] = []
-    checked: list[str] = []
-    if kind == "mdp":
-        from myrmidon.engines.gromacs.mdp import parse_mdp_file, validate_mdp
-        from myrmidon.knowledge.catalog import for_engine
-
-        warnings, checked = validate_mdp(parse_mdp_file(real), for_engine(ctx.engines, "gromacs"))
-    elif kind == "cpmd":
-        from myrmidon.engines.mimic.collect import coupled_findings
-
-        warnings, checked = coupled_findings(ctx, params.path, params.tpr or params.path, None,
-                                             None)
+    # the engine whose input it is says what it makes of it
+    check = next((found for engine in adapters() if engine.input_findings
+                  and (found := engine.input_findings(ctx, params.path, real, params.tpr))),
+                 InputCheck("other", "file", [], []))
+    kind, warnings, checked = check.kind, list(check.findings), list(check.checked)
     origin = file_origin(ctx, params.path)
     known = {w.id for w in warnings}
     warnings += [w for w in origin.findings if w.id not in known]
     checked = [*checked, "parameter_source"]
     decision = decide(warnings)
-    label = {"mdp": "MDP", "cpmd": "MiMiC", "other": "file"}[kind]
+    label = check.label
     obs = Observation(
         ok=not decision.blocking,
         summary=f"{label} check of {params.path}: {len(decision.blocking)} blocking, "

@@ -3,8 +3,9 @@ sees it."""
 
 from __future__ import annotations
 
+from myrmidon.engines.gromacs.itp import BONDED_N_ATOMS, parse_itp_atoms, parse_itp_bonded
 from myrmidon.engines.mimic import fit_collect, fm, fm_dataset
-from myrmidon.engines.registry import EngineAdapter, StageRender, StageText
+from myrmidon.engines.registry import EngineAdapter, FitReaders, StageRender, StageText
 from myrmidon.knowledge.sensors import evaluate
 
 
@@ -35,4 +36,13 @@ ADAPTER = EngineAdapter(
     run_facts=fm.parse_fm_log,
     diagnose=fit_collect.diagnose_log,
     force_comparison=fit_collect.force_comparison,
+    run_reads=fit_collect.FIT_INPUTS,
+    fit_readers=FitReaders(
+        parse_fm_log=fm.parse_fm_log, parse_fmcheck_report=fm.parse_fmcheck_report,
+        parse_optimization_results=fm.parse_optimization_results,
+        parse_validation_force_residuals=fm.parse_validation_force_residuals,
+        residuals_file=fm.VALIDATION_RESIDUALS_FILENAME, force_type_table=fm.force_type_table,
+        unphysical_force_constants=fm.unphysical_force_constants,
+        parse_itp_atoms=parse_itp_atoms, parse_itp_bonded=parse_itp_bonded,
+        bonded_n_atoms=BONDED_N_ATOMS),
 )

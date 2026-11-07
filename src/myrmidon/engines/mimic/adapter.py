@@ -6,14 +6,31 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
-from myrmidon.engines.mimic import collect, cpmd_input, diagnostics, layout, system, trajectory
-from myrmidon.engines.registry import EngineAdapter, StageRender, StageText
+from myrmidon.engines.mimic import (
+    collect,
+    cpmd_input,
+    diagnostics,
+    layout,
+    partition,
+    system,
+    trajectory,
+)
+from myrmidon.engines.registry import EngineAdapter, InputCheck, StageRender, StageText
 from myrmidon.knowledge.sensors import evaluate
 
 
 def _system_facts(files: Mapping[str, Path], _data_dir: Path | None,
                   rules: set[str] | None) -> dict:
     return system.system_facts(files.get("cpmd_input"), rules)
+
+
+def _input_findings(ctx, named: str, path: Path, tpr: str | None) -> InputCheck | None:
+    """A CPMD input's checks as a coupled run would read it, with the run input it pairs with."""
+    head = path.read_text(errors="replace")[:4000]
+    if path.suffix.lower() != ".inp" and "&CPMD" not in head and "&MIMIC" not in head:
+        return None
+    findings, checked = collect.coupled_findings(ctx, named, tpr or named, None, None)
+    return InputCheck("cpmd", "MiMiC", findings, checked)
 
 
 def _run_log(record) -> Path | None:
@@ -82,4 +99,10 @@ ADAPTER = EngineAdapter(
     build_job=collect.build_job,
     diagnose=collect.diagnose_log,
     cut_snapshots=trajectory.cut_snapshots,
+    run_reads=("cpmd_input", "tpr", "restart", "geometry", "structure"),
+    partition_qm=partition.partition_qm,
+    select_subsystems=partition.subsystem_selections,
+    region_questions=partition.open_chemistry,
+    prepare_findings=collect.prepare_findings,
+    input_findings=_input_findings,
 )

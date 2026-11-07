@@ -6,12 +6,8 @@ import time
 import pytest
 
 from myrmidon.core.tool import REGISTRY
-from myrmidon.orchestration.fit_report import (
-    bonded_diff,
-    charge_diff,
-    parse_itp_atoms,
-    parse_itp_bonded,
-)
+from myrmidon.engines.gromacs.itp import parse_itp_atoms, parse_itp_bonded
+from myrmidon.orchestration.fit_report import bonded_diff, charge_diff
 
 # real mimicpy output layout (a ligand itp from a metalloenzyme fit): mixed row formats,
 # comments after ';', funct-9 dihedrals with one row per multiplicity

@@ -163,9 +163,61 @@ def _reviewed(sidecar) -> bool:
     import json
 
     try:
-        return json.loads(sidecar.read_text()).get("written_by") != "qm_region"
+        from myrmidon.engines.mimic.partition import PARTITION_TOOL
+
+        return json.loads(sidecar.read_text()).get("written_by") != PARTITION_TOOL
     except (OSError, ValueError):
         return False
+
+
+def prepare_findings(ctx: ToolContext, mandate, stage, structure: str | None) -> list[Finding]:
+    """What keeps a stage's QM region from being the approved one on these coordinates: chemistry
+    its selection leaves open; atoms none of the mandate's selections holds; and, on a coupled
+    fresh start, where CPMD takes the QM atoms from the input the selection wrote and GROMACS the
+    rest from the structure, a selection made on other coordinates. A stage that restarts takes
+    both from what it restarts."""
+    from myrmidon.core.artifacts import sha256_file
+    from myrmidon.core.lineage import system_file
+    from myrmidon.engines.mimic.partition import PARTITION_TOOL, open_chemistry
+
+    if stage.qm_region is None:
+        return []
+    ws = ctx.workspace
+    found: list[Finding] = [
+        Precondition(id="QM_REGION_OPEN", message=question,
+                     suggestion="ask the researcher, then revise the mandate: a stated "
+                     "multiplicity goes in the stage's qm_region, a charge in a decision locking "
+                     "qm_region.charge")
+        for question in open_chemistry(ws, [stage], mandate.decisions.yours, stage.name)]
+    merged = system_file(ws, mandate, "cpmd_input", stage.name)
+    selected = next((ev for ev in reversed(list(ws.ledger.events()))
+                     if ev.tool == PARTITION_TOOL and ev.ok and ev.kind == "call"
+                     and any(a.path == merged for a in ev.outputs)), None)
+    if selected is None:
+        return found
+    approved = [f.path for f in mandate.system.files if f.kind == "qm_selection"
+                and ws.resolve(f.path).is_file()]
+    wrote = next((a for a in selected.outputs if a.role == "qm_selection"), None)
+    if approved and wrote and ws.resolve(wrote.path).read_text() not in {
+            ws.resolve(path).read_text() for path in approved}:
+        found.append(Precondition(
+            id="QM_SELECTION_NOT_APPROVED",
+            message=f"the QM selection this stage reads ({wrote.path}) is none the approved "
+            f"mandate holds ({', '.join(approved)}): which atoms are quantum is the researcher's",
+            suggestion="select the approved atoms, or revise the mandate with the reason, "
+            "stating system_files with this selection: a revision keeps the files it held"))
+    begins = mandate.method.starts_from(stage)
+    coupled_before = begins is not None and begins.regime != "mm" and begins.name != stage.name
+    coords = next((i for i in selected.inputs if i.role == "coords"), None)
+    if (stage.regime != "mm" and not coupled_before and coords is not None
+            and structure is not None and ws.resolve(structure).is_file()
+            and sha256_file(ws.resolve(structure)) != coords.sha256):
+        found.append(Precondition(
+            id="QM_REGION_ON_OTHER_COORDINATES",
+            message=f"the QM region was selected on {coords.path}, and stage {stage.name} starts "
+            f"from {structure}: the QM and MM halves would hold different configurations",
+            suggestion="qm_region again on the structure the stage starts from"))
+    return found
 
 
 def restart_as_recorded(ctx: ToolContext, restart, given: str) -> list[Finding]:

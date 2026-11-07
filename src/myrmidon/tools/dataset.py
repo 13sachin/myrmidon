@@ -85,8 +85,8 @@ def dataset_collect(ctx: ToolContext, params: DatasetCollectParams) -> Observati
         return Observation(ok=False, summary=f"a dataset needs its {', '.join(missing)}: name "
                            "them, or the stage whose runs wrote them")
     return fit_adapter().collect_dataset(ctx, DatasetRequest(
-        fmdata=params.fmdata, trajectory=params.trajectory, topology=params.topology,
+        reference_files=params.fmdata, trajectory=params.trajectory, topology=params.topology,
         coords=params.coords, selection=params.selection, stage=params.output_stage,
         check_frames=params.check_frames, align_if_desynced=params.align_if_desynced,
-        monitor_pairs=params.monitor_pairs, cpmd_logs=params.cpmd_logs,
+        monitor_pairs=params.monitor_pairs, run_logs=params.cpmd_logs,
         duplicate_rmsd_a=params.duplicate_rmsd_a))

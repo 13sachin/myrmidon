@@ -9,8 +9,8 @@ from myrmidon.engines.gromacs import layout, mdp, parse, run, system
 from myrmidon.engines.gromacs.batch import collect_minimized
 from myrmidon.engines.gromacs.collect import collect_run, diagnose_log
 from myrmidon.engines.gromacs.collect import run_progress as mdrun_progress
-from myrmidon.engines.gromacs.common import join_trajectories
-from myrmidon.engines.registry import EngineAdapter
+from myrmidon.engines.gromacs.common import extract_energy_terms, join_trajectories
+from myrmidon.engines.registry import EngineAdapter, InputCheck
 from myrmidon.execution.collect import collector, progress
 
 collector("gromacs")(collect_run)
@@ -30,6 +30,17 @@ def _system_parts(files: Mapping[str, Path], data_dir: Path | None) -> dict:
         return {}
     residuetypes = data_dir / "residuetypes.dat" if data_dir is not None else None
     return system.subsystems_of(top, [data_dir] if data_dir is not None else [], residuetypes)
+
+
+def _input_findings(ctx, _named: str, path: Path, _tpr: str | None) -> InputCheck | None:
+    """An mdp's checks against the engine's catalog and what its rules know."""
+    from myrmidon.knowledge.catalog import for_engine
+
+    if path.suffix.lower() != ".mdp":
+        return None
+    findings, checked = mdp.validate_mdp(mdp.parse_mdp_file(path),
+                                         for_engine(ctx.engines, "gromacs"))
+    return InputCheck("mdp", "MDP", findings, checked)
 
 
 def _run_log(record) -> Path | None:
@@ -61,4 +72,8 @@ ADAPTER = EngineAdapter(
     build_job=run.build_job,
     diagnose=diagnose_log,
     join_trajectories=join_trajectories,
+    energy_series=extract_energy_terms,
+    forcefield=system.forcefield,
+    input_findings=_input_findings,
+    run_reads=("mdp", "tpr", "checkpoint", "structure", "topology", "index", "trajectory"),
 )

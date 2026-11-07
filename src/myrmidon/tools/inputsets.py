@@ -303,15 +303,19 @@ def _covers(method, forcefield: str) -> bool:
 
 def _method_for(ctx: ToolContext, params: InputSetApplyParams, inputset, store
                 ) -> tuple[object | None, list[Finding]]:
-    """The method set a purpose set is rendered with: the call's, or for GROMACS the one
-    covering the force field the topology includes."""
-    from myrmidon.engines.gromacs.system import forcefield
+    """The method set a purpose set is rendered with: the call's, or for an engine whose
+    topology includes a force field, the one covering it."""
+    from myrmidon.engines.registry import adapter
 
     if inputset.axis != "purpose":
         return None, []
     ref = params.method
-    top = _file(ctx, params.topology) if inputset.engine == "gromacs" else None
-    ff = forcefield(top) if top is not None else None
+    try:
+        reads_forcefield = adapter(inputset.engine).forcefield
+    except KeyError:
+        reads_forcefield = None
+    top = _file(ctx, params.topology) if reads_forcefield else None
+    ff = reads_forcefield(top) if top is not None else None
     candidates = sorted(m.id for m in store.all()
                         if m.axis == "method" and m.engine == inputset.engine)
     if ref:
