@@ -718,7 +718,9 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
     obs.findings = [*(Finding(id="MANDATE_NOTE", message=m) for m in comp.notes),
                     *(Finding(id="MANDATE_SUBSYSTEM_NOTE", message=m) for m in subsystem_notes)]
     obs.facts = [read] if read else []  # what was read from the system, to confirm
-    obs.quiet = {"text"}  # the model wrote it; the researcher reads it rendered
+    # the model wrote it; the researcher reads it rendered, and the approval's receipt, the
+    # digest, is theirs: it stays on the record, not in what the model is shown to say
+    obs.quiet = {"text", "digest"}
     obs.artifacts = [ArtifactRef.from_path(ws.root / mandates.MANDATE_FILE,
                                            mandates.MANDATE_ROLE, ws.root)]
     return obs
