@@ -320,7 +320,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_settled", async (event, ctx) => {
-    if (!approvalDue || dialogOpen || event.aborted || !ctx.hasUI) return;
+    if (event.aborted) approvalDue = false;  // Esc: the researcher asks with /approve
+    if (!approvalDue || dialogOpen || !ctx.hasUI) return;
     approvalDue = false;
     dialogOpen = true;
     const outcome = await approveInChat(pi, ctx).finally(() => { dialogOpen = false; });
