@@ -10,7 +10,6 @@ from myrmidon.core.tool import REGISTRY
 from myrmidon.core.workspace import Workspace
 from myrmidon.engines.facts import dipole_values, engine_log, is_run_log, run_values
 from myrmidon.errors import UnknownToolError
-from myrmidon.knowledge.observables import PROPERTIES, measured_property
 from myrmidon.orchestration.summary import summarize
 
 #: calls the report does not count as work besides the navigation tools (which declare
@@ -152,14 +151,6 @@ def _fmt(value) -> str:
     return str(value)
 
 
-def analysis_tools() -> set[str]:
-    """The tools whose results a report collects for the run they read: those tagged
-    `analysis` in the registry."""
-    from myrmidon.core.tool import REGISTRY
-
-    return {spec.name for spec in REGISTRY.specs() if "analysis" in spec.tags}
-
-
 def trace_lines(events, limit: int | None = None) -> list[str]:
     """The study's calls, from its ledger events, oldest first (the last ``limit``): the
     tool, its outcome, the files it made and the job it submitted or collected."""
@@ -183,156 +174,21 @@ def collection_outputs(events, job_id: str) -> list:
     return []
 
 
-def analysis_values(ws, events, run_dir: str, run_files: set[str] = frozenset()
-                    ) -> tuple[list[str], list]:
-    """(the report's lines, its values) for every successful analysis call that read a
-    file of the run: one of ``run_files`` (what its collection recorded), or, when the
-    collection recorded none, any file in ``run_dir``. Each value is re-parsed from the
-    analysis's own output file (the .xvg, .npz or .json it wrote), which the ledger names
-    by hash — a file changed since is said to be, not read. Energy terms as mean, sd and
-    drift; a trajectory metric as its mean, final and largest value; a convergence verdict
-    with the settled part's mean and drift."""
-    import json
-
-    import numpy as np
-
-    from myrmidon.core.artifacts import sha256_file
+def run_values_of(ws, label: str, rec, event_id: str) -> list:
+    """What one completed run's engine log states, as report values: its facts, and the QM
+    dipole beside a coupled run's log."""
     from myrmidon.core.observation import ReportValue
 
-    lines: list[str] = []
-    values: list[ReportValue] = []
-    prefix = run_dir.rstrip("/") + "/"
-
-    def of_the_run(path: str) -> bool:
-        return path in run_files if run_files else path.startswith(prefix)
-
-    derived: set[str] = set()  # what the analyses so far wrote: a convergence check may
-    # read another analysis's series rather than the run's files, and is still this run's
-    analyses = analysis_tools()
-    for ev in events:
-        if ev.tool not in analyses or not ev.ok or ev.kind != "call":
-            continue
-        if not any(of_the_run(inp.path) or inp.path in derived for inp in ev.inputs):
-            continue
-        derived.update(a.path for a in ev.outputs)
-        out = next((a for a in ev.outputs if a.path.endswith((".xvg", ".npz", ".json"))), None)
-        if out is None:
-            continue
-        file = ws.root / out.path
-        label = f"{ev.tool} (event {ev.event_id})"
-        if not file.is_file() or sha256_file(file) != out.sha256:
-            lines.append(f"  - {label}: its output {out.path} is not the file the ledger "
-                         "recorded (changed or gone), so its values are not stated")
-            continue
-
-        def add(name: str, value, unit: str = "", event_id=ev.event_id, path=out.path) -> None:
-            lines.append(f"    - {name}: {_fmt(value)}{' ' + unit if unit else ''}")
-            values.append(ReportValue(step=run_dir, label=name, value=value, unit=unit,
-                                      event=event_id, file=path))
-
-        measured = measured_property(ev.params)
-        extractor = PROPERTIES[measured][0] if measured in PROPERTIES else ""
-        if extractor == "energy":
-            from myrmidon.analysis.energy import UNIT_BY_TERM, parse_xvg, term_stats
-
-            data, legends = parse_xvg(file.read_text())
-            if data.size == 0 or data.shape[1] < 2:
-                continue
-            names = legends or list(ev.params.get("terms") or [])
-            lines.append(f"  - {label}, over {data[-1, 0] - data[0, 0]:g} ps from {out.path}:")
-            for i, name in enumerate(names, start=1):
-                if i >= data.shape[1]:
-                    break
-                unit = UNIT_BY_TERM.get(name.lower(), "kJ/mol")
-                st = term_stats(data[:, 0], data[:, i], unit)
-                add(f"{name}, mean", st.mean, unit)
-                add(f"{name}, sd", st.std, unit)
-                if st.drift_per_ns is not None:
-                    add(f"{name}, drift", st.drift_per_ns, f"{unit}/ns")
-        elif measured == "pair_distance":
-            with np.load(file) as z:
-                labels = [str(x) for x in z["pairs"]]
-                d = z["pair_distance"]
-                ref = z["reference_mean"] if "reference_mean" in z.files else None
-            lines.append(f"  - {label}: pair distances over {d.shape[0]} frames, from "
-                         f"{out.path}:")
-            for k, name in enumerate(labels):
-                add(f"{name}, mean", float(d[:, k].mean()), "Å")
-                if ref is not None:
-                    add(f"{name}, reference mean", float(ref[k]), "Å")
-            if ref is not None:
-                add("mean absolute difference from the reference",
-                    float(np.mean(np.abs(d.mean(axis=0) - ref))), "Å")
-        elif extractor == "forces":
-            data = json.loads(file.read_text())
-            units = data.get("units") or ""
-            lines.append(f"  - {label}: {data.get('label')} against the reference over "
-                         f"{data.get('n_frames')} frames, from {out.path}:")
-            add(f"{data.get('label')}, force RMSE", data["rmse"], units)
-            add(f"{data.get('label')}, reference RMS", data["ref_rms"], units)
-        elif extractor == "trajectory":
-            metric = str(ev.params.get("metric", ""))
-            with np.load(file) as z:
-                if metric not in z.files:
-                    continue
-                y = z[metric]
-                axis = next((k for k in z.files if k != metric), "")
-            unit = "g(r)" if metric == "rdf" else "Å"
-            over = (f"{ev.params.get('selection', '')!r}"
-                    + (f" vs {ev.params.get('selection2')!r}" if ev.params.get("selection2")
-                       else ""))
-            lines.append(f"  - {label}: {metric} of {over}, {len(y)} points over {axis}, "
-                         f"from {out.path}:")
-            if metric != "rdf":
-                add(f"{metric}, mean", float(np.mean(y)), unit)
-            add(f"{metric}, largest", float(np.max(y)), unit)
-            if axis == "time_ps":
-                add(f"{metric}, final", float(y[-1]), unit)
-        elif extractor == "settling":
-            for s in json.loads(file.read_text()):
-                unit = s.get("unit") or ""
-                lines.append(f"  - {label}: {s['name']} over {_fmt(s['span_ps'])} ps, "
-                             f"from {out.path}:")
-                add(f"{s['name']}, settled from", s["equilibrated_from_ps"], "ps")
-                add(f"{s['name']}, settled mean", s["mean"], unit)
-                add(f"{s['name']}, standard error", s["standard_error"], unit)
-                if s.get("drift_per_ns") is not None:
-                    add(f"{s['name']}, drift", s["drift_per_ns"], f"{unit}/ns" if unit else "/ns")
-                if s.get("criterion_met") is not None:
-                    add(f"{s['name']}, criterion met", bool(s["criterion_met"]))
-    return lines, values
-
-
-def run_lines(ws, events, label: str, rec, event_id: str) -> tuple[list[str], list]:
-    """(lines, values) for one run: its engine log's values and what the analyses made of
-    its files, each re-read from its own output."""
-    from pathlib import Path
-
-    from myrmidon.core.observation import ReportValue
-
-    lines: list[str] = []
-    values: list[ReportValue] = []
     out = engine_log(rec)
-    rel = ws.relpath(out) if out.is_file() else str(out)
     if not is_run_log(out):
-        lines.append(f"- {label}: no engine log this report parses ({rel}); what the "
-                     "analyses made of its files follows")
-    else:
-        lines.append(f"- {label}, from {rel} (event {event_id}):")
-        for name, value, unit in run_values(out.read_text(errors="replace")):
-            lines.append(f"  - {name}: {_fmt(value)}{' ' + unit if unit else ''}")
-            values.append(ReportValue(step=label, label=name, value=value, unit=unit,
-                                      event=event_id, file=rel))
-        dipole = ws.relpath(out.parent / "DIPOLE")
-        for name, value, unit in dipole_values(out):
-            lines.append(f"  - {name}: {_fmt(value)}{' ' + unit if unit else ''} ({dipole})")
-            values.append(ReportValue(step=label, label=name, value=value, unit=unit,
-                                      event=event_id, file=dipole))
-    found_lines, found = analysis_values(
-        ws, events, ws.relpath(Path(rec.spec.cwd)),
-        {a.path for a in collection_outputs(events, rec.job_id)})
-    return [*lines, *found_lines], [*values, *(v.model_copy(update={"step": label})
-                                               for v in found)]
+        return []
+    rel = ws.relpath(out)
+    found = [(name, value, unit, rel)
+             for name, value, unit in run_values(out.read_text(errors="replace"))]
+    dipole = ws.relpath(out.parent / "DIPOLE")
+    found += [(name, value, unit, dipole) for name, value, unit in dipole_values(out)]
+    return [ReportValue(step=label, label=name, value=value, unit=unit, event=event_id,
+                        file=file) for name, value, unit, file in found]
 
 
 def mandate_report(ctx, mandate, data_file: str = "report.json"
@@ -341,9 +197,10 @@ def mandate_report(ctx, mandate, data_file: str = "report.json"
     for this study's mandate, read from the trace: the deliverables as their measurements
     read them, a row per stage with how far its latest completed run got and its engine's
     headline facts, the system and method, what departed from the approved mandate, and the
-    record. Every run's facts and analyses are values in the record, not lines."""
+    record. Every run's log facts are values in the record, not lines."""
     from myrmidon.core import mandate as mandates
-    from myrmidon.core.lineage import lineage
+    from myrmidon.core.lineage import lineage, stage_segments
+    from myrmidon.core.observation import ReportValue
     from myrmidon.execution.jobs import booked_under_mandates, existing_jobstore
 
     ws = ctx.workspace
@@ -353,35 +210,48 @@ def mandate_report(ctx, mandate, data_file: str = "report.json"
     since = min((a.timestamp for a in signed if a.timestamp), default=None)
     held = next((a for a in reversed(signed) if a.digest == mandate.digest), None)
     s: dict[str, list[str]] = {key: [] for key in SECTIONS}
-    values: list = []
 
     s["question"] = [mandate.question]
     store = existing_jobstore(ws)
     runs = [rec for rec in (store.list() if store else []) if rec.meta.get("mandate") in digests]
     by_id = {ev.event_id: ev for ev in events}
     lin = lineage(ws)
+    order = [stage.name for stage in mandate.method.stages]
 
-    def stage_of(rec) -> str:
-        ev = by_id.get(rec.meta.get("event_id", ""))
-        return min(lin.stages_of(ev), default="") if ev is not None else ""
+    def submission(rec):
+        return by_id.get(rec.meta.get("event_id", ""))
+
+    def stage_of(rec) -> str:  # the first, in the method's order, its submission ran
+        ran = lin.stages_of(ev) if (ev := submission(rec)) is not None else set()
+        return next((name for name in order if name in ran), min(ran, default=""))
 
     staged = [(stage_of(rec), rec) for rec in runs]
-    for _, rec in staged:
-        if rec.state is JobState.COMPLETED:
-            values += run_lines(ws, events, rec.label or rec.job_id, rec,
-                                rec.meta.get("event_id", ""))[1]
+    by_event = {rec.meta.get("event_id", ""): rec for rec in runs}
+    # each stage's latest run as the ledger chains it: a fresh start and its continuations,
+    # a segment stopped at its walltime included
+    segments = {stage.name: [by_event[sub.event_id] for sub, _, _ in
+                             stage_segments(ws, stage.name) if sub.event_id in by_event]
+                for stage in mandate.method.stages}
+    values = [v for _, rec in staged if rec.state is JobState.COMPLETED
+              for v in run_values_of(ws, rec.label or rec.job_id, rec,
+                                     rec.meta.get("event_id", ""))]
 
     table, found, delivered = deliverable_rows(mandate, events, digests, since)
     s["results"] = table if mandate.deliverables else ["(the mandate names no deliverables)"]
     values += found
-    s["stages"], stages = stage_rows(mandate, staged)
+    s["stages"], stages = stage_rows(mandate, staged, segments)
     rendered = mandates.render(mandate).split("\n")
     start = next(i for i, line in enumerate(rendered) if line.startswith("SYSTEM"))
     end = next(i for i, line in enumerate(rendered) if line.startswith("DECISIONS"))
     s["methods"] = ["```", *rendered[start:end - 1], "```"]
 
-    deviations, raw = departures(ws, mandate, events, staged, signed, since, held, values)
-    s["deviations"] = deviations or ["none: every stage ran as approved"]
+    deviations, raw = departures(mandate, events, staged, signed, since, held,
+                                 ran={name for ev in events if ev.event_id in lin.completed
+                                      for name in lin.stages_of(ev)})
+    s["deviations"] = ([deviation_line(d) for d in deviations]
+                       or ["none: every stage ran as approved"])
+    values += [ReportValue(step=f"stage:{d['stage']}", label="never ran", value=True,
+                           event="", file="") for d in deviations if d["kind"] == "never_ran"]
     booked = booked_under_mandates(ws, digests)
     s["record"] = [
         f"- revision {mandate.revision}, digest {mandate.digest[:12]}, "
@@ -402,11 +272,11 @@ def mandate_report(ctx, mandate, data_file: str = "report.json"
     return s, values, record
 
 
-def stage_rows(mandate, staged) -> tuple[list[str], list[dict]]:
+def stage_rows(mandate, staged, segments: dict[str, list]) -> tuple[list[str], list[dict]]:
     """(the Stage Table, its rows as report.json states them): each mandate stage's kind,
-    its target against how far its latest completed run got, the facts its engine states
-    first of such a run, and the core-hours its jobs booked."""
-    from myrmidon.engines.facts import engine_log, headline_values, is_run_log, run_progress
+    its target against how far its latest run got over the jobs of its ``segments``, the
+    facts its engine states first of such a run, and the core-hours its jobs booked."""
+    from myrmidon.engines.facts import headline_values, run_reached
 
     lines = ["| Stage | Kind / ensemble | Target → reached | Key check | core-h |",
              "|---|---|---|---|---|"]
@@ -416,14 +286,16 @@ def stage_rows(mandate, staged) -> tuple[list[str], list[dict]]:
         done = [rec for rec in jobs if rec.state is JobState.COMPLETED]
         kind = " ".join(x for x in (stage.kind, stage.ensemble or "",
                                     f"({stage.regime})" if stage.regime != "mm" else "") if x)
+        unit = "ps" if stage.duration_ps is not None else "steps"
         target = (f"{stage.duration_ps:g} ps" if stage.duration_ps is not None
                   else f"{stage.steps} steps" if stage.steps is not None else "")
         reached, checks = (jobs[-1].state.value.lower() if jobs else "not run"), []
-        if done:
-            log = engine_log(done[-1])
-            text = log.read_text(errors="replace") if is_run_log(log) else ""
-            reached = run_progress(text, in_steps=stage.duration_ps is None) or "completed"
-            checks = headline_values(text, stage.kind, stage.ensemble or "")
+        if done and segments.get(stage.name):
+            logs = dict.fromkeys(engine_log(rec) for rec in segments[stage.name])
+            texts = [log.read_text(errors="replace") for log in logs if is_run_log(log)]
+            got = run_reached(texts, unit)
+            reached = f"{got:g} {unit}" if got is not None else "completed"
+            checks = headline_values(texts[-1], stage.kind, stage.ensemble or "") if texts else []
         core_h = sum(rec.meta.get("core_h_estimate") or 0.0 for rec in jobs)
         said = "; ".join(f"{label} {_fmt(v)}{' ' + unit if unit else ''}"
                          for label, v, unit in checks)
@@ -443,40 +315,34 @@ def _stage_ref(ev) -> str:
     return named_stage(ev) or str(ev.params.get("stage") or "")
 
 
-def departures(ws, mandate, events, staged, signed, since, held, values
-               ) -> tuple[list[str], int]:
-    """(what departed from the approved mandate, how many calls were refused or failed under
-    it): a revision on disk not approved; a stage the researcher's decisions lock that never
-    ran; a job that failed or timed out with no later completed run of its stage; a refused
-    or failed call no later successful call of the same tool for the same stage made good;
-    each revision approved after the first. ``values`` gains each stage that never ran."""
+def departures(mandate, events, staged, signed, since, held, ran: set[str]
+               ) -> tuple[list[dict], int]:
+    """(what departed from the approved mandate, each as a record of its kind; how many calls
+    were refused or failed under it): the revision on disk not approved (``unapproved``); a
+    stage the researcher's decisions lock that never ran (``never_ran``); a job that failed
+    or timed out with no later completed run of its stage (``failed_job``); a refused or
+    failed call no later successful call of the same tool for the same stage made good
+    (``refused``, ``failed_call``); each revision approved after the first (``revision``)."""
     from myrmidon.core import mandate as mandates
-    from myrmidon.core.lineage import stages_run
-    from myrmidon.core.observation import ReportValue
 
-    out: list[str] = []
+    out: list[dict] = []
     if held is None:
-        out.append(f"- mandate revision {mandate.revision} on disk is not approved: nothing "
-                   "has run under it")
-    ran = stages_run(ws)
+        out.append({"kind": "unapproved", "revision": mandate.revision})
     for stage in mandate.method.stages:
         locked = [said for field, _, said in mandates.locks_on(mandate, stage.name)
                   if stage.name not in ran
                   and mandates.field_value(stage, field) is not None]
         if locked:
-            out.append(f"- stage {stage.name}, which the researcher's decisions lock ("
-                       + "; ".join(f'"{w}"' for w in dict.fromkeys(locked)) + "), never ran")
-            values.append(ReportValue(step=f"stage:{stage.name}", label="never ran",
-                                      value=True, event="", file=""))
+            out.append({"kind": "never_ran", "stage": stage.name,
+                        "locked_by": list(dict.fromkeys(locked))})
     for at, (name, rec) in enumerate(staged):
         if rec.state not in (JobState.FAILED, JobState.TIMEOUT):
             continue
         key = name or rec.label
         if not any((later or other.label) == key and other.state is JobState.COMPLETED
                    for later, other in staged[at + 1:]):
-            out.append(f"- {f'stage {name}' if name else rec.label or rec.job_id}: its job "
-                       f"{rec.state.value.lower()} (exit code {rec.exit_code}) and no later "
-                       "run of it completed")
+            out.append({"kind": "failed_job", "stage": name, "job": rec.label or rec.job_id,
+                        "state": rec.state.value, "exit_code": rec.exit_code})
     digests = {a.digest for a in signed}
     flagged = [at for at, ev in enumerate(events)
                if since is not None and ev.timestamp >= since
@@ -487,15 +353,33 @@ def departures(ws, mandate, events, staged, signed, since, held, values
         if any(later.ok and later.kind == "call" and later.tool == ev.tool
                and _stage_ref(later) == _stage_ref(ev) for later in events[at + 1:]):
             continue
-        stage = _stage_ref(ev)
-        out.append(f"- {ev.tool}" + (f" for stage {stage}" if stage else "")
-                   # a refusal's stopping finding is its first
-                   + (f" refused: {ev.knowledge_refs[0]}" if ev.kind == "gate_refused"
-                      and ev.knowledge_refs else " refused" if ev.kind == "gate_refused"
-                      else " failed")
-                   + ", and was not made good")
-    out += [f"- revision approved by {a.approver}" for a in signed[1:]]
+        refused = ev.kind == "gate_refused"
+        out.append({"kind": "refused" if refused else "failed_call", "tool": ev.tool,
+                    "stage": _stage_ref(ev), "event": ev.event_id,
+                    # a refusal's stopping finding is its first
+                    "finding": ev.knowledge_refs[0] if refused and ev.knowledge_refs else ""})
+    out += [{"kind": "revision", "approver": a.approver, "event": a.event_id}
+            for a in signed[1:]]
     return out, len(flagged)
+
+
+def deviation_line(d: dict) -> str:
+    """A departure as the report states it: in words, with no event id."""
+    stage = f" for stage {d['stage']}" if d.get("stage") else ""
+    return "- " + {
+        "unapproved": lambda: f"mandate revision {d['revision']} on disk is not approved: "
+                              "nothing has run under it",
+        "never_ran": lambda: f"stage {d['stage']}, which the researcher's decisions lock ("
+                             + "; ".join(f'"{w}"' for w in d["locked_by"]) + "), never ran",
+        "failed_job": lambda: (f"stage {d['stage']}" if d["stage"] else d["job"])
+                              + f": its job {d['state'].lower()} (exit code {d['exit_code']}) "
+                              "and no later run of it completed",
+        "refused": lambda: f"{d['tool']}{stage} refused"
+                           + (f": {d['finding']}" if d["finding"] else "")
+                           + ", and was not made good",
+        "failed_call": lambda: f"{d['tool']}{stage} failed, and was not made good",
+        "revision": lambda: f"revision approved by {d['approver']}",
+    }[d["kind"]]()
 
 
 def key_outputs(events, staged) -> dict[str, dict[str, str]]:
@@ -533,8 +417,9 @@ def deliverable_record(d, ev) -> dict:
 def deliverable_rows(mandate, events, digests, since) -> tuple[list[str], list, dict]:
     """(the Deliverables Table, its values, each deliverable as report.json states it): each
     deliverable's quantities with the statistics the measurement that read them stated, from
-    its ledger event; NOT measured where no event under an approved revision did. Nothing is
-    recomputed here."""
+    its ledger event; NOT measured where no event under an approved revision did. A
+    deliverable stated as a call of its own (a dataset, a fit) states no single number: its
+    row says the call was made, and its tables follow. Nothing is recomputed here."""
     from myrmidon.core.observation import ReportValue
 
     lines = ["| Deliverable | Stage | Result | Unit |", "|---|---|---|---|"]
@@ -546,7 +431,7 @@ def deliverable_rows(mandate, events, digests, since) -> tuple[list[str], list, 
         quantities = ev.measured.get("quantities", []) if ev is not None else []
         if ev is None or not quantities:
             lines.append(f"| {d.name} | {d.over or '—'} | "
-                         f"{'NOT measured' if ev is None else 'ran; states no number'} | |")
+                         f"{'NOT measured' if ev is None else 'made by its own call'} | |")
             continue
         for q in quantities:
             name = d.name if len(quantities) == 1 else f"{d.name}: {q['name']}"

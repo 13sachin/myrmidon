@@ -27,6 +27,8 @@ HEADLINE = {
     "dynamics NVE": ("eclassic_drift_ha_per_ps",),
     "dynamics": ("mean_temperature_k",),
 }
+#: how far a coupled run got: the span its log covers, else its steps
+PROGRESS = {"ps": ("md_time_ps",), "steps": ("md_steps_completed",)}
 #: what DIPOLE DYNAMICS's file beside a coupled run's log states, with the log's cell volume
 DIPOLE_FACTS = {
     "dipole_steps": ("steps of the QM dipole series", ""),

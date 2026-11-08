@@ -833,9 +833,10 @@ def deliverable_words(d: Deliverable) -> str:
 def render(mandate: Mandate, spent_core_h: float = 0.0,
            compiled: dict[str, list[str]] | None = None,
            priced: dict[str, str] | None = None,
-           measured: dict[str, str] | None = None, detail: bool = False) -> str:
+           measured: dict[str, str] | None = None, detail: bool = False,
+           core_h: dict[str, float | None] | None = None) -> str:
     """The mandate as the researcher reads it: the question, the system, the stages in
-    physical words with their prices, the decisions in the researcher's words, the
+    physical words with their prices (``core_h``), the decisions in the researcher's words, the
     deliverables, the cost against the ceiling, and the revision and short digest the
     approval binds to. ``detail`` adds what the model and an auditor read: the system's
     files, what the engines are told per stage (``compiled``), each stage's price basis
@@ -864,9 +865,8 @@ def render(mandate: Mandate, spent_core_h: float = 0.0,
     if mandate.method.described:
         lines.append(pad + "  →  ".join(mandate.method.described))
     for stage in mandate.method.stages:
-        price = ("" if detail or stage.name in mandate.cost.unpriced
-                 or " core-h" not in priced.get(stage.name, "")
-                 else f"  [{priced[stage.name].split(': ', 1)[0]}]")
+        price = ("" if detail or (core_h or {}).get(stage.name) is None
+                 else f"  [{core_h[stage.name]:g} core-h]")
         lines.append(f"{pad}{stage.name}: {stage_words(stage)}{price}")
         for line in (compiled or {}).get(stage.name, []) if detail else []:
             lines.append(f"{pad}    → {line}")
@@ -894,7 +894,7 @@ def render(mandate: Mandate, spent_core_h: float = 0.0,
         if d.property:
             lines.append(f"{pad}{d.name}: {deliverable_words(d)}")
         else:
-            how = ", ".join(x for x in (f"by {d.tool}" if d.tool else "",
+            how = ", ".join(x for x in (f"by {d.tool}" if d.tool and detail else "",
                                         f"over {d.over}" if d.over else "") if x)
             lines.append(f"{pad}{d.name}" + (f" ({how})" if how else ""))
         if detail and d.params:
@@ -928,7 +928,8 @@ def render(mandate: Mandate, spent_core_h: float = 0.0,
 def view(ws, mandate: Mandate | None, spent_core_h: float = 0.0,
          compiled: dict[str, list[str]] | None = None,
          priced: dict[str, str] | None = None,
-         measured: dict[str, str] | None = None, detail: bool = False) -> dict:
+         measured: dict[str, str] | None = None, detail: bool = False,
+         core_h: dict[str, float | None] | None = None) -> dict:
     """What an approval surface shows and checks: the rendering (the researcher's, or with
     ``detail`` the model's and an auditor's), the numbers, the digest, and what keeps it
     from being approved now ("" when nothing does)."""
@@ -945,7 +946,8 @@ def view(ws, mandate: Mandate | None, spent_core_h: float = 0.0,
         "kind": "mandate",
         "study": str(ws.root),
         "question": mandate.question,
-        "text": render(mandate, spent_core_h, compiled, priced, measured, detail=detail),
+        "text": render(mandate, spent_core_h, compiled, priced, measured, detail=detail,
+                       core_h=core_h),
         "digest": mandate.digest,
         "revision": mandate.revision,
         "status": mandate.status,

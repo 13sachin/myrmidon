@@ -73,9 +73,10 @@ def _approve_mandate(ctx, *, digest: str, show: bool, as_json: bool, yes: bool, 
     from myrmidon.tools.mandate import compiled
 
     comp = compiled(ctx, mandate) if mandate is not None else None
+    prices = {name: p.core_h for name, p in comp.prices.items()} if comp else None
     view = mandates.view(ws, mandate, spent, comp.lines if comp else None,
                          comp.priced if comp else None, comp.measured if comp else None,
-                         detail=detail)
+                         detail=detail, core_h=prices)
     if mandate is None:
         typer.echo(f"✗ {view['blocked']}")
         raise typer.Exit(1)

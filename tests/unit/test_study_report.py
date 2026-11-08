@@ -110,41 +110,6 @@ def test_the_report_states_parsed_values_and_prose_around_them(ws_ctx, narrative
         assert written.index("Read as the results.") < written.index("## Deviations")
 
 
-def test_an_analysis_is_reported_under_the_run_whose_files_it_read(ws_ctx):
-    """Runs share a directory; an analysis of one run's energy file is that run's and no
-    other's. Only a run whose collection recorded no files falls back to the directory."""
-    from myrmidon.core.artifacts import ArtifactRef
-    from myrmidon.core.provenance import ProvenanceEvent
-    from myrmidon.orchestration.report import analysis_values, collection_outputs
-
-    def collected_files(events, job):
-        return {a.path for a in collection_outputs(events, job)}
-
-    ws = ws_ctx.workspace
-    (ws.root / "07_analysis").mkdir(exist_ok=True)
-    xvg = ws.root / "07_analysis" / "md_energy.xvg"
-    xvg.write_text('@ s0 legend "Temperature"\n0 299.0\n10 301.0\n20 300.0\n')
-    xvg_ref = ArtifactRef.from_path(xvg, "data", root=ws.root)
-
-    def ref(path):
-        return ArtifactRef(path=path, role="edr", sha256="0" * 64, size_bytes=1)
-
-    events = [
-        ProvenanceEvent(tool="job_status", params={"job_id": "job-em"},
-                        outputs=[ref("06_run/em.edr")]),
-        ProvenanceEvent(tool="job_status", params={"job_id": "job-md"},
-                        outputs=[ref("06_run/md.edr")]),
-        ProvenanceEvent(tool="observable_measure", params={"terms": ["Temperature"]},
-                        inputs=[ref("06_run/md.edr")], outputs=[xvg_ref]),
-    ]
-    assert collected_files(events, "job-md") == {"06_run/md.edr"}
-    for job, n_values in (("job-em", 0), ("job-md", 3)):
-        _, values = analysis_values(ws, events, "06_run", collected_files(events, job))
-        assert len(values) == n_values, job
-    _, values = analysis_values(ws, events, "06_run", collected_files(events, "job-none"))
-    assert len(values) == 3
-
-
 # (the extractor, the property, what its observation states, the statistics the deliverable
 # asks for) -> the quantity the ledger keeps, and the statistics the report states of it
 MEASURED = [
@@ -187,8 +152,7 @@ def test_a_deliverable_is_reported_as_its_measurement_read_it(extractor, prop, s
     event = ProvenanceEvent(tool="observable_measure", mandate="d" * 64, measured={
         "deliverable": "it", "file": "07_analysis/x", "quantities": quantities})
     stale = event.model_copy(update={"mandate": "", "event_id": "ev-unbound"})
-    lines, values, record = deliverable_rows(mandate, [event, stale], {"d" * 64}, None)
+    _, values, record = deliverable_rows(mandate, [event, stale], {"d" * 64}, None)
     assert {(v.quantity, v.label, v.unit, v.event) for v in values if v.quantity == name} == {
         (name, k, unit, event.event_id) for k in statistics}
     assert record["it"]["event"] == event.event_id and not record["never"]["measured"]
-    assert sum("NOT measured" in line for line in lines) == 1

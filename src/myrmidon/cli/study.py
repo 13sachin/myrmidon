@@ -84,9 +84,13 @@ def plan_show(
     if mandate is None:
         typer.echo("this study has no mandate — the agent writes one with mandate_write")
     else:
+        from myrmidon.tools.mandate import compiled
+
+        comp = compiled(ctx, mandate)
         typer.echo(mandates.render(mandate,
                                    booked_under_mandates(ws, mandates.approved_digests(ws)),
-                                   detail=detail))
+                                   comp.lines, comp.priced, comp.measured, detail=detail,
+                                   core_h={n: p.core_h for n, p in comp.prices.items()}))
     typer.echo("")
     typer.echo("TRACE")
     for line in trace_lines(ws.ledger.events()) or ["(nothing has run)"]:

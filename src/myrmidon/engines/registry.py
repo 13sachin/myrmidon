@@ -160,6 +160,8 @@ class EngineAdapter:
     #: "<stage kind> <ensemble>" or "<stage kind>" -> the fact keys a report states first of
     #: such a run: what says whether it did what its stage asks
     headline: Mapping[str, tuple[str, ...]] | None = None
+    #: "ps" | "steps" -> the fact keys that state how far a run got, in that unit
+    progress: Mapping[str, tuple[str, ...]] | None = None
     #: a job record -> the file its run wrote its account into; None when there is none
     run_log: Callable[[object], Path | None] | None = None
     #: (cores, system facts) -> the ranks and threads a run takes on them

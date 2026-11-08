@@ -296,8 +296,10 @@ def test_a_job_runs_only_on_the_approved_system_with_the_researchers_values(ws_c
     stages = {row["stage"]: row for row in record["stages"]}
     assert stages["nvt"]["reached"] == stages["nvt"]["target"] and stages["nvt"]["checks"]
     assert stages["nvt_again"]["reached"] == "failed"
-    assert record["refused_or_failed_calls"] >= 1 and len(record["deviations"]) == 2
-    assert any("MANDATE_DECISION" in d for d in record["deviations"])  # a preview only looks
+    assert record["refused_or_failed_calls"] >= 1
+    assert [(d["kind"], d["stage"]) for d in record["deviations"]] == [
+        ("failed_job", "nvt_again"), ("refused", "nvt_again")]
+    assert record["deviations"][1]["finding"] == "MANDATE_DECISION"  # a preview only looks
 
 
 # (a value as a file writes it, the researcher's constraint, met)

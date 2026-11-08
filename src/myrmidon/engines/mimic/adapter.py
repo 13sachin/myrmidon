@@ -92,6 +92,7 @@ ADAPTER = EngineAdapter(
     run_facts=diagnostics.cpmd_facts,
     fact_labels=diagnostics.RUN_FACTS,
     headline=diagnostics.HEADLINE,
+    progress=diagnostics.PROGRESS,
     run_log=_run_log,
     resolve_layout=layout.resolve_layout,
     layout_facts=layout.layout_facts,

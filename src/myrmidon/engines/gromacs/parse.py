@@ -82,6 +82,9 @@ HEADLINE = {
     "dynamics NPT": ("mean_temperature_k", "mean_pressure_bar"),
     "dynamics": ("mean_temperature_k",),
 }
+#: how far a run got: its last time (one log holds a run and every continuation appended to
+#: it), else its steps
+PROGRESS = {"ps": ("md_time_ps",), "steps": ("md_steps_completed", "minimisation_steps")}
 _COLUMN = 15  # mdrun prints its energy tables in %15s / %15.5e columns
 _MINIMISERS = ("steep", "cg", "l-bfgs")
 

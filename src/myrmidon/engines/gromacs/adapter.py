@@ -68,6 +68,7 @@ ADAPTER = EngineAdapter(
     run_facts=parse.run_facts,
     fact_labels=parse.GROMACS_FACTS,
     headline=parse.HEADLINE,
+    progress=parse.PROGRESS,
     run_log=_run_log,
     resolve_layout=layout.resolve_layout,
     layout_facts=layout.layout_facts,

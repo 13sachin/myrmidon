@@ -43,19 +43,28 @@ def headline_values(text: str, kind: str, ensemble: str = "") -> list[tuple[str,
         return []
     keys = engine.headline.get(f"{kind} {ensemble}".strip()) or engine.headline.get(kind, ())
     facts = engine.run_facts(text)
-    labels = engine.fact_labels or {}
-    return [(*labels.get(key, (key, ""))[:1], facts[key], labels.get(key, ("", ""))[1])
-            for key in keys if key in facts]
+    out = []
+    for key in keys:
+        if key in facts:
+            label, unit = (engine.fact_labels or {}).get(key, (key, ""))
+            out.append((label, facts[key], unit))
+    return out
 
 
-def run_progress(text: str, in_steps: bool = False) -> str:
-    """How far a run got, as its log states it: the simulated time (unless ``in_steps``),
-    else the steps."""
-    facts = run_facts(text)
-    if facts.get("md_time_ps") is not None and not in_steps:
-        return f"{facts['md_time_ps']:g} ps"
-    steps = facts.get("md_steps_completed", facts.get("minimisation_steps"))
-    return f"{steps} steps" if steps is not None else ""
+def run_reached(texts: list[str], unit: str) -> float | None:
+    """How far a run got over the logs of its segments, in ``unit`` ("ps" or "steps"), as
+    the engines that wrote them state it: each log's progress, summed. None when no log
+    states it."""
+    found = []
+    for text in texts:
+        engine = adapter_of_log(text)
+        if engine is None or not engine.progress:
+            continue
+        facts = engine.run_facts(text)
+        found += [next((facts[k] for k in engine.progress.get(unit, ()) if facts.get(k)
+                        is not None), None)]
+    found = [v for v in found if v is not None]
+    return sum(found) if found else None
 
 
 def dipole_values(log: Path) -> list[tuple[str, object, str]]:
