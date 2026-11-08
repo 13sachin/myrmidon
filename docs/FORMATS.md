@@ -28,6 +28,7 @@ A study is a directory:
 | `mandate.yaml` | the study's mandate, written by `mandate_write` (below) |
 | `<file>.myrmidon.json` | beside an engine input `inputset_apply` rendered: where each of its values came from (below) |
 | `report.md` | the study's report, written by `study_report` from the mandate and the trace: the harness's sections, the model's prose after each, and any section of the model's own after them |
+| `report.json` | the report's data beside it, written with every `report.md`: `question`, `mandate_digest`, `revision`, `approval_event`, `core_h_booked`, `core_h_ceiling`, `deliverables` (name -> `{stage, measured, event, file, quantities}`), `values` (every value the report states, with its event and file) and a fit's `rounds` (`[]` without one, with the fit's tables' data beside them) |
 | `journal.jsonl` | the journal (below): decisions, ruled-out causes, suspicions, intentions |
 | `inbox.jsonl` | parked questions and notices, and the answers to them (below) |
 | `NN_name/.receipt-*/` | a job's node receipt (below) |
@@ -98,7 +99,8 @@ saw nothing new), which is not worth a line. A refused call is an event too.
 | `kind` | `call` (it did something), `observe` (a look at something that exists: counted apart from the work), `gate_refused` (the validation gate refused it; nothing ran) |
 | `knowledge_refs` | ids of the findings the call surfaced: gate warnings, advisories, an input set's pitfalls; for a file `inputset_apply` rendered, the set it came from as `inputset:<id>@v<N>#<sha256 of its YAML>`; and for a job's collection, the submitting call as `collects:<event_id>`, so a run's files lead back to what the submission read |
 | `params_schema` | a short hash of the tool's parameter schema, so a reader can tell a tool that has since changed what it takes |
-| `mandate` | the digest of the approved mandate (`mandate.yaml`) a call of a tool that books resources was made under, and of the mandate a `mandate_approve` event approves; empty otherwise |
+| `mandate` | the digest of the approved mandate (`mandate.yaml`) a call of a tool that books resources was made under, of the mandate a `mandate_approve` event approves, and of the mandate holding when a measurement was made; empty otherwise |
+| `measured` | what a measuring call read (`observable_measure`): `deliverable` (or `""`), `stage`, `property`, `file` (what it was read from) and `quantities`, each `{name, unit, statistics}` with the statistics its extractor computed (`mean`, `sd`, `min`, `max`, `final`, or a single `value`); the report states a deliverable from it; `{}` for any other call |
 
 An artifact is an object with fields `path` (relative to the study when it is inside it,
 else absolute), `role` (`structure`, `topology`, `mdp`, `tpr`, `trajectory`, `log`, ...),
