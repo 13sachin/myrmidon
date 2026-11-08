@@ -251,3 +251,29 @@ def test_grompp_errors_are_read_past_the_mpi_builds_footer(ws_ctx):
                  stage / "run.tpr", stage)
     assert not obs.ok and "Invalid T coupling input" in obs.error.message
     assert "MPI_Abort" not in obs.error.message
+
+
+def test_the_mock_fit_chain_counts_and_refits_what_it_is_given(tmp_path):
+    """h5info counts the dataset's configurations and QM atoms, and a charge fit writes the
+    molecule that holds the QM atoms whole, its total charge kept."""
+    import sys
+
+    from tests.unit.test_fm import _acetone_case
+
+    from myrmidon.engines.gromacs.itp import parse_itp_atoms
+
+    top, gro, sele, h5, _, q = _acetone_case(tmp_path)
+    mimicpy = [sys.executable, str(MOCK_GMX.with_name("mimicpy"))]
+    info = subprocess.run([*mimicpy, "h5info", "-i", str(h5)], capture_output=True, text=True)
+    assert f"({len(q.qm_atoms)} QM," in info.stdout and "Configurations: 5" in info.stdout
+    (tmp_path / "rerun.mdp").write_text("integrator = md\n")
+    done = subprocess.run([*mimicpy, "fm", "-top", str(top), "-coords", str(gro),
+                           "-sele", str(sele), "-mdp", "rerun.mdp", "-dresp"],
+                          cwd=tmp_path, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    before = parse_itp_atoms((top.parent / "acetone.itp").read_text())["ACT"]
+    after = parse_itp_atoms((tmp_path / "resp_mock.itp").read_text())["ACT"]
+    assert [a["name"] for a in after] == [a["name"] for a in before]
+    assert [a["charge"] for a in after] != [a["charge"] for a in before]
+    assert sum(a["charge"] for a in after) == pytest.approx(sum(a["charge"] for a in before),
+                                                            abs=1e-5)

@@ -172,6 +172,85 @@ def select(atoms, commands):
     return [a for a in atoms if a[3] in chosen]
 
 
+def h5_configs(path):
+    """(configurations, atoms of the first, QM atoms of the first) of a readable reference
+    dataset, as h5info counts them; None for a file h5py cannot open."""
+    try:
+        import h5py
+
+        with h5py.File(path, "r") as fh:
+            names = [k for k in fh if k.startswith("config_")]
+            first = fh[names[0]]["atoms"][()] if names else []
+            return len(names), len(first), int(sum(1 for row in first if row["region"] == 1))
+    except Exception:  # noqa: BLE001 — a placeholder is no dataset
+        return None
+
+
+def trr_frames(coords, trr):
+    """Frames of a trajectory MDAnalysis reads with these coordinates; None otherwise."""
+    try:
+        import MDAnalysis as mda
+
+        return len(mda.Universe(coords, trr).trajectory)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def selected_resnames(sele, coords):
+    """The residue names of the atoms a selection file adds, on these coordinates."""
+    atoms = read_gro(coords)
+    names = set()
+    for line in open(sele):
+        verb, _, sel = line.strip().partition(" ")
+        if verb.lower() in ("add", "add-bound") and sel:
+            names |= {a[1] for a in atoms if matches(a, sel)}
+    return names
+
+
+def fitted_molecule(topology, resnames):
+    """The file that defines the molecule holding the QM atoms, its charges refitted: every
+    charge shifted, the molecule's total kept, every other line as written. None when the
+    topology's includes do not lead to it."""
+    search, seen, files = [os.path.dirname(os.path.abspath(topology))], set(), []
+
+    def follow(path):
+        path = os.path.abspath(path)
+        if path in seen or not os.path.exists(path):
+            return
+        seen.add(path)
+        files.append(path)
+        for ln in open(path):
+            line = ln.split(";")[0].strip()
+            if line.startswith("#include"):
+                name = line.split(None, 1)[1].strip().strip('"\'')
+                for base in [os.path.dirname(path)] + search:
+                    if os.path.exists(os.path.join(base, name)):
+                        follow(os.path.join(base, name))
+                        break
+
+    follow(topology)
+    for path in files:
+        lines = open(path).read().splitlines(keepends=True)
+        section, rows = None, []
+        for i, ln in enumerate(lines):
+            line = ln.split(";")[0].strip()
+            if line.startswith("["):
+                section = line.strip("[] ").replace(" ", "")
+            elif section == "atoms" and len(line.split()) >= 7 and line.split()[3] in resnames:
+                rows.append(i)
+        if not rows:
+            continue
+        shifts = [0.02 * (-1) ** k for k in range(len(rows))]
+        mean = sum(shifts) / len(shifts)
+        for k, i in enumerate(rows):
+            body, sep, comment = lines[i].partition(";")
+            cols = body.split()
+            cols[6] = f"{float(cols[6]) + shifts[k] - mean:.6f}"
+            lines[i] = " " + " ".join(cols) + (f" ;{comment}" if sep else "\n")
+        return "; Created by mimicpy (mock): charges refitted\n" + "".join(lines)
+    return None
+
+
 def main():
     if os.environ.get("MOCK_MIMICPY_FAIL"):
         sys.stderr.write("mimicpy: error: could not parse topology\n")
@@ -182,9 +261,11 @@ def main():
         return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
 
     if sub == "h5info":
+        # a readable dataset is counted as it is; a placeholder as the mock's own
+        n, atoms, qm = h5_configs(arg("-i")) or (12, 30, 5)
         print("HDF5 File Information:")
-        print("Configurations: 12")
-        print("  config_0: 30 atoms (5 QM, 25 MM)")
+        print(f"Configurations: {n}")
+        print(f"  config_0: {atoms} atoms ({qm} QM, {atoms - qm} MM)")
         return 0
     if sub == "json2h5":
         out = arg("-o") or arg("-i").rsplit(".", 1)[0] + ".h5"
@@ -208,14 +289,17 @@ def main():
     if sub == "fmcheck":
         desync = os.environ.get("MOCK_FMCHECK_DESYNC")
         out = arg("-o")
-        n = arg("-e", "12")
+        # readable files are counted as they are; placeholders as the mock's own twelve
+        frames = trr_frames(arg("-coords"), arg("-trr")) or 12
+        configs = (h5_configs(arg("-fmdata")) or (12,))[0]
+        n = arg("-e", str(min(frames, configs)))
         if out:  # writing mode always produces an aligned pair
             for ext in (".trr", ".h5"):
                 with open(out + ext, "w") as fh:
                     fh.write("MOCK ALIGNED\n")
         print("----- trr/h5 compatibility report -----")
-        print("  trr frames        : 12")
-        print("  h5 configs        : 12")
+        print(f"  trr frames        : {frames}")
+        print(f"  h5 configs        : {configs}")
         print(f"  requested frames  : {n}")
         print(f"  status            : {'remapped' if desync and not out else 'aligned'}")
         print(f"  aligned (index)   : {'0' if desync and not out else n}")
@@ -246,8 +330,16 @@ def main():
             sys.stderr.write("mock fm: optimization failed\n")
             return 1
         fitted = "resp_mock.itp" if "-dresp" in sys.argv else "opt_mock.itp"
+        # the molecule holding the QM atoms as it was given, refitted; a topology the mock
+        # cannot follow gets the mock's own three-atom molecule
+        try:
+            written = fitted_molecule(arg("-top"), selected_resnames(arg("-sele"),
+                                                                     arg("-coords")))
+        except (OSError, ValueError, TypeError):
+            written = None
         with open(fitted, "w") as fh:
-            fh.write("; Created by mimicpy (mock)\n[ moleculetype ]\n ACT 3\n\n[ atoms ]\n"
+            fh.write(written or "; Created by mimicpy (mock)\n[ moleculetype ]\n ACT 3\n\n"
+                     "[ atoms ]\n"
                      " 1 c  1 ACT C1 1  0.75000 12.0\n"
                      " 2 o  1 ACT O1 2 -0.60000 16.0\n"
                      " 3 hc 1 ACT H1 3  0.12500  1.0\n")
