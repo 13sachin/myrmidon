@@ -157,6 +157,9 @@ class EngineAdapter:
     run_facts: Callable[[str], dict] | None = None
     #: fact key -> (how a report labels it, its unit), in the order a report states them
     fact_labels: Mapping[str, tuple[str, str]] | None = None
+    #: "<stage kind> <ensemble>" or "<stage kind>" -> the fact keys a report states first of
+    #: such a run: what says whether it did what its stage asks
+    headline: Mapping[str, tuple[str, ...]] | None = None
     #: a job record -> the file its run wrote its account into; None when there is none
     run_log: Callable[[object], Path | None] | None = None
     #: (cores, system facts) -> the ranks and threads a run takes on them

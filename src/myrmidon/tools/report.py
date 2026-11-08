@@ -57,10 +57,11 @@ def journal_write(ctx: ToolContext, params: JournalWriteParams) -> Observation:
 class StudyReportParams(BaseModel):
     narrative: dict[str, str] = Field(
         default_factory=dict,
-        description="your prose for each section, keyed question, methods, ran, checks, "
-        "results, deviations, record — placed after the values the harness writes "
-        "there (prose under another name is a section of its own after them). Say what "
-        "the values mean; a value of your own that no section states is not in the study.",
+        description="your prose for each section, keyed results (what the deliverables' "
+        "numbers mean physically), stages (what the stage checks say), methods, deviations, "
+        "question, record — placed after what the harness writes there (prose under another "
+        "name is a section of its own after them). A value of your own that no section "
+        "states is not in the study.",
     )
     output: str = Field(default="report.md",
                         description="a file name in the study's directory")
@@ -92,10 +93,10 @@ def study_report_gate(ctx: ToolContext, params: StudyReportParams):
 
 @tool(
     "study_report",
-    description="Write the study's report as a file from its trace, in sections: question, "
-                "methods, ran, checks, results (each deliverable), deviations, record, a fit's "
-                "tables. The harness writes every value with its source; you add prose per "
-                "section.",
+    description="Write the study's report from its trace, with its data as report.json: "
+                "question, results (each deliverable as measured), stages and their checks, "
+                "system and methods, deviations, record, a fit's tables. The harness writes "
+                "every value; you add prose per section.",
     tags={"report"},
 )
 def study_report(ctx: ToolContext, params: StudyReportParams) -> Observation:
@@ -107,13 +108,13 @@ def study_report(ctx: ToolContext, params: StudyReportParams) -> Observation:
     from myrmidon.orchestration.report import mandate_report, narrative_sections, render_sections
 
     mandate = read_mandate(ctx.workspace)
-    sections, values, record = (mandate_report(ctx, mandate) if mandate is not None
-                                else ({}, [], {}))
     path = ctx.workspace.root / params.output
+    sidecar = path.with_suffix(".json")
+    sections, values, record = (mandate_report(ctx, mandate, sidecar.name)
+                                if mandate is not None else ({}, [], {}))
     text = render_sections(sections, params.narrative) if mandate is not None else ""
     fit = _fit_tables(ctx, params)
     path.write_text(text + fit["text"])
-    sidecar = ctx.workspace.root / (params.output.removesuffix(".md") + ".json")
     sidecar.write_text(json.dumps(
         {"rounds": [], **fit["data"], **record, "values": [v.model_dump() for v in values]},
         indent=1, sort_keys=True, default=str) + "\n")

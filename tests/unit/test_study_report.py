@@ -100,11 +100,13 @@ def test_the_report_states_parsed_values_and_prose_around_them(ws_ctx, narrative
     assert all(text in written for text in narrative.values())
     record = json.loads((ws_ctx.workspace.root / "report.json").read_text())
     assert record["mandate_digest"] and record["rounds"] == []
+    assert [row["stage"] for row in record["stages"]] == ["production"]
+    assert record["stages"][0]["reached"] != "not run" and record["deviations"] == []
     assert len(record["values"]) == len(obs.values)
     headings = [line for line in written.splitlines() if line.startswith("## ")]
     assert len(set(headings)) == len(headings)
     if "summary" in narrative:
-        assert written.index("## Summary") > written.index("## The record")
+        assert written.index("## Summary") > written.index("## Record")
         assert written.index("Read as the results.") < written.index("## Deviations")
 
 

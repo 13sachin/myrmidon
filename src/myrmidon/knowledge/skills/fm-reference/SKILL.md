@@ -12,7 +12,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Make me QM/MM reference forces for these frames."
-  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search snapshot_select stage_prepare stage_run run_diagnose dataset_collect job_status file_write"
+  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search snapshot_select stage_prepare stage_run run_diagnose dataset_collect job_status file_write study_report"
   myrmidon-protocols: "fm_reference_singlepoint"
   myrmidon-stages: "cpmd.single_point gromacs.mimic"
 ---
@@ -67,6 +67,8 @@ as the probe, the rest's resources from what the probe measured.
 
 ## Report
 
-`mandate_show`, then the deliverables the mandate names: the dataset with its hash, frames
-asked for against collected, each excluded frame with its reason, the probe's convergence
-numbers, core-hours booked against consumed.
+`study_report` after `mandate_show`, its `results` narrative in physical terms: the frames
+asked for against collected, each excluded frame with its reason, the probe's convergence;
+`stages` and `methods` readings when you have them. The harness writes each deliverable as
+its measurement read it, the stage checks, the core-hours and the record; tell the
+researcher those numbers.

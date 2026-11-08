@@ -71,7 +71,9 @@ needs (with `file_write`).
 
 ## Report
 
-`mandate_show`, then the deliverables the mandate names: one table of every arm, the
-starting topology included, on the same metric and frames; the parameter findings with the
-rows they name; the candidate you would use and why, in scores and in parameters, or that
-none is usable. A candidate built from columns of different fits is not one.
+`study_report` after `mandate_show`: the harness writes each deliverable as its measurement
+read it (every arm, the starting topology included, on the same metric and frames), the fit's
+tables and the record. Its `results` narrative says in physical terms the parameter findings
+with the rows they name and the candidate you would use and why, in scores and in
+parameters, or that none is usable; `stages` and `methods` readings when you have them. A
+candidate built from columns of different fits is not one.

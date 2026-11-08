@@ -74,6 +74,14 @@ GROMACS_FACTS = {
     "performance_ns_per_day": ("performance", "ns/day"),
     "finished_normally": ("finished normally", ""),
 }
+#: what says a run of each stage kind did what it asks: a minimisation's last force and whether
+#: it reached its tolerance, a run's mean temperature, and an NPT run's pressure beside it
+HEADLINE = {
+    "minimize": ("final_max_force_kj_mol_nm", "minimisation_converged"),
+    "dynamics NVE": ("mean_conserved_energy_kj_mol",),
+    "dynamics NPT": ("mean_temperature_k", "mean_pressure_bar"),
+    "dynamics": ("mean_temperature_k",),
+}
 _COLUMN = 15  # mdrun prints its energy tables in %15s / %15.5e columns
 _MINIMISERS = ("steep", "cg", "l-bfgs")
 

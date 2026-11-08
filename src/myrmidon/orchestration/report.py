@@ -4,7 +4,7 @@ from a transcript or a model — every line is a ledger event or a job record.""
 
 from __future__ import annotations
 
-from myrmidon.core.lineage import stages_run
+from myrmidon.core.observation import JobState
 from myrmidon.core.provenance import ProvenanceEvent
 from myrmidon.core.tool import REGISTRY
 from myrmidon.core.workspace import Workspace
@@ -132,15 +132,16 @@ def render_report(ws: Workspace, compute=None, backend=None) -> str:
     return "\n".join(lines)
 
 
-# --- the report: question → methods → what ran → checks → results → deviations ---------
+# --- the report: question → results → stages → methods → deviations → record -----------
 
 #: the fixed sections of a study's report, in order; prose under any other key follows them
-SECTIONS = ("question", "methods", "ran", "checks", "results", "deviations", "record")
+SECTIONS = ("question", "results", "stages", "methods", "deviations", "record")
 _TITLES = {
-    "question": "Question", "methods": "System and methods", "ran": "What ran",
-    "checks": "Checks", "results": "Results", "deviations": "Deviations",
-    "record": "The record",
+    "question": "Question", "results": "Results", "stages": "Stages and checks",
+    "methods": "System and methods", "deviations": "Deviations", "record": "Record",
 }
+#: other names a narrative key may give a fixed section
+_ALIASES = {"ran": "stages", "what ran": "stages", "checks": "stages"}
 
 
 def _fmt(value) -> str:
@@ -334,18 +335,15 @@ def run_lines(ws, events, label: str, rec, event_id: str) -> tuple[list[str], li
                                                for v in found)]
 
 
-def mandate_report(ctx, mandate) -> tuple[dict[str, list[str]], list, dict]:
-    """(section -> the harness's lines, the parsed values, the record report.json states)
-    for this study's mandate, read
-    from the trace: the mandate and its approvals, the jobs booked under it, each completed
-    run's values re-parsed from its own output and from the analyses of its files, the
-    deliverables against what was measured, and what the gate refused or the engines
-    failed. The last completed run's values are the results; the earlier runs' are the
-    checks it rests on."""
+def mandate_report(ctx, mandate, data_file: str = "report.json"
+                   ) -> tuple[dict[str, list[str]], list, dict]:
+    """(section -> the harness's lines, the parsed values, the record ``data_file`` states)
+    for this study's mandate, read from the trace: the deliverables as their measurements
+    read them, a row per stage with how far its latest completed run got and its engine's
+    headline facts, the system and method, what departed from the approved mandate, and the
+    record. Every run's facts and analyses are values in the record, not lines."""
     from myrmidon.core import mandate as mandates
-    from myrmidon.core.observation import ReportValue
-    from myrmidon.execution.accounting import describe_booking
-    from myrmidon.execution.backend import JobState
+    from myrmidon.core.lineage import lineage
     from myrmidon.execution.jobs import booked_under_mandates, existing_jobstore
 
     ws = ctx.workspace
@@ -357,78 +355,157 @@ def mandate_report(ctx, mandate) -> tuple[dict[str, list[str]], list, dict]:
     s: dict[str, list[str]] = {key: [] for key in SECTIONS}
     values: list = []
 
-    s["question"] = [mandate.question, "",
-                     f"mandate revision {mandate.revision}, digest {mandate.digest[:12]}, "
-                     + (f"approved by {held.approver} (event {held.event_id})" if held
-                        else "NOT approved")]
-    s["methods"] = mandates.render(mandate).split("\n")[2:-2]
-
+    s["question"] = [mandate.question]
     store = existing_jobstore(ws)
     runs = [rec for rec in (store.list() if store else []) if rec.meta.get("mandate") in digests]
     by_id = {ev.event_id: ev for ev in events}
-    for rec in runs:
-        ev = by_id.get(rec.meta.get("event_id", ""))
-        tool = ev.tool if ev else rec.meta.get("kind", "")
-        booking = describe_booking(rec.spec.resources, ctx.config.compute)
-        s["ran"].append(f"- {rec.label or rec.job_id}: {tool}, job {rec.job_id} "
-                        f"({rec.state.value}), {booking}, "
-                        f"{_fmt(rec.meta.get('core_h_estimate') or 0.0)} core-h booked")
-    booked = booked_under_mandates(ws, digests)
-    s["ran"].append(f"booked under the mandate: "
-                    f"{_fmt(booked)} of "
-                    f"{_fmt(mandate.cost.ceiling_core_h)} core-h")
+    lin = lineage(ws)
 
-    completed = [rec for rec in runs if rec.state is JobState.COMPLETED]
-    for index, rec in enumerate(completed):
-        section = "results" if index == len(completed) - 1 else "checks"
-        lines, found = run_lines(ws, events, rec.label or rec.job_id, rec,
-                                 rec.meta.get("event_id", ""))
-        s[section].extend(lines)
-        values.extend(found)
+    def stage_of(rec) -> str:
+        ev = by_id.get(rec.meta.get("event_id", ""))
+        return min(lin.stages_of(ev), default="") if ev is not None else ""
+
+    staged = [(stage_of(rec), rec) for rec in runs]
+    for _, rec in staged:
+        if rec.state is JobState.COMPLETED:
+            values += run_lines(ws, events, rec.label or rec.job_id, rec,
+                                rec.meta.get("event_id", ""))[1]
 
     table, found, delivered = deliverable_rows(mandate, events, digests, since)
-    s["results"] = [*table, "", *s["results"]]
+    s["results"] = table if mandate.deliverables else ["(the mandate names no deliverables)"]
     values += found
+    s["stages"], stages = stage_rows(mandate, staged)
+    rendered = mandates.render(mandate).split("\n")
+    start = next(i for i, line in enumerate(rendered) if line.startswith("SYSTEM"))
+    end = next(i for i, line in enumerate(rendered) if line.startswith("DECISIONS"))
+    s["methods"] = ["```", *rendered[start:end - 1], "```"]
 
+    deviations, raw = departures(ws, mandate, events, staged, signed, since, held, values)
+    s["deviations"] = deviations or ["none: every stage ran as approved"]
+    booked = booked_under_mandates(ws, digests)
+    s["record"] = [
+        f"- revision {mandate.revision}, digest {mandate.digest[:12]}, "
+        + (f"approved by {held.approver} (event {held.event_id})" if held else "NOT approved"),
+        f"- core-hours booked: {_fmt(booked)} of the ceiling's "
+        f"{_fmt(mandate.cost.ceiling_core_h)}",
+        *(f"- {stage} wrote: " + ", ".join(f"{role} `{path}`" for role, path in files.items())
+          for stage, files in key_outputs(events, staged).items()),
+        f"- every call, its command, inputs and outputs by hash: "
+        f"`{ws.root}/myrmidon.ledger.jsonl`",
+        f"- this report's data: `{data_file}`"]
+    record = {"question": mandate.question, "mandate_digest": mandate.digest,
+              "revision": mandate.revision,
+              "approval_event": held.event_id if held is not None else "",
+              "core_h_booked": booked, "core_h_ceiling": mandate.cost.ceiling_core_h,
+              "deliverables": delivered, "stages": stages,
+              "refused_or_failed_calls": raw, "deviations": deviations}
+    return s, values, record
+
+
+def stage_rows(mandate, staged) -> tuple[list[str], list[dict]]:
+    """(the Stage Table, its rows as report.json states them): each mandate stage's kind,
+    its target against how far its latest completed run got, the facts its engine states
+    first of such a run, and the core-hours its jobs booked."""
+    from myrmidon.engines.facts import engine_log, headline_values, is_run_log, run_progress
+
+    lines = ["| Stage | Kind / ensemble | Target → reached | Key check | core-h |",
+             "|---|---|---|---|---|"]
+    rows: list[dict] = []
+    for stage in mandate.method.stages:
+        jobs = [rec for name, rec in staged if name == stage.name]
+        done = [rec for rec in jobs if rec.state is JobState.COMPLETED]
+        kind = " ".join(x for x in (stage.kind, stage.ensemble or "",
+                                    f"({stage.regime})" if stage.regime != "mm" else "") if x)
+        target = (f"{stage.duration_ps:g} ps" if stage.duration_ps is not None
+                  else f"{stage.steps} steps" if stage.steps is not None else "")
+        reached, checks = (jobs[-1].state.value.lower() if jobs else "not run"), []
+        if done:
+            log = engine_log(done[-1])
+            text = log.read_text(errors="replace") if is_run_log(log) else ""
+            reached = run_progress(text, in_steps=stage.duration_ps is None) or "completed"
+            checks = headline_values(text, stage.kind, stage.ensemble or "")
+        core_h = sum(rec.meta.get("core_h_estimate") or 0.0 for rec in jobs)
+        said = "; ".join(f"{label} {_fmt(v)}{' ' + unit if unit else ''}"
+                         for label, v, unit in checks)
+        lines.append(f"| {stage.name} | {kind} | {target or '—'} → {reached} | {said or '—'} "
+                     f"| {_fmt(core_h)} |")
+        rows.append({"stage": stage.name, "kind": kind, "target": target, "reached": reached,
+                     "checks": [{"label": label, "value": v, "unit": unit}
+                                for label, v, unit in checks],
+                     "jobs": len(jobs), "core_h_booked": core_h})
+    return lines, rows
+
+
+def _stage_ref(ev) -> str:
+    """The mandate stage a call was made for: the one its refs name, else its parameter."""
+    from myrmidon.core.lineage import named_stage
+
+    return named_stage(ev) or str(ev.params.get("stage") or "")
+
+
+def departures(ws, mandate, events, staged, signed, since, held, values
+               ) -> tuple[list[str], int]:
+    """(what departed from the approved mandate, how many calls were refused or failed under
+    it): a revision on disk not approved; a stage the researcher's decisions lock that never
+    ran; a job that failed or timed out with no later completed run of its stage; a refused
+    or failed call no later successful call of the same tool for the same stage made good;
+    each revision approved after the first. ``values`` gains each stage that never ran."""
+    from myrmidon.core import mandate as mandates
+    from myrmidon.core.lineage import stages_run
+    from myrmidon.core.observation import ReportValue
+
+    out: list[str] = []
     if held is None:
-        s["deviations"].append(f"- mandate revision {mandate.revision} on disk is not "
-                               "approved: nothing has run under it")
-    for rec in runs:
-        if rec.state.terminal and rec.state is not JobState.COMPLETED:
-            s["deviations"].append(f"- job {rec.job_id} ({rec.label or 'unlabelled'}) "
-                                   f"{rec.state.value.lower()}, exit code {rec.exit_code}")
-    for ev in events:
-        if since is None or ev.timestamp < since:
-            continue
-        when = ev.timestamp.date().isoformat()
-        if ev.kind == "gate_refused":
-            s["deviations"].append(f"- {when} {ev.tool} refused: {', '.join(ev.knowledge_refs)}")
-        elif not ev.ok and ev.kind == "call" and ev.mandate in digests:
-            s["deviations"].append(f"- {when} {ev.tool} failed (event {ev.event_id})")
+        out.append(f"- mandate revision {mandate.revision} on disk is not approved: nothing "
+                   "has run under it")
     ran = stages_run(ws)
     for stage in mandate.method.stages:
         locked = [said for field, _, said in mandates.locks_on(mandate, stage.name)
                   if stage.name not in ran
                   and mandates.field_value(stage, field) is not None]
         if locked:
-            s["deviations"].append(
-                f"- stage {stage.name}, which the researcher's decisions lock ("
-                + "; ".join(f'"{w}"' for w in dict.fromkeys(locked)) + "), never ran")
+            out.append(f"- stage {stage.name}, which the researcher's decisions lock ("
+                       + "; ".join(f'"{w}"' for w in dict.fromkeys(locked)) + "), never ran")
             values.append(ReportValue(step=f"stage:{stage.name}", label="never ran",
                                       value=True, event="", file=""))
-    for a in signed[1:]:
-        s["deviations"].append(f"- revision approved by {a.approver} (event {a.event_id})")
-    if not s["deviations"]:
-        s["deviations"] = ["none: every call under the mandate ran as approved"]
-    s["record"] = [f"`{ws.root}/myrmidon.ledger.jsonl` holds every call, its command, inputs "
-                   f"and outputs by hash; the jobs under the mandate carry its digest "
-                   f"{mandate.digest[:12]}."]
-    record = {"question": mandate.question, "mandate_digest": mandate.digest,
-              "revision": mandate.revision,
-              "approval_event": held.event_id if held is not None else "",
-              "core_h_booked": booked, "core_h_ceiling": mandate.cost.ceiling_core_h,
-              "deliverables": delivered}
-    return s, values, record
+    for at, (name, rec) in enumerate(staged):
+        if rec.state not in (JobState.FAILED, JobState.TIMEOUT):
+            continue
+        key = name or rec.label
+        if not any((later or other.label) == key and other.state is JobState.COMPLETED
+                   for later, other in staged[at + 1:]):
+            out.append(f"- {f'stage {name}' if name else rec.label or rec.job_id}: its job "
+                       f"{rec.state.value.lower()} (exit code {rec.exit_code}) and no later "
+                       "run of it completed")
+    digests = {a.digest for a in signed}
+    flagged = [at for at, ev in enumerate(events)
+               if since is not None and ev.timestamp >= since
+               and (ev.kind == "gate_refused"
+                    or (ev.kind == "call" and not ev.ok and ev.mandate in digests))]
+    for at in flagged:
+        ev = events[at]
+        if any(later.ok and later.kind == "call" and later.tool == ev.tool
+               and _stage_ref(later) == _stage_ref(ev) for later in events[at + 1:]):
+            continue
+        stage = _stage_ref(ev)
+        out.append(f"- {ev.tool}" + (f" for stage {stage}" if stage else "")
+                   + (f" refused: {', '.join(ev.knowledge_refs)}" if ev.kind == "gate_refused"
+                      else " failed")
+                   + ", and was not made good")
+    out += [f"- revision approved by {a.approver}" for a in signed[1:]]
+    return out, len(flagged)
+
+
+def key_outputs(events, staged) -> dict[str, dict[str, str]]:
+    """Stage -> one file of each role its latest completed run's collection recorded."""
+    out: dict[str, dict[str, str]] = {}
+    for name, rec in staged:
+        if rec.state is JobState.COMPLETED:
+            files: dict[str, str] = {}
+            for art in collection_outputs(events, rec.job_id):
+                files.setdefault(art.role, art.path)
+            out[name or rec.label or rec.job_id] = files
+    return out
 
 
 def deliverable_measurement(d, events, digests, since):
@@ -444,8 +521,8 @@ def deliverable_measurement(d, events, digests, since):
 
 
 def deliverable_record(d, ev) -> dict:
-    """A deliverable as report.json states it: its stage, and what measured it."""
-    return {"stage": d.over, "measured": ev is not None,
+    """A deliverable as report.json states it: its property and stage, and what measured it."""
+    return {"property": d.property, "stage": d.over, "measured": ev is not None,
             "event": ev.event_id if ev is not None else "",
             "file": ev.measured.get("file", "") if ev is not None else "",
             "quantities": ev.measured.get("quantities", []) if ev is not None else []}
@@ -487,7 +564,8 @@ def narrative_sections(narrative: dict[str, str]) -> tuple[dict[str, str], dict[
     def norm(text: str) -> str:
         return " ".join(text.replace("_", " ").split()).lower()
 
-    known = {norm(k): k for k in SECTIONS} | {norm(t): k for k, t in _TITLES.items()}
+    known = ({norm(k): k for k in SECTIONS} | {norm(t): k for k, t in _TITLES.items()}
+             | {norm(k): v for k, v in _ALIASES.items()})
     fixed: dict[str, list[str]] = {}
     own: dict[str, tuple[str, list[str]]] = {}  # by the title's words, its first spelling
     for key, text in narrative.items():

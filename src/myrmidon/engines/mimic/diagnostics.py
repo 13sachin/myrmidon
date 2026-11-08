@@ -21,6 +21,12 @@ RUN_FACTS = {
     "eclassic_fluctuation_ha": ("fluctuation about the fit", "Ha"),
     "finished_normally": ("finished normally", ""),
 }
+#: what says a coupled run of each stage kind did what it asks: an NVE run's conserved-energy
+#: drift, any other run's mean ionic temperature
+HEADLINE = {
+    "dynamics NVE": ("eclassic_drift_ha_per_ps",),
+    "dynamics": ("mean_temperature_k",),
+}
 #: what DIPOLE DYNAMICS's file beside a coupled run's log states, with the log's cell volume
 DIPOLE_FACTS = {
     "dipole_steps": ("steps of the QM dipole series", ""),

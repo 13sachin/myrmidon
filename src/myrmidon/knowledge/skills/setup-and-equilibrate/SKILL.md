@@ -105,8 +105,9 @@ asked.
 
 ## Report
 
-`study_report` after `mandate_show`: each deliverable the mandate names with the statistics
-it asked for and the call that measured it, the `observable_measure` measurement, and a
-verdict only against the researcher's criterion. Then the artifacts by role, every decision
-and whose it was, and what stays open. A reading to add or change is `study_report` again
-with that section's `narrative`, never an edit of the file.
+`study_report` after `mandate_show`, its `results` narrative saying in physical terms what
+the deliverables' numbers mean, with a verdict only against the researcher's criterion;
+every decision and whose it was, and what stays open; `stages` and `methods` readings when
+you have them. The harness writes each deliverable as its measurement read it, the stage
+checks and the record; tell the researcher those numbers. A reading to add or change is
+`study_report` again with that section's `narrative`, never an edit of the file.

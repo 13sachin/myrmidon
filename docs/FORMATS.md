@@ -28,7 +28,7 @@ A study is a directory:
 | `mandate.yaml` | the study's mandate, written by `mandate_write` (below) |
 | `<file>.myrmidon.json` | beside an engine input `inputset_apply` rendered: where each of its values came from (below) |
 | `report.md` | the study's report, written by `study_report` from the mandate and the trace: the harness's sections, the model's prose after each, and any section of the model's own after them |
-| `report.json` | the report's data beside it, written with every `report.md`: `question`, `mandate_digest`, `revision`, `approval_event`, `core_h_booked`, `core_h_ceiling`, `deliverables` (name -> `{stage, measured, event, file, quantities}`), `values` (every value the report states, with its event and file) and a fit's `rounds` (`[]` without one, with the fit's tables' data beside them) |
+| `report.json` | the report's data beside it, written with every `report.md`: `question`, `mandate_digest`, `revision`, `approval_event`, `core_h_booked`, `core_h_ceiling`, `deliverables` (name -> `{property, stage, measured, event, file, quantities}`), `stages` (each mandate stage's `{stage, kind, target, reached, checks, jobs, core_h_booked}`), `refused_or_failed_calls` (how many since the first approval), `deviations` (those not made good, as the report states them), `values` (every value the report states, with its event and file) and a fit's `rounds` (`[]` without one, with the fit's tables' data beside them) |
 | `journal.jsonl` | the journal (below): decisions, ruled-out causes, suspicions, intentions |
 | `inbox.jsonl` | parked questions and notices, and the answers to them (below) |
 | `NN_name/.receipt-*/` | a job's node receipt (below) |

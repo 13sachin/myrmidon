@@ -13,7 +13,7 @@ license: Apache-2.0
 compatibility: myrmidon MCP server
 metadata:
   myrmidon-question: "Is my QM/MM input right before I spend the allocation?"
-  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup qm_region stage_prepare stage_run run_diagnose observable_measure job_status"
+  myrmidon-tools: "study_open protocol_lookup protocol_preview mandate_write mandate_show inputset_lookup inputset_apply knowledge_search tool_lookup qm_region stage_prepare stage_run run_diagnose observable_measure job_status study_report"
   myrmidon-protocols: "mimic_qmmm_solvated_solute"
   myrmidon-stages: "cpmd.minimize cpmd.dynamics cpmd.single_point gromacs.mimic"
 ---
@@ -81,7 +81,9 @@ each deliverable; `snapshot_select` picks a frame for a later stage to start fro
 
 ## Report
 
-`mandate_show` and the deliverables it names; the selection as given and the atom count
-parsed, the charge and multiplicity with who decided each, the vacuum, the
-pseudopotentials, the CPMD sections `stage_prepare` assembled, what was not checked, and
-what the first coupled run would book.
+`study_report` after `mandate_show`, its `results` narrative in physical terms: the
+selection as given and the atom count parsed, the charge and multiplicity with who decided
+each, the vacuum, the pseudopotentials, what was not checked, and what the first coupled run
+would book; `stages` and `methods` readings when you have them. The harness writes each
+deliverable as its measurement read it, the stage checks and the record; tell the
+researcher those numbers.

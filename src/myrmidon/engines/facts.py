@@ -35,6 +35,29 @@ def run_values(text: str) -> list[tuple[str, object, str]]:
             if key in facts]
 
 
+def headline_values(text: str, kind: str, ensemble: str = "") -> list[tuple[str, object, str]]:
+    """What a report states first of a run of a stage of this kind and ensemble, as
+    (label, value, unit): the facts the engine that wrote the log names for it."""
+    engine = adapter_of_log(text)
+    if engine is None or not engine.headline:
+        return []
+    keys = engine.headline.get(f"{kind} {ensemble}".strip()) or engine.headline.get(kind, ())
+    facts = engine.run_facts(text)
+    labels = engine.fact_labels or {}
+    return [(*labels.get(key, (key, ""))[:1], facts[key], labels.get(key, ("", ""))[1])
+            for key in keys if key in facts]
+
+
+def run_progress(text: str, in_steps: bool = False) -> str:
+    """How far a run got, as its log states it: the simulated time (unless ``in_steps``),
+    else the steps."""
+    facts = run_facts(text)
+    if facts.get("md_time_ps") is not None and not in_steps:
+        return f"{facts['md_time_ps']:g} ps"
+    steps = facts.get("md_steps_completed", facts.get("minimisation_steps"))
+    return f"{steps} steps" if steps is not None else ""
+
+
 def dipole_values(log: Path) -> list[tuple[str, object, str]]:
     """The QM dipole as a report states it, from the DIPOLE file beside a CPMD log; none
     when there is no such file."""
