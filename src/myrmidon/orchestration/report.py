@@ -185,8 +185,8 @@ def run_values_of(ws, label: str, rec, event_id: str) -> list:
     rel = ws.relpath(out)
     found = [(name, value, unit, rel)
              for name, value, unit in run_values(out.read_text(errors="replace"))]
-    dipole = ws.relpath(out.parent / "DIPOLE")
-    found += [(name, value, unit, dipole) for name, value, unit in dipole_values(out)]
+    beside, read = dipole_values(out)
+    found += [(name, value, unit, ws.relpath(read)) for name, value, unit in beside]
     return [ReportValue(step=label, label=name, value=value, unit=unit, event=event_id,
                         file=file) for name, value, unit, file in found]
 

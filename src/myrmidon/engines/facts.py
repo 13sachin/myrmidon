@@ -67,17 +67,17 @@ def run_reached(texts: list[str], unit: str) -> float | None:
     return sum(found) if found else None
 
 
-def dipole_values(log: Path) -> list[tuple[str, object, str]]:
-    """The QM dipole as a report states it, from the DIPOLE file beside a CPMD log; none
-    when there is no such file."""
+def dipole_values(log: Path) -> tuple[list[tuple[str, object, str]], Path | None]:
+    """(the QM dipole as a report states it, the file it was read from): from the DIPOLE
+    file beside a CPMD log; ([], None) when there is no such file."""
     from myrmidon.engines.mimic.diagnostics import DIPOLE_FACTS, dipole_facts
 
     dipole = log.parent / "DIPOLE"
     if not dipole.is_file():
-        return []
+        return [], None
     facts = dipole_facts(log.read_text(errors="replace"), dipole.read_text(errors="replace"))
     return [(label, facts[key], unit) for key, (label, unit) in DIPOLE_FACTS.items()
-            if key in facts]
+            if key in facts], dipole
 
 
 def engine_log(rec) -> Path:
