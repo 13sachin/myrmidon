@@ -89,9 +89,17 @@ def _wait(ctx, job_id, timeout=15):
 
 
 
-def test_a_fit_studys_report_states_its_rounds_stages_and_deliverables(ws_ctx):
+# a fit study's deliverables, one row per property kind it states: (property, the stage it is
+# measured over, whether it can be measured here: the rerun never runs, the QM region is held)
+FIT_DELIVERABLES = [("force_rmse", "rerun", False), ("qm_forces", "rerun", False),
+                    ("boundary_bonds", "fit", True)]
+
+
+@pytest.mark.parametrize("prop,over,measurable", FIT_DELIVERABLES)
+def test_a_fit_studys_report_states_its_rounds_stages_and_deliverables(ws_ctx, prop, over,
+                                                                       measurable):
     """A fit study's report.json carries the fit's rounds beside the stages and the
-    deliverables, every one stated as measured or not."""
+    deliverables, every one stated as measured or not, whatever its property."""
     import json
 
     from tests.conftest import REGION, coupled_study
@@ -99,8 +107,7 @@ def test_a_fit_studys_report_states_its_rounds_stages_and_deliverables(ws_ctx):
 
     coupled_study(ws_ctx, [{"name": "rerun", "kind": "single_point", "regime": "mm"},
                            {"name": "fit", "kind": "parameter_fit", "qm_region": REGION}],
-                  deliverables=[{"name": "rerun_forces", "property": "force_rmse",
-                                 "over": "rerun"}])
+                  deliverables=[{"name": "it", "property": prop, "over": over}])
     files = _dataset_files(ws_ctx.workspace)
     assert REGISTRY.call("dataset_collect", ws_ctx, {
         "fmdata": files["fmdata"], "trajectory": files["trajectory"],
@@ -121,4 +128,12 @@ def test_a_fit_studys_report_states_its_rounds_stages_and_deliverables(ws_ctx):
     assert [r["stage"] for r in record["rounds"]] == ["fit"]
     assert {row["stage"]: row["reached"] != "not run" for row in record["stages"]} == {
         "rerun": False, "fit": True}
-    assert record["deliverables"]["rerun_forces"]["measured"] is False  # its stage never ran
+    assert record["deliverables"]["it"]["property"] == prop
+    assert record["deliverables"]["it"]["measured"] is False  # nothing has measured it yet
+    measure = REGISTRY.call("observable_measure", ws_ctx, {"deliverable": "it"})
+    assert measure.ok is measurable, measure.summary
+    assert REGISTRY.call("study_report", ws_ctx, {}).ok
+    it = json.loads((ws_ctx.workspace.root / "report.json").read_text())["deliverables"]["it"]
+    assert it["measured"] is measurable
+    if measurable:
+        assert it["event"] == measure.provenance_id and it["quantities"]
