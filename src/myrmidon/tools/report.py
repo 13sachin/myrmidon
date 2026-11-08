@@ -152,7 +152,9 @@ def _fit_tables(ctx: ToolContext, params: StudyReportParams) -> dict:
     data = build_fit_report(ws, compute=ctx.config.compute, backend=ctx.backend)
     digest, bits = [], []
     for r in data["rounds"]:
-        mae = {metric: m["mae"] for metric, m in r["validation"].get("metrics", {}).items()}
+        # a round states its validation only where one ran
+        mae = {metric: m["mae"] for metric, m in
+               (r.get("validation") or {}).get("metrics", {}).items()}
         terms = sum(len(p.get("unphysical", [])) for p in r["parameters"])
         digest.append({"stage": r["stage"], "clean": r["clean"],
                        "n_snapshots": r["fit"].get("n_snapshots"),

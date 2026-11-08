@@ -213,6 +213,10 @@ function mandateReady(content: { type: string; text?: string }[], raw?: unknown)
 
 export default function (pi: ExtensionAPI) {
   let looked = false;
+  // a ready mandate the researcher has yet to be asked about, once the model's turn ends;
+  // and whether the approval dialog is open now, so /approve does not open a second
+  let approvalDue = false;
+  let dialogOpen = false;
   let statusAt = 0;
 
   // -- the provider: every endpoint, the key read from the secrets file by a command
@@ -271,6 +275,7 @@ export default function (pi: ExtensionAPI) {
   // -- the session: the footer at start, the look at the first run
   pi.on("session_start", async (_event, ctx) => {
     looked = false;
+    approvalDue = false;
     refreshStatus(ctx, true);
   });
 
@@ -303,18 +308,28 @@ export default function (pi: ExtensionAPI) {
     return undefined;
   });
 
-  // -- the approval a ready mandate opens, and the footer after a harness call
+  // -- the approval a ready mandate opens once the model has told the researcher the plan and
+  // ended its turn; the answer reaches the agent as the researcher's next message
   pi.on("tool_result", async (event, ctx) => {
     if (!event.toolName.startsWith(`mcp__${SERVER}__`)) return undefined;
-    if (event.toolName === MANDATE_TOOL && !event.isError && ctx.hasUI
-        && mandateReady(event.content, event.structuredContent)) {
-      const outcome = await approveInChat(pi, ctx);
-      refreshStatus(ctx, true);
-      const text = `The researcher answered in the approval dialog: ${outcome.reason}`;
-      return { content: [...event.content, { type: "text", text }] };
+    if (event.toolName === MANDATE_TOOL && !event.isError && ctx.hasUI) {
+      approvalDue = mandateReady(event.content, event.structuredContent);
     }
     refreshStatus(ctx);
     return undefined;
+  });
+
+  pi.on("agent_settled", async (event, ctx) => {
+    if (!approvalDue || dialogOpen || event.aborted || !ctx.hasUI) return;
+    approvalDue = false;
+    dialogOpen = true;
+    const outcome = await approveInChat(pi, ctx).finally(() => { dialogOpen = false; });
+    refreshStatus(ctx, true);
+    pi.sendMessage({
+      customType: `${SERVER}.approval`,
+      content: `The researcher answered in the approval dialog: ${outcome.reason}`,
+      display: true,
+    }, { triggerTurn: true });
   });
 
   // -- the views
@@ -344,7 +359,13 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("approve", {
     description: "read this study's mandate and approve it — the dialog a ready mandate opens",
     handler: async (_args, ctx) => {
-      const outcome = await approveInChat(pi, ctx);
+      if (dialogOpen) {
+        ctx.ui.notify("the approval dialog is open: answer it there", "info");
+        return;
+      }
+      approvalDue = false;
+      dialogOpen = true;
+      const outcome = await approveInChat(pi, ctx).finally(() => { dialogOpen = false; });
       if (outcome.approved) {
         // the researcher's yes reaches the agent waiting on it, as their typed answer would
         pi.sendMessage({ customType: `${SERVER}.approval`, content: outcome.reason, display: true },

@@ -87,3 +87,38 @@ def _wait(ctx, job_id, timeout=15):
         time.sleep(0.1)
     raise AssertionError("fm job did not finish")
 
+
+
+def test_a_fit_studys_report_states_its_rounds_stages_and_deliverables(ws_ctx):
+    """A fit study's report.json carries the fit's rounds beside the stages and the
+    deliverables, every one stated as measured or not."""
+    import json
+
+    from tests.conftest import REGION, coupled_study
+    from tests.unit.test_fm import _dataset_files
+
+    coupled_study(ws_ctx, [{"name": "rerun", "kind": "single_point", "regime": "mm"},
+                           {"name": "fit", "kind": "parameter_fit", "qm_region": REGION}],
+                  deliverables=[{"name": "rerun_forces", "property": "force_rmse",
+                                 "over": "rerun"}])
+    files = _dataset_files(ws_ctx.workspace)
+    assert REGISTRY.call("dataset_collect", ws_ctx, {
+        "fmdata": files["fmdata"], "trajectory": files["trajectory"],
+        "topology": files["topology"], "coords": files["coords"],
+        "selection": files["selection"]}).ok
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "rerun",
+                                                   "structure": files["coords"]}).ok
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit",
+                                                   "overrides": {"stride": "[0,10,1]"}}).ok
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit", "cores": 2,
+                                              "fit_mode": "charges"})
+    assert job.ok, job.summary
+    assert _wait(ws_ctx, job.job_id).ok
+
+    report = REGISTRY.call("study_report", ws_ctx, {})
+    assert report.ok, report.summary
+    record = json.loads((ws_ctx.workspace.root / "report.json").read_text())
+    assert [r["stage"] for r in record["rounds"]] == ["fit"]
+    assert {row["stage"]: row["reached"] != "not run" for row in record["stages"]} == {
+        "rerun": False, "fit": True}
+    assert record["deliverables"]["rerun_forces"]["measured"] is False  # its stage never ran
