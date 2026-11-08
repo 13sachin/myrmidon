@@ -335,7 +335,7 @@ def main():
         try:
             written = fitted_molecule(arg("-top"), selected_resnames(arg("-sele"),
                                                                      arg("-coords")))
-        except (OSError, ValueError, TypeError):
+        except Exception:  # noqa: BLE001 — placeholder coordinates or selection
             written = None
         with open(fitted, "w") as fh:
             fh.write(written or "; Created by mimicpy (mock)\n[ moleculetype ]\n ACT 3\n\n"
