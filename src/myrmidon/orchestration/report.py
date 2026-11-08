@@ -10,7 +10,7 @@ from myrmidon.core.tool import REGISTRY
 from myrmidon.core.workspace import Workspace
 from myrmidon.engines.facts import dipole_values, engine_log, is_run_log, run_values
 from myrmidon.errors import UnknownToolError
-from myrmidon.knowledge.observables import PROPERTIES, compile_deliverable, measured_property
+from myrmidon.knowledge.observables import PROPERTIES, measured_property
 from myrmidon.orchestration.summary import summarize
 
 #: calls the report does not count as work besides the navigation tools (which declare
@@ -141,37 +141,6 @@ _TITLES = {
     "checks": "Checks", "results": "Results", "deviations": "Deviations",
     "record": "The record",
 }
-
-
-#: how a deliverable's statistic is computed from the series its measurement saved
-STATISTICS = {"mean": lambda y: float(y.mean()), "max": lambda y: float(y.max()),
-              "min": lambda y: float(y.min()), "final": lambda y: float(y[-1]),
-              "sd": lambda y: float(y.std(ddof=1)) if len(y) > 1 else None}
-
-
-def _series_statistics(ws, event, wanted: list[str]) -> tuple[dict, str]:
-    """(the statistics a deliverable asks for, the series file they were computed from):
-    from the .npz its measuring call saved, which the ledger records; ({}, "") when it
-    saved none."""
-    import numpy as np
-
-    metric = event.params.get("metric")
-    for out in event.outputs:
-        if not out.path.endswith(".npz"):
-            continue
-        try:
-            with np.load(ws.root / out.path) as data:
-                key = metric if metric in data else next(
-                    (k for k in data.files if k not in ("time_ps", "atom_index",
-                                                        "r_angstrom", "resid")), None)
-                series = np.asarray(data[key], dtype=float) if key else None
-        except (OSError, ValueError):
-            continue
-        if series is None or series.ndim != 1 or not series.size:
-            continue  # a table of pairs is no one series
-        values = {k: STATISTICS[k](series) for k in (wanted or list(STATISTICS))}
-        return {k: v for k, v in values.items() if v is not None}, out.path
-    return {}, ""
 
 
 def _fmt(value) -> str:
@@ -365,8 +334,9 @@ def run_lines(ws, events, label: str, rec, event_id: str) -> tuple[list[str], li
                                                for v in found)]
 
 
-def mandate_report(ctx, mandate) -> tuple[dict[str, list[str]], list]:
-    """(section -> the harness's lines, the parsed values) for this study's mandate, read
+def mandate_report(ctx, mandate) -> tuple[dict[str, list[str]], list, dict]:
+    """(section -> the harness's lines, the parsed values, the record report.json states)
+    for this study's mandate, read
     from the trace: the mandate and its approvals, the jobs booked under it, each completed
     run's values re-parsed from its own output and from the analyses of its files, the
     deliverables against what was measured, and what the gate refused or the engines
@@ -403,8 +373,9 @@ def mandate_report(ctx, mandate) -> tuple[dict[str, list[str]], list]:
         s["ran"].append(f"- {rec.label or rec.job_id}: {tool}, job {rec.job_id} "
                         f"({rec.state.value}), {booking}, "
                         f"{_fmt(rec.meta.get('core_h_estimate') or 0.0)} core-h booked")
+    booked = booked_under_mandates(ws, digests)
     s["ran"].append(f"booked under the mandate: "
-                    f"{_fmt(booked_under_mandates(ws, digests))} of "
+                    f"{_fmt(booked)} of "
                     f"{_fmt(mandate.cost.ceiling_core_h)} core-h")
 
     completed = [rec for rec in runs if rec.state is JobState.COMPLETED]
@@ -415,24 +386,9 @@ def mandate_report(ctx, mandate) -> tuple[dict[str, list[str]], list]:
         s[section].extend(lines)
         values.extend(found)
 
-    for d in mandate.deliverables:
-        tool = compile_deliverable(mandate, d).tool
-        measured = [ev for ev in events if ev.ok and ev.kind == "call" and tool
-                    and ev.tool == tool and (since is None or ev.timestamp >= since)
-                    # a call names the deliverable it measures where its tool takes one
-                    and (not d.property or ev.params.get("deliverable") == d.name
-                         or "deliverable" not in REGISTRY.get(tool).params_model.model_fields)
-                    and "DELIVERABLE_STAGE_MISMATCH" not in ev.knowledge_refs]
-        stats, series = (_series_statistics(ws, measured[-1], d.statistics)
-                         if measured and d.property else ({}, ""))
-        said = ", ".join(f"{k} {_fmt(v)}" for k, v in stats.items())
-        s["results"].append(f"- deliverable {d.name}: " + (
-            f"measured by {tool} (event {measured[-1].event_id})" + (f": {said}" if said
-                                                                       else "")
-            if measured else "NOT measured"))
-        values += [ReportValue(step=f"deliverable:{d.name}", label=k, value=v,
-                               event=measured[-1].event_id, file=series)
-                   for k, v in stats.items()]
+    table, found, delivered = deliverable_rows(mandate, events, digests, since)
+    s["results"] = [*table, "", *s["results"]]
+    values += found
 
     if held is None:
         s["deviations"].append(f"- mandate revision {mandate.revision} on disk is not "
@@ -467,7 +423,61 @@ def mandate_report(ctx, mandate) -> tuple[dict[str, list[str]], list]:
     s["record"] = [f"`{ws.root}/myrmidon.ledger.jsonl` holds every call, its command, inputs "
                    f"and outputs by hash; the jobs under the mandate carry its digest "
                    f"{mandate.digest[:12]}."]
-    return s, values
+    record = {"question": mandate.question, "mandate_digest": mandate.digest,
+              "revision": mandate.revision,
+              "approval_event": held.event_id if held is not None else "",
+              "core_h_booked": booked, "core_h_ceiling": mandate.cost.ceiling_core_h,
+              "deliverables": delivered}
+    return s, values, record
+
+
+def deliverable_measurement(d, events, digests, since):
+    """The latest ledger event that measured deliverable ``d`` under an approved revision of
+    the mandate, as it states it; for a deliverable stated as a call of its own, the latest
+    successful call of its tool since the first approval. None when nothing measured it."""
+    found = [ev for ev in events if ev.ok and ev.kind == "call"
+             and "DELIVERABLE_STAGE_MISMATCH" not in ev.knowledge_refs
+             and (ev.measured.get("deliverable") == d.name and ev.mandate in digests
+                  if d.property else ev.tool == d.tool
+                  and since is not None and ev.timestamp >= since)]
+    return found[-1] if found else None
+
+
+def deliverable_record(d, ev) -> dict:
+    """A deliverable as report.json states it: its stage, and what measured it."""
+    return {"stage": d.over, "measured": ev is not None,
+            "event": ev.event_id if ev is not None else "",
+            "file": ev.measured.get("file", "") if ev is not None else "",
+            "quantities": ev.measured.get("quantities", []) if ev is not None else []}
+
+
+def deliverable_rows(mandate, events, digests, since) -> tuple[list[str], list, dict]:
+    """(the Deliverables Table, its values, each deliverable as report.json states it): each
+    deliverable's quantities with the statistics the measurement that read them stated, from
+    its ledger event; NOT measured where no event under an approved revision did. Nothing is
+    recomputed here."""
+    from myrmidon.core.observation import ReportValue
+
+    lines = ["| Deliverable | Stage | Result | Unit |", "|---|---|---|---|"]
+    values: list[ReportValue] = []
+    record: dict = {}
+    for d in mandate.deliverables:
+        ev = deliverable_measurement(d, events, digests, since)
+        record[d.name] = deliverable_record(d, ev)
+        quantities = ev.measured.get("quantities", []) if ev is not None else []
+        if ev is None or not quantities:
+            lines.append(f"| {d.name} | {d.over or '—'} | "
+                         f"{'NOT measured' if ev is None else 'ran; states no number'} | |")
+            continue
+        for q in quantities:
+            name = d.name if len(quantities) == 1 else f"{d.name}: {q['name']}"
+            said = ", ".join(f"{k} {_fmt(v)}" for k, v in q["statistics"].items())
+            lines.append(f"| {name} | {d.over or '—'} | {said} | {q['unit']} |")
+            values += [ReportValue(step=f"deliverable:{d.name}", label=k, value=v,
+                                   unit=q["unit"], quantity=q["name"], event=ev.event_id,
+                                   file=ev.measured.get("file", ""))
+                       for k, v in q["statistics"].items()]
+    return lines, values, record
 
 
 def narrative_sections(narrative: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:

@@ -65,8 +65,11 @@ class ProvenanceEvent(BaseModel):
     # of an old ledger can tell which tools have changed what they take since
     params_schema: str = ""
     # the digest of the approved mandate the call was made under (core/mandate.py): set on
-    # a submission and on the approval itself
+    # a submission, on the approval itself, and on a measurement made while one holds
     mandate: str = ""
+    # what a measuring call read: the quantities it states, each with its statistics and
+    # unit, the file they were read from, and the deliverable or stage they are of
+    measured: dict = Field(default_factory=dict)
 
 
 class ProvenanceLedger:

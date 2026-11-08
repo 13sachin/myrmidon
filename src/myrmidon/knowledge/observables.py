@@ -48,6 +48,17 @@ PROPERTIES: dict[str, tuple[str, str, int, bool]] = {
 }
 #: a coupled stage's thermodynamics and drift are what its QM log states
 COUPLED = {"thermodynamics": "run_log", "energy_drift": "run_log"}
+#: what a run's log states of a property, as run_diagnose reports it: property -> (the
+#: quantity, its unit, statistic -> the reported field that holds it)
+LOG_QUANTITIES = {
+    "dipole": ("QM dipole magnitude", "D", {"mean": "dipole_debye_mean",
+                                            "sd": "dipole_debye_sd",
+                                            "final": "dipole_debye_last"}),
+    "thermodynamics": ("ionic temperature", "K", {"mean": "mean_temperature_k",
+                                                  "sd": "sd_temperature_k",
+                                                  "final": "final_temperature_k"}),
+    "energy_drift": ("conserved-energy drift", "Ha/ps", {"value": "eclassic_drift_ha_per_ps"}),
+}
 #: what an energy property reads of a classical run's energy file
 ENERGY_TERMS = {"thermodynamics": ["Temperature", "Pressure", "Density", "Potential"],
                 "energy_drift": ["Conserved-En."]}

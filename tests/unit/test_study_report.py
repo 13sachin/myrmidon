@@ -4,6 +4,7 @@ Every value in it is parsed from a run's own output and names the ledger event a
 came from; the model writes prose around the values and never a value of its own.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -97,6 +98,9 @@ def test_the_report_states_parsed_values_and_prose_around_them(ws_ctx, narrative
             if v.label == "mean magnitude of the QM dipole"] == [True]
     written = (ws_ctx.workspace.root / output).read_text()
     assert all(text in written for text in narrative.values())
+    record = json.loads((ws_ctx.workspace.root / "report.json").read_text())
+    assert record["mandate_digest"] and record["rounds"] == []
+    assert len(record["values"]) == len(obs.values)
     headings = [line for line in written.splitlines() if line.startswith("## ")]
     assert len(set(headings)) == len(headings)
     if "summary" in narrative:
@@ -137,3 +141,52 @@ def test_an_analysis_is_reported_under_the_run_whose_files_it_read(ws_ctx):
         assert len(values) == n_values, job
     _, values = analysis_values(ws, events, "06_run", collected_files(events, "job-none"))
     assert len(values) == 3
+
+
+# (the extractor, the property, what its observation states, the statistics the deliverable
+# asks for) -> the quantity the ledger keeps, and the statistics the report states of it
+MEASURED = [
+    ("trajectory", "rmsd", {"metric": "rmsd", "unit": "Å", "mean": 1.5, "sd": 0.2,
+                            "minimum": 0.0, "largest": 2.0, "final": 1.9}, ["mean", "max"],
+     ("rmsd", "Å", {"mean": 1.5, "max": 2.0})),
+    ("energy", "thermodynamics", {"terms": {"Temperature": {
+        "unit": "K", "mean": 300.2, "std": 2.1, "drift_per_ns": 0.4, "n_points": 9}}},
+     ["mean"], ("Temperature", "K", {"mean": 300.2})),
+    ("run_log", "energy_drift", {"eclassic_drift_ha_per_ps": -3.0e-4}, [],
+     ("conserved-energy drift", "Ha/ps", {"value": -3.0e-4})),
+    ("run_log", "dipole", {"dipole_debye_mean": 2.8, "dipole_debye_sd": 0.3,
+                           "dipole_debye_last": 2.9}, ["mean", "sd"],
+     ("QM dipole magnitude", "D", {"mean": 2.8, "sd": 0.3})),
+    ("forces", "force_rmse", {"units": "Ha/bohr", "rmse": 0.012, "ref_rms": 0.05}, [],
+     ("force RMSE", "Ha/bohr", {"value": 0.012})),
+]
+
+
+@pytest.mark.parametrize("extractor,prop,stated,asked,expected", MEASURED)
+def test_a_deliverable_is_reported_as_its_measurement_read_it(extractor, prop, stated, asked,
+                                                              expected):
+    """The measuring call states each quantity it read with its statistics; the ledger keeps
+    them and the report's row is them, whatever the property; unmeasured reads so."""
+    from myrmidon.core.mandate import Mandate
+    from myrmidon.core.observation import Observation
+    from myrmidon.core.provenance import ProvenanceEvent
+    from myrmidon.orchestration.report import deliverable_rows
+    from myrmidon.tools.measure import MeasureParams, _asked, _quantities
+
+    quantities = _asked(_quantities(extractor, MeasureParams(property=prop),
+                                    Observation(ok=True, summary="", **stated)), asked)
+    name, unit, statistics = expected
+    assert (quantities[0]["name"], quantities[0]["unit"]) == (name, unit)
+    assert quantities[0]["statistics"] == pytest.approx(statistics)
+
+    mandate = Mandate.model_validate({"question": "q", "deliverables": [
+        {"name": "it", "property": prop, "over": "production", "statistics": asked},
+        {"name": "never", "property": prop, "over": "production"}]})
+    event = ProvenanceEvent(tool="observable_measure", mandate="d" * 64, measured={
+        "deliverable": "it", "file": "07_analysis/x", "quantities": quantities})
+    stale = event.model_copy(update={"mandate": "", "event_id": "ev-unbound"})
+    lines, values, record = deliverable_rows(mandate, [event, stale], {"d" * 64}, None)
+    assert {(v.quantity, v.label, v.unit, v.event) for v in values if v.quantity == name} == {
+        (name, k, unit, event.event_id) for k in statistics}
+    assert record["it"]["event"] == event.event_id and not record["never"]["measured"]
+    assert sum("NOT measured" in line for line in lines) == 1

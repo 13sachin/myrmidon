@@ -18,6 +18,7 @@ from myrmidon.engines.registry import adapter_with, fit_adapter
 from myrmidon.knowledge.observables import (
     COUPLED,
     ENERGY_TERMS,
+    LOG_QUANTITIES,
     PROPERTIES,
     compile_deliverable,
     measured_property,
@@ -294,10 +295,8 @@ def _measure_forces(ctx: ToolContext, params: MeasureParams) -> Observation:
 
 def _measure_log(ctx: ToolContext, params: MeasureParams) -> Observation:
     obs = run_diagnose(ctx, RunDiagnoseParams(log=params.log_file or "", stage=params.stage))
-    statistic = {"dipole": "dipole_debye_mean", "energy_drift": "eclassic_drift_ha_per_ps",
-                 "thermodynamics": "mean_temperature_k"}.get(params.property)
-    value = getattr(obs, statistic, None) if statistic else None
-    if statistic and value is None and obs.ok:
+    fields = LOG_QUANTITIES.get(params.property, ("", "", {}))[2]
+    if fields and obs.ok and all(getattr(obs, f) is None for f in fields.values()):
         obs.ok = False
         obs.summary = (f"{params.property} is not in what this run's log states: "
                        + obs.summary)
@@ -331,7 +330,8 @@ _EXTRACTORS = {
     "observable_measure",
     description="Measure any observable: deliverable=<name> as the mandate states it, or "
     "stage=<name> property=<name> on that stage's latest run, or a property over files you name. "
-    "Harness-computed statistics, with the series saved as a file the report reads.",
+    "Harness-computed statistics, kept on the ledger with the file they were read from: the "
+    "report states them.",
     tags={"analysis"},
     contract=Contract(consumes={"structure": ("structure", "tpr"), "trajectory": "trajectory",
                                 "reference": "trajectory", "edr": "energy",
@@ -347,9 +347,9 @@ def observable_measure(ctx: ToolContext, params: MeasureParams) -> Observation:
                            "stage or files it is measured over; properties: "
                            + ", ".join(PROPERTIES))
     mandate = read_mandate(ctx.workspace)
-    extractor = _extractor(mandate, params.stage or next(
-        (d.over for d in (mandate.deliverables if mandate else [])
-         if d.name == params.deliverable), ""), params.property)
+    over = params.stage or next((d.over for d in (mandate.deliverables if mandate else [])
+                                 if d.name == params.deliverable), "")
+    extractor = _extractor(mandate, over, params.property)
     if extractor == "trajectory" and not (params.structure and params.trajectory):
         return Observation(ok=False, summary="name the deliverable, or the structure and the "
                            "trajectory, or the stage whose run wrote them")
@@ -361,15 +361,83 @@ def observable_measure(ctx: ToolContext, params: MeasureParams) -> Observation:
     obs = _EXTRACTORS[extractor](ctx, params)
     obs.findings = [*params._said, *obs.findings]
     obs.inputs = [*params._read, *obs.inputs]
-    if params.deliverable and obs.ok:
+    if not obs.ok:
+        return obs
+    quantities = _asked(_quantities(extractor, params, obs), params._statistics)
+    if quantities:
+        read = params.log_file if extractor == "run_log" else next(
+            (a.path for a in obs.artifacts), "")
+        obs.measured = {"deliverable": params.deliverable or "", "stage": over,
+                        "property": params.property, "file": read or "",
+                        "quantities": quantities}
+    if params.deliverable:
         obs.deliverable = params.deliverable
-        values = {"mean": getattr(obs, "mean", None), "max": getattr(obs, "largest", None),
-                  "min": getattr(obs, "minimum", None), "sd": getattr(obs, "sd", None),
-                  "final": getattr(obs, "final", None)}
-        obs.statistics = {k: values[k] for k in params._statistics or values
-                          if values.get(k) is not None}
-        if obs.statistics:
-            obs.summary = (f"{params.deliverable}: " + ", ".join(
-                f"{k} {v:.3f}" for k, v in obs.statistics.items())
-                + f" {getattr(obs, 'unit', '')}. " + obs.summary)
+        if quantities:
+            obs.summary = f"{params.deliverable}: {quantity_words(quantities)}. " + obs.summary
     return obs
+
+
+def quantity_words(quantities: list[dict]) -> str:
+    """What a measurement states, as a line: each quantity's statistics and unit."""
+    return "; ".join(
+        f"{q['name']} " + ", ".join(f"{k} {v:.4g}" if isinstance(v, float) else f"{k} {v}"
+                                    for k, v in q["statistics"].items())
+        + (f" {q['unit']}" if q["unit"] else "") for q in quantities)
+
+
+def _quantities(extractor: str, params: MeasureParams, obs: Observation) -> list[dict]:
+    """What a measurement of each kind states, as quantities each with its unit and the
+    statistics its extractor computed: a series' mean, sd, min, max and final; an energy
+    term's mean, sd and drift; what a run's log states of the property; a single number as
+    its value."""
+    def quantity(name: str, unit: str | None, **stats) -> list[dict]:
+        stats = {k: v for k, v in stats.items() if v is not None}
+        return [{"name": name, "unit": unit or "", "statistics": stats}] if stats else []
+
+    def plain(item) -> dict:
+        return item.model_dump() if hasattr(item, "model_dump") else dict(item)
+
+    if extractor == "trajectory":
+        if obs.pairs:
+            return [*(x for label, st in obs.pairs.items()
+                      for x in quantity(label, obs.unit, mean=st.get("mean"), sd=st.get("std"))),
+                    *quantity("mean absolute difference from the reference", obs.unit,
+                              value=obs.mae)]
+        if obs.contacts is not None:
+            return quantity("contacting residues", "", value=len(obs.contacts))
+        return quantity(obs.metric, obs.unit, mean=obs.mean, sd=obs.sd, min=obs.minimum,
+                        max=obs.largest, final=obs.final)
+    if extractor == "energy":
+        out: list[dict] = []
+        for name, st in (obs.terms or {}).items():
+            st = plain(st)
+            out += quantity(name, st["unit"], mean=st["mean"], sd=st["std"])
+            out += quantity(f"{name} drift", f"{st['unit']}/ns", value=st.get("drift_per_ns"))
+        return out
+    if extractor == "settling":
+        out = []
+        for st in map(plain, obs.series or []):
+            unit = st.get("unit") or ""
+            out += quantity(f"{st['name']}, settled part", unit, mean=st["mean"],
+                            standard_error=st["standard_error"])
+            out += quantity(f"{st['name']}, settled drift", f"{unit}/ns" if unit else "/ns",
+                            value=st.get("drift_per_ns"))
+        return out
+    if extractor == "run_log" and params.property in LOG_QUANTITIES:
+        name, unit, fields = LOG_QUANTITIES[params.property]
+        return quantity(name, unit, **{k: getattr(obs, f) for k, f in fields.items()})
+    if extractor == "forces":
+        return [*quantity("force RMSE", obs.units, value=obs.rmse),
+                *quantity("reference force RMS", obs.units, value=obs.ref_rms)]
+    if extractor == "region":
+        return quantity("boundary selections", "", value=obs.boundary_selections)
+    return []
+
+
+def _asked(quantities: list[dict], wanted: list[str]) -> list[dict]:
+    """The statistics a deliverable asks for, of each quantity that states any of them;
+    every quantity whole when none does, or when it asks for none."""
+    held = [{**q, "statistics": {k: v for k, v in q["statistics"].items() if k in wanted}}
+            for q in quantities]
+    held = [q for q in held if q["statistics"]]
+    return held if wanted and held else quantities

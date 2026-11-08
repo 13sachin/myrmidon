@@ -427,6 +427,10 @@ class ToolRegistry:
             return
         if not obs.record and obs.ok:
             return  # e.g. an unchanged job poll: nothing happened worth a ledger line
+        bound = CALL_MANDATE.get()
+        if obs.measured and not bound:  # a measurement is of the mandate holding when made
+            held = holding_mandate(workspace)
+            bound = held.digest if held is not None else ""
         event = ProvenanceEvent(
             event_id=CALL_EVENT.get() or new_event_id(),
             tool=spec.name,
@@ -444,7 +448,8 @@ class ToolRegistry:
             kind=kind,
             knowledge_refs=knowledge_refs(obs),
             params_schema=params_schema_hash(spec.params_model),
-            mandate=CALL_MANDATE.get(),
+            mandate=bound,
+            measured=obs.measured,
         )
         obs.provenance_id = workspace.ledger.append(event)
 

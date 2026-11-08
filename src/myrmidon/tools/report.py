@@ -100,25 +100,34 @@ def study_report_gate(ctx: ToolContext, params: StudyReportParams):
 )
 def study_report(ctx: ToolContext, params: StudyReportParams) -> Observation:
     precheck(ctx, study_report_gate(ctx, params)[0])
+    import json
+
     from myrmidon.core.artifacts import ArtifactRef
     from myrmidon.core.mandate import read_mandate
     from myrmidon.orchestration.report import mandate_report, narrative_sections, render_sections
 
     mandate = read_mandate(ctx.workspace)
-    sections, values = mandate_report(ctx, mandate) if mandate is not None else ({}, [])
+    sections, values, record = (mandate_report(ctx, mandate) if mandate is not None
+                                else ({}, [], {}))
     path = ctx.workspace.root / params.output
     text = render_sections(sections, params.narrative) if mandate is not None else ""
     fit = _fit_tables(ctx, params)
     path.write_text(text + fit["text"])
+    sidecar = ctx.workspace.root / (params.output.removesuffix(".md") + ".json")
+    sidecar.write_text(json.dumps(
+        {"rounds": [], **fit["data"], **record, "values": [v.model_dump() for v in values]},
+        indent=1, sort_keys=True, default=str) + "\n")
     own = list(narrative_sections(params.narrative)[1])
     return Observation(
         ok=True,
-        summary=f"report written to {ctx.workspace.relpath(path)}: {len(values)} parsed "
-        "value(s); read it for the values before adding narrative"
+        summary=f"report written to {ctx.workspace.relpath(path)}, its data to "
+        f"{ctx.workspace.relpath(sidecar)}: {len(values)} parsed value(s); read it for the "
+        "values before adding narrative"
         + (f"; your section(s) {', '.join(own)} follow the report's" if own else "")
         + fit["said"],
         path=ctx.workspace.relpath(path),
-        artifacts=[ArtifactRef.from_path(path, "report", ctx.workspace.root), *fit["artifacts"]],
+        artifacts=[ArtifactRef.from_path(path, "report", ctx.workspace.root),
+                   ArtifactRef.from_path(sidecar, "report", ctx.workspace.root)],
         values=values,
         rounds=fit["rounds"],
         quiet={"values"},  # every value is in the report written
@@ -128,10 +137,7 @@ def study_report(ctx: ToolContext, params: StudyReportParams) -> Observation:
 def _fit_tables(ctx: ToolContext, params: StudyReportParams) -> dict:
     """A study with a fit's collection reports it too: per round the dataset, settings, outcome,
     charge and bonded-term changes, candidate topology and validation, every number re-parsed
-    from the files the ledger names, with the same data beside it as report.json."""
-    import json
-
-    from myrmidon.core.artifacts import ArtifactRef
+    from the files the ledger names, its data for report.json beside them."""
     from myrmidon.orchestration.fit_report import (
         build_fit_report,
         find_rounds,
@@ -141,10 +147,8 @@ def _fit_tables(ctx: ToolContext, params: StudyReportParams) -> dict:
 
     ws = ctx.workspace
     if not find_rounds(list(ws.ledger.events())):
-        return {"text": "", "said": "", "artifacts": [], "rounds": []}
+        return {"text": "", "said": "", "data": {}, "rounds": []}
     data = build_fit_report(ws, compute=ctx.config.compute, backend=ctx.backend)
-    sidecar = ws.root / (params.output.removesuffix(".md") + ".json")
-    sidecar.write_text(json.dumps(data, indent=1, sort_keys=True, default=str) + "\n")
     digest, bits = [], []
     for r in data["rounds"]:
         mae = {metric: m["mae"] for metric, m in r["validation"].get("metrics", {}).items()}
@@ -157,6 +161,5 @@ def _fit_tables(ctx: ToolContext, params: StudyReportParams) -> dict:
                 f"{fmt_num(r['fit'].get('validation_sdf'))}")
         bits.append(said + (f", {terms} UNPHYSICAL terms" if terms else ""))
     return {"text": "\n\n" + render_fit_report(data, max_rows=params.max_rows),
-            "said": f"; {len(digest)} fit round(s) ({'; '.join(bits)}), data in "
-            f"{ws.relpath(sidecar)}", "rounds": digest,
-            "artifacts": [ArtifactRef.from_path(sidecar, "report", ws.root)]}
+            "said": f"; {len(digest)} fit round(s) ({'; '.join(bits)})", "rounds": digest,
+            "data": data}

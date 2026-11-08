@@ -40,6 +40,8 @@ class Observation(BaseModel):
     # values the harness derived from the system's files instead of asking for them
     facts: list[str] = Field(default_factory=list)
     artifacts: list[ArtifactRef] = Field(default_factory=list)  # produced (outputs)
+    # what a measuring call read, as its ledger event keeps it (core/provenance.py)
+    measured: dict = Field(default_factory=dict)
     inputs: list[ArtifactRef] = Field(default_factory=list)  # consumed, hashed
     provenance_id: str | None = None
     command: list[str] | None = None  # exact argv when a binary ran
@@ -248,6 +250,7 @@ class ReportValue(BaseModel):
     label: str
     value: float | int | bool | str
     unit: str = ""
+    quantity: str = ""  # what a measurement's statistic is of, when it states several
     event: str  # the ledger event of the call that produced it
     file: str  # the output it was parsed from
 

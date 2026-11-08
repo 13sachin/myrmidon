@@ -10,7 +10,7 @@ import pytest
 from tests.conftest import ACETONE, REGION, coupled_study
 from tests.unit.findings_catalog import blocking
 
-from myrmidon.core.mandate import Mandate
+from myrmidon.core.mandate import Mandate, read_mandate
 from myrmidon.core.tool import REGISTRY
 from myrmidon.knowledge.stage import templates_for
 
@@ -479,9 +479,11 @@ def test_a_deliverable_is_measured_as_approved_over_its_stages_run(ws_ctx, compl
     assert obs.ok, obs.summary
     assert obs.selection == "resname JZ4 and not name H*"  # the mandate's, not the call's
     assert "DELIVERABLE_MEASURED_AS_APPROVED" in {f.id for f in obs.findings}
-    assert set(obs.statistics) == {"mean", "min"}
-    assert np.isclose(obs.statistics["min"], 4.0, atol=1e-3)  # C2 to C1, frame 0
     event = ws.ledger.get(obs.provenance_id)
+    [quantity] = event.measured["quantities"]  # the ledger keeps what was read
+    assert set(quantity["statistics"]) == {"mean", "min"}
+    assert np.isclose(quantity["statistics"]["min"], 4.0, atol=1e-3)  # C2 to C1, frame 0
+    assert event.mandate == read_mandate(ws).digest
     assert any(i.path == xtc for i in event.inputs)
     # the ledger records what was measured, not what the call left unset
     assert event.params["selection"] == "resname JZ4 and not name H*"
