@@ -101,14 +101,14 @@ def _approve_mandate(ctx, *, digest: str, show: bool, as_json: bool, yes: bool, 
                  "") or mandates.record_approval(ws, mandate, approver=who, via=via,
                                                  origin=_origin(),
                                                  myrmidon_version=myrmidon.__version__)
-    summary = (f"mandate revision {mandate.revision} approved: at most "
-               f"{mandate.cost.ceiling_core_h:g} core-h, digest {mandate.digest[:12]}")
+    summary = (f"mandate revision {mandate.revision} approved: its stages may book at most "
+               f"{mandate.cost.ceiling_core_h:g} core-h")
     if as_json:
         typer.echo(json.dumps({"ok": True, "event": event, "approver": who, "via": via,
                                "digest": mandate.digest, "summary": summary}))
         return
-    typer.echo(f"{event}: approved by {who} — {summary}. The session carries the study on "
-               "under it; `myrmidon status` shows where it stands")
+    typer.echo(f"{event}: approved by {who} — {summary} (digest {mandate.digest[:12]}). The "
+               "session carries the study on under it; `myrmidon status` shows where it stands")
 
 
 @app.command("approve", rich_help_panel=PANEL_WORK)

@@ -184,7 +184,7 @@ async function approveInChat(pi: ExtensionAPI, ctx: ExtensionContext): Promise<{
   ctx.ui.notify(`approved by ${result.approver} — ${result.summary}`, "info");
   return {
     approved: true,
-    reason: `Approved by ${result.approver} (event ${result.event}): ${result.summary}. ` +
+    reason: `Approved by ${result.approver}: ${result.summary}. ` +
       "Carry the stages out call by call under it; each submission is checked against it.",
   };
 }

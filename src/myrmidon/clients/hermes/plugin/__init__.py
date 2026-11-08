@@ -130,7 +130,7 @@ def _record(entry: dict, cwd: Path, view: dict, digest: str, session_id: str = "
         result = json.loads(stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
         return f"approval recorded, but its result was unreadable:\n{stdout[:2000]}"
-    return (f"Approved by {result.get('approver')} (event {result.get('event')}): "
+    return (f"Approved by {result.get('approver')}: "
             f"{result.get('summary')}. The session carries the study on under it; "
             "/status says where it stands.")
 
