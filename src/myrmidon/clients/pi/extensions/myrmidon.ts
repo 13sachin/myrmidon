@@ -114,7 +114,7 @@ function dialogText(view: ApprovalView): string {
 }
 
 const TERMINAL_VERB =
-  "Approving is the researcher's act. Say the mandate's cost and digest and end the turn; " +
+  "Approving is the researcher's act. Say the stages and their cost in core-hours and end the turn; " +
   "they approve at a terminal with `myrmidon approve`.";
 
 /** The approval, as a person gives it in the chat. Returns what the model is told. */
@@ -166,7 +166,7 @@ async function approveInChat(pi: ExtensionAPI, ctx: ExtensionContext): Promise<{
     return {
       approved: false,
       reason:
-        `the researcher did not approve the mandate (digest ${view.digest.slice(0, 12)}). ` +
+        `the researcher did not approve revision ${view.revision}. ` +
         "Ask what they would change, or end the turn.",
     };
   }

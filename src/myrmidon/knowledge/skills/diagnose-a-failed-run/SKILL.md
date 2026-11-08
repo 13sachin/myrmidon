@@ -55,7 +55,7 @@ or a cause ruled out, in `journal_write`.
 - No log at all: the run never computed; `job_status` sees the scheduler's side.
 - A fix that changes a researcher's decision, the system, or exceeds the ceiling:
   `mandate_write` with `revise=true` and the reason, approved with `/approve` in Hermes,
-  the dialog in Pi, or `myrmidon approve` at a terminal; say the digest and end the turn.
+  the dialog in Pi, or `myrmidon approve` at a terminal; say what changed and its core-hours and end the turn.
 - A resubmission the gate did not make: say what it named.
 
 ## Report

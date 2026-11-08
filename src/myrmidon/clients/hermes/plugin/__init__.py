@@ -33,7 +33,8 @@ SHELL_APPROVAL = re.compile(r"\bmyrmidon(?:\.cli)?\b[^\w\n]*\bapprove\b")
 VIA = ("--via", "hermes-plugin")
 
 TERMINAL_VERB = (
-    "Approving is the researcher's act. Say the mandate's cost and digest and end the turn; "
+    "Approving is the researcher's act. Say the stages and their cost in core-hours and end "
+    "the turn; "
     "they approve with /approve in this session, or at a terminal with `myrmidon approve`."
 )
 #: how many sessions' last-shown digests the plugin keeps, as it bounds its first look
@@ -87,7 +88,7 @@ def _dialog_text(view: dict) -> str:
         + (f", {view.get('spent_core_h'):g} already booked" if view.get("spent_core_h")
            else ""),
         f"revision   {view.get('revision')}", "",
-        f"digest     {digest}",
+        f"digest     {digest[:12]}",
         f"To approve, type `/approve yes` (or `/approve {digest[:12]}`).",
         "Anything else leaves the mandate unapproved."])
 

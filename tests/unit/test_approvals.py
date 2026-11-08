@@ -174,7 +174,14 @@ def test_a_person_approves_the_mandate_they_read_from_the_command_line(
     assert shown.exit_code == 0, shown.output
     view = json.loads(shown.output)
     assert (view["kind"], view["digest"], view["blocked"]) == ("mandate", written.digest, "")
-    assert "QUESTION" in view["text"] and "RECOVERY" in view["text"]
+    detailed = json.loads(_approve("--show", "--json", "--detail", "--study", study).output)
+    # the researcher reads the system, the stages and the receipt; the model and an auditor
+    # read the files, what the engines are told, the recovery terms and the full digest
+    for text, detail in ((view["text"], False), (detailed["text"], True)):
+        assert "QUESTION" in text and written.digest[:12] in text
+        assert (written.digest in text) is detail and ("RECOVERY" in text) is detail
+        assert all((f.path in text) is detail
+                   for f in mandates.read_mandate(ws_ctx.workspace).system.files)
 
     stale = _approve("--yes", "--study", study, "--digest", "0" * 12)
     assert stale.exit_code == 1 and mandates.approvals(ws_ctx.workspace) == []

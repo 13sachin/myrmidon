@@ -1,8 +1,9 @@
 """The mandate tools: write the study's mandate for the researcher, and show it.
 
-There is no approve tool: a `ready` return is the signal. The model says the cost and the
-digest and ends its turn; the researcher approves with `/approve` in Hermes, the dialog in
-Pi, or `myrmidon approve` at a terminal (core/mandate.py records it).
+There is no approve tool: a `ready` return is the signal. The model tells the researcher the
+stages and their cost in core-hours and ends its turn; the researcher approves with
+`/approve` in Hermes, the dialog in Pi, or `myrmidon approve` at a terminal
+(core/mandate.py records it).
 """
 
 from __future__ import annotations
@@ -19,9 +20,10 @@ from myrmidon.core.validation import Finding
 from myrmidon.execution.jobs import booked_under_mandates
 
 #: what the turn does after a ready mandate, in every client
-APPROVAL_FORMS = ("say its cost and its digest and end the turn: the researcher approves it "
-                  "with `/approve` (Hermes), in the approval dialog (Pi), or with "
-                  "`myrmidon approve` at a terminal")
+APPROVAL_FORMS = ("tell the researcher its stages, what they measure and the estimated "
+                  "core-hours against the ceiling, and that their approval opens the runs; "
+                  "then end the turn: they approve with `/approve` (Hermes), in the approval "
+                  "dialog (Pi), or with `myrmidon approve` at a terminal")
 
 
 class SystemFileIn(BaseModel):
@@ -492,7 +494,7 @@ def _observe(ctx: ToolContext, mandate: mandates.Mandate, summary: str) -> Obser
         approved=held is not None and held.digest == mandate.digest,
         why_not=mandates.why_not_holding(ws),
         text=mandates.render(mandate, spent, compiled=comp.lines, priced=comp.priced,
-                             measured=comp.measured))
+                             measured=comp.measured, detail=True))
 
 
 def _carried(params: MandateWriteParams, held: mandates.Mandate) -> MandateWriteParams:
@@ -700,8 +702,11 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
         summary = (f"mandate revision {mandate.revision} waits on the researcher: ask them "
                    + " ".join(mandate.questions) + " Then write it again with the answers.")
     else:
-        summary = (f"mandate revision {mandate.revision} is ready, digest "
-                   f"{mandate.digest[:12]}, estimated {mandate.cost.estimate_core_h:g} of "
+        summary = ("ready for the researcher: stages "
+                   + ", ".join(s.name for s in mandate.method.stages)
+                   + (", measuring " + ", ".join(d.name for d in mandate.deliverables)
+                      if mandate.deliverables else "")
+                   + f"; estimated {mandate.cost.estimate_core_h:g} of "
                    f"the ceiling's {mandate.cost.ceiling_core_h:g} core-h"
                    + (f" ({', '.join(comp.unpriced)} unpriced)" if comp.unpriced else "")
                    + ": " + APPROVAL_FORMS + ".")
@@ -736,7 +741,7 @@ def mandate_show(ctx: ToolContext, params: MandateShowParams) -> Observation:
         return Observation(ok=False, summary="this study has no mandate: write one "
                                   "with mandate_write once the system is built")
     obs = _observe(ctx, mandate, "")
-    obs.summary = (f"mandate revision {mandate.revision} ({mandate.digest[:12]}), "
+    obs.summary = (f"mandate revision {mandate.revision}, "
                    + ("approved" if obs.approved else f"not approved: {obs.why_not}")
                    + f"; {obs.spent_core_h:g} of {obs.ceiling_core_h:g} core-h booked")
     obs.kind = "observe"

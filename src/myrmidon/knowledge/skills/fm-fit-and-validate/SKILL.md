@@ -45,7 +45,7 @@ needs (with `file_write`).
    a `minimize` stage with `regime: mm` and a `scan` of `frames`; the deliverables (`force_rmse`
    over a comparison); the ceiling. It prices each stage.
    The approval is the researcher's: `/approve` in Hermes, the dialog in Pi, or
-   `myrmidon approve` at a terminal. Say the cost and the digest and end the turn.
+   `myrmidon approve` at a terminal. Say the stages and their core-hours and end the turn.
 2. `stage_prepare` with `stage=<the fit>` writes its input: every frame of the collected dataset
    unless `overrides` narrows the `stride`. Say which of its weights you accept. An edit it asks
    of the topology goes through `file_write`, then `file_check`.
@@ -62,7 +62,7 @@ needs (with `file_write`).
 
 ## Stop
 
-- `mandate_write` returns `needs_input` (ask) or `ready` (the cost and the digest).
+- `mandate_write` returns `needs_input` (ask) or `ready` (say the stages and the core-hours).
 - After a submission: the job id and the core-hours, then stop.
 - A submission the gate did not make: say what it named; a candidate outside the approved
   list is `mandate_write` with `revise=true` and the reason.

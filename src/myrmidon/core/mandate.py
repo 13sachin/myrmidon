@@ -833,15 +833,19 @@ def deliverable_words(d: Deliverable) -> str:
 def render(mandate: Mandate, spent_core_h: float = 0.0,
            compiled: dict[str, list[str]] | None = None,
            priced: dict[str, str] | None = None,
-           measured: dict[str, str] | None = None) -> str:
-    """The mandate as the researcher reads it: seven sections, every machine field said,
-    nothing said that the file does not hold. ``compiled`` says, per stage, what the
-    engines are told for it, ``priced`` what it costs and why, and ``measured``, per
-    deliverable, the call that measures it, as the caller compiled them."""
+           measured: dict[str, str] | None = None, detail: bool = False) -> str:
+    """The mandate as the researcher reads it: the question, the system, the stages in
+    physical words with their prices, the decisions in the researcher's words, the
+    deliverables, the cost against the ceiling, and the revision and short digest the
+    approval binds to. ``detail`` adds what the model and an auditor read: the system's
+    files, what the engines are told per stage (``compiled``), each stage's price basis
+    (``priced``), the locks each decision sets, the call that measures each deliverable
+    (``measured``), the recovery terms and the full digest, as the caller compiled them."""
     pad = " " * 14
+    priced = priced or {}
     lines = [f"QUESTION      {mandate.question}", ""]
     lines.append(f"SYSTEM        {mandate.system.description or '(not described)'}")
-    if mandate.system.files:
+    if detail and mandate.system.files:
         lines.append(pad + "files: " + "  ".join(
             f"{f.path} [{f.kind}]" for f in mandate.system.files))
     for name, sub in mandate.system.subsystems.items():
@@ -860,8 +864,11 @@ def render(mandate: Mandate, spent_core_h: float = 0.0,
     if mandate.method.described:
         lines.append(pad + "  →  ".join(mandate.method.described))
     for stage in mandate.method.stages:
-        lines.append(f"{pad}{stage.name}: {stage_words(stage)}")
-        for line in (compiled or {}).get(stage.name, []):
+        price = ("" if detail or stage.name in mandate.cost.unpriced
+                 or " core-h" not in priced.get(stage.name, "")
+                 else f"  [{priced[stage.name].split(': ', 1)[0]}]")
+        lines.append(f"{pad}{stage.name}: {stage_words(stage)}{price}")
+        for line in (compiled or {}).get(stage.name, []) if detail else []:
             lines.append(f"{pad}    → {line}")
     lines.append("")
     yours = mandate.decisions.yours
@@ -869,14 +876,18 @@ def render(mandate: Mandate, spent_core_h: float = 0.0,
     lines.append("DECISIONS     yours" + ("" if yours else "      (none recorded)"))
     for d in yours:
         locked = _keys({**d.locks, **d.keys})
-        lines.append(f"{pad}  \"{d.said}\"  →  {locked or 'nothing locked'}"
-                     + (_on(d.target) if d.keys else ""))
+        lines.append(f"{pad}  \"{d.said}\""
+                     + (f"  →  {locked or 'nothing locked'}" + (_on(d.target) if d.keys
+                                                                 else "") if detail else ""))
     lines.append(pad + "proposed" + ("" if proposed else "   (none)"))
     for p in proposed:
-        detail = "".join(x for x in (f"  →  would lock {_keys(p.locks)}" if p.locks else "",
-                                     f"  →  {_keys(p.keys)}" if p.keys else ""))
         source = f"  ({p.source})" if p.source else ""
-        lines.append(f"{pad}  {p.what}{detail}{_on(p.target)}{source}")
+        if not detail:
+            lines.append(f"{pad}  {p.what}{source}")
+            continue
+        said = "".join(x for x in (f"  →  would lock {_keys(p.locks)}" if p.locks else "",
+                                   f"  →  {_keys(p.keys)}" if p.keys else ""))
+        lines.append(f"{pad}  {p.what}{said}{_on(p.target)}{source}")
     lines.append("")
     lines.append("DELIVERABLES  " + ("" if mandate.deliverables else "(none named)"))
     for d in mandate.deliverables:
@@ -886,28 +897,30 @@ def render(mandate: Mandate, spent_core_h: float = 0.0,
             how = ", ".join(x for x in (f"by {d.tool}" if d.tool else "",
                                         f"over {d.over}" if d.over else "") if x)
             lines.append(f"{pad}{d.name}" + (f" ({how})" if how else ""))
-        if d.params:
+        if detail and d.params:
             lines.append(f"{pad}  measured as "
                          + ", ".join(f"{k} {json.dumps(v)}" for k, v in d.params.items()))
-        if (measured or {}).get(d.name):
+        if detail and (measured or {}).get(d.name):
             lines.append(f"{pad}    → {measured[d.name]}")
     lines.append("")
     est = estimate_words(mandate.cost) or "not priced"
     lines.append(f"COST          {est}; your ceiling {mandate.cost.ceiling_core_h:g} core-h"
                  + (f"; {spent_core_h:g} core-h already booked in this study"
                     if spent_core_h else "") + ".")
-    for name, basis in (priced or {}).items():
-        lines.append(f"{pad}{name}: {basis}")
-    lines.append("")
-    r = mandate.recovery
-    deadline = f"stop and ask after {r.deadline_h:g} h or at the ceiling" \
-        if r.deadline_h else "stop and ask at the ceiling"
-    lines.append(f"RECOVERY      {r.reruns} identical rerun(s) of a failed job; up to "
-                 f"{r.model_fixes} change(s) by the model outside your decisions; {deadline}.")
+    for name, basis in priced.items():
+        if detail or name in mandate.cost.unpriced:
+            lines.append(f"{pad}{name}: {basis}")
+    if detail:
+        r = mandate.recovery
+        deadline = f"stop and ask after {r.deadline_h:g} h or at the ceiling" \
+            if r.deadline_h else "stop and ask at the ceiling"
+        lines += ["", f"RECOVERY      {r.reruns} identical rerun(s) of a failed job; up to "
+                  f"{r.model_fixes} change(s) by the model outside your decisions; {deadline}."]
     if mandate.status == "needs_input":
         lines += ["", "QUESTIONS     " + (mandate.questions[0] if mandate.questions else "")]
         lines += [pad + q for q in mandate.questions[1:]]
-    lines += ["", f"revision {mandate.revision} · digest {mandate.digest}"
+    lines += ["", f"revision {mandate.revision} · digest "
+              + (mandate.digest if detail else mandate.digest[:12])
               + (f" · {mandate.reason}" if mandate.reason else "")]
     return "\n".join(lines)
 
@@ -915,10 +928,10 @@ def render(mandate: Mandate, spent_core_h: float = 0.0,
 def view(ws, mandate: Mandate | None, spent_core_h: float = 0.0,
          compiled: dict[str, list[str]] | None = None,
          priced: dict[str, str] | None = None,
-         measured: dict[str, str] | None = None) -> dict:
-    """What an approval surface shows and checks: the rendering (with the stages as the
-    engines are told them, and their prices, when given), the numbers, the digest, and
-    what keeps it from being approved now ("" when nothing does)."""
+         measured: dict[str, str] | None = None, detail: bool = False) -> dict:
+    """What an approval surface shows and checks: the rendering (the researcher's, or with
+    ``detail`` the model's and an auditor's), the numbers, the digest, and what keeps it
+    from being approved now ("" when nothing does)."""
     blocked = ""
     if mandate is None:
         why = why_not_holding(ws)
@@ -932,7 +945,7 @@ def view(ws, mandate: Mandate | None, spent_core_h: float = 0.0,
         "kind": "mandate",
         "study": str(ws.root),
         "question": mandate.question,
-        "text": render(mandate, spent_core_h, compiled, priced, measured),
+        "text": render(mandate, spent_core_h, compiled, priced, measured, detail=detail),
         "digest": mandate.digest,
         "revision": mandate.revision,
         "status": mandate.status,

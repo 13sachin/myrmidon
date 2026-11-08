@@ -75,7 +75,7 @@ each deliverable; `snapshot_select` picks a frame for a later stage to start fro
   `decisions_yours`, and the stage's `qm_region` states it.
 - A selection prepqm refuses: report the commands it names; never shrink the region.
 - A boundary the selection cuts: say what it cuts and hand the decision back.
-- `mandate_write` returns `needs_input` (ask); its `ready`: say the cost and the digest and
+- `mandate_write` returns `needs_input` (ask); its `ready`: say the stages and their core-hours and
   end the turn.
 - After a submission, or one the gate did not make: say what it said and stop.
 

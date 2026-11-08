@@ -57,7 +57,7 @@ def _origin() -> str:
 
 
 def _approve_mandate(ctx, *, digest: str, show: bool, as_json: bool, yes: bool, via: str,
-                     approver: str) -> None:
+                     approver: str, detail: bool = False) -> None:
     """The mandate on disk, shown; a person's yes, bound to the digest they read; the
     approval recorded in the ledger in their name."""
     import getpass
@@ -74,7 +74,8 @@ def _approve_mandate(ctx, *, digest: str, show: bool, as_json: bool, yes: bool, 
 
     comp = compiled(ctx, mandate) if mandate is not None else None
     view = mandates.view(ws, mandate, spent, comp.lines if comp else None,
-                         comp.priced if comp else None, comp.measured if comp else None)
+                         comp.priced if comp else None, comp.measured if comp else None,
+                         detail=detail)
     if mandate is None:
         typer.echo(f"✗ {view['blocked']}")
         raise typer.Exit(1)
@@ -116,9 +117,13 @@ def approve(
     approver: str = typer.Option("", "--approver", help="who is approving (default: your "
                                  "user name)"),
     config: str = typer.Option("", "--config", help=CONFIG_HELP),
-    show: bool = typer.Option(False, "--show", help="print the mandate as the approval "
-                              "would record it — the question, the system, the decisions, "
-                              "the deliverables, the cost and ceiling, the digest — and stop"),
+    show: bool = typer.Option(False, "--show", help="print the mandate as the researcher "
+                              "approves it — the question, the system, the stages and their "
+                              "prices, the decisions, the deliverables, the cost and ceiling, "
+                              "the revision — and stop"),
+    detail: bool = typer.Option(False, "--detail", help="with the mandate, what the engines "
+                                "are told per stage, the locks, the measuring calls, the "
+                                "recovery terms and the full digest"),
     as_json: bool = typer.Option(False, "--json", help="machine-readable: with --show the "
                                  "mandate view, after a --yes the approval event"),
     digest: str = typer.Option("", "--digest", help="approve only while the mandate on disk "
@@ -144,7 +149,7 @@ def approve(
                    "terminal")
         raise typer.Exit(2)
     _approve_mandate(loop_context(study, config, mock), digest=digest, show=show,
-                     as_json=as_json, yes=yes, via=via, approver=approver)
+                     as_json=as_json, yes=yes, via=via, approver=approver, detail=detail)
 
 
 def _agent_wake(ctx, model: str, endpoint: str):

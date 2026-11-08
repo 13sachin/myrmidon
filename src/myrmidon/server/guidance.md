@@ -28,9 +28,10 @@
    deliverables as observables of subsystems (`property`, `target`, `reference`, `atoms`,
    `align_to`, `over` a stage, `statistics`); and their ceiling. The harness compiles each
    stage into its engine's keys and each deliverable into its measurement, prices the
-   stages, and returns `needs_input` with questions to ask, or `ready` with a digest. The
+   stages, and returns `needs_input` with questions to ask, or `ready`. The
    approval is the researcher's, in one of three forms: `/approve` in Hermes, the dialog
-   in Pi, `myrmidon approve` at a terminal. Say the cost and the digest and end the turn.
+   in Pi, `myrmidon approve` at a terminal. When `mandate_write` is `ready`, say the stages
+   and the cost in core-hours and end the turn so the researcher can approve.
    That approval is the researcher's answer to "ask me before submitting": once it holds,
    carry the stages out call by call without asking again: `stage_prepare` with
    `stage=<name>` writes everything a stage's run reads from the mandate, and `stage_run`

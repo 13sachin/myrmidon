@@ -307,7 +307,7 @@ def compose(ctx, mandate, waking: list[Failure], unseen: list[str],
         "present: what its approved mandate does not grant — a bigger ceiling, a different "
         "system, a decision of the researcher's — is not yours. Say it and end the turn; "
         "it is put to them.",
-        "", mandates.render(mandate, spent), "",
+        "", mandates.render(mandate, spent, detail=True), "",
         "The study's last calls:"]
     lines += [*trace_lines(events, RECENT_CALLS), ""]
     lines.append("What ended since the last turn:" if unseen or waking

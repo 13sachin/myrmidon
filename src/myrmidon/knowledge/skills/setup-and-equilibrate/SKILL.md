@@ -81,7 +81,7 @@ length and restraints); the decisions with their locks; the deliverables as obse
 (`rmsd` of the ligand superposed on the protein backbone, `min_distance` from the ligand to
 the protein, `over` the production stage, with the `statistics` asked for); the ceiling. It
 compiles and prices every stage. The approval is the researcher's: `/approve` in Hermes, the
-dialog in Pi, or `myrmidon approve` at a terminal. Say the cost and the digest and end the
+dialog in Pi, or `myrmidon approve` at a terminal. Say the stages and their core-hours and end the
 turn.
 
 Under the approved mandate, per stage: `stage_prepare` with `stage=<name>` writes its `.mdp` and
@@ -95,7 +95,7 @@ asked.
 ## Stop
 
 - `mandate_write` returns `needs_input`: ask its questions.
-- `mandate_write` returns `ready`: say the cost and the digest; the turn ends at approval.
+- `mandate_write` returns `ready`: say the stages and their core-hours; the turn ends at approval.
 - A submission: say the job id and the core-hours booked, then stop.
 - A submission the gate did not make: say what it named; a different system or a bigger
   ceiling is `mandate_write` with `revise=true` and the reason.

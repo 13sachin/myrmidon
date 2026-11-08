@@ -68,6 +68,9 @@ app.add_typer(plan_app, name="plan", hidden=True)
 @plan_app.command("show")
 def plan_show(
     workspace: str = typer.Option("", "--study", "-s", help="study directory"),
+    detail: bool = typer.Option(False, "--detail", help="with what the engines are told per "
+                                "stage, the locks, the measuring calls, the recovery terms "
+                                "and the full digest"),
 ) -> None:
     """The study's mandate as the researcher approved it, with what its jobs booked, then
     the trace: every call the ledger records, with its outcome, its files and its job."""
@@ -82,7 +85,8 @@ def plan_show(
         typer.echo("this study has no mandate — the agent writes one with mandate_write")
     else:
         typer.echo(mandates.render(mandate,
-                                   booked_under_mandates(ws, mandates.approved_digests(ws))))
+                                   booked_under_mandates(ws, mandates.approved_digests(ws)),
+                                   detail=detail))
     typer.echo("")
     typer.echo("TRACE")
     for line in trace_lines(ws.ledger.events()) or ["(nothing has run)"]:

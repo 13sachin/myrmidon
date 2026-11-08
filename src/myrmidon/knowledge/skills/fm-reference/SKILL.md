@@ -42,7 +42,7 @@ as the probe, the rest's resources from what the probe measured.
    charge is read from the topology and proposed, unless stated); the decisions; the ceiling.
    It prices the stage over every frame from the coupled steps measured here. The approval is
    the researcher's: `/approve` in Hermes, the dialog in Pi, or `myrmidon approve` at a
-   terminal. Say the cost and the digest and end the turn.
+   terminal. Say the stages and their core-hours and end the turn.
 2. `stage_prepare` with `stage=<the reference>` once: it partitions the region on the
    system's structure and writes the method's CPMD input and the compiled MM half; review its
    `partition`. Each frame is partitioned by prepqm on its own coordinates inside the job.
