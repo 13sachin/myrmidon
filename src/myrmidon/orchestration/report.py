@@ -489,7 +489,9 @@ def departures(ws, mandate, events, staged, signed, since, held, values
             continue
         stage = _stage_ref(ev)
         out.append(f"- {ev.tool}" + (f" for stage {stage}" if stage else "")
-                   + (f" refused: {', '.join(ev.knowledge_refs)}" if ev.kind == "gate_refused"
+                   # a refusal's stopping finding is its first
+                   + (f" refused: {ev.knowledge_refs[0]}" if ev.kind == "gate_refused"
+                      and ev.knowledge_refs else " refused" if ev.kind == "gate_refused"
                       else " failed")
                    + ", and was not made good")
     out += [f"- revision approved by {a.approver}" for a in signed[1:]]

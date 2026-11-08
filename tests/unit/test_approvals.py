@@ -204,6 +204,8 @@ def test_a_job_runs_only_on_the_approved_system_with_the_researchers_values(ws_c
     another value of a key the researcher decided, is refused by name, before anything is
     booked; preview says the same and books nothing; a collected run descends from the
     system through the ledger."""
+    import json
+
     from myrmidon.core import mandate as mandates
     from myrmidon.core.lineage import lineage
     from myrmidon.execution.jobs import existing_jobstore
@@ -287,15 +289,15 @@ def test_a_job_runs_only_on_the_approved_system_with_the_researchers_values(ws_c
     verdict = lineage(ws).fits(confout.path, confout.sha256, "structure", held)
     assert verdict.ok and verdict.reached
 
-    # the report reads the trace: the mandate, the job under it, what the gate refused
+    # the report reads the trace: each stage's run, the failed one and what the gate refused
     report = REGISTRY.call("study_report", ws_ctx, {})
     assert report.ok, report.summary
-    text = (ws.root / report.path).read_text()
-    assert "Equilibrate the box at 300 K" in text and job.job_id in text
-    results = text.split("## Results")[1].split("## Deviations")[0]
-    deviations = text.split("## Deviations")[1]
-    assert crashed.job_id not in results and f"job {crashed.job_id}" in deviations
-    assert "MANDATE_DECISION" in text  # a refused submission; a preview is only a look
+    record = json.loads((ws.root / "report.json").read_text())
+    stages = {row["stage"]: row for row in record["stages"]}
+    assert stages["nvt"]["reached"] == stages["nvt"]["target"] and stages["nvt"]["checks"]
+    assert stages["nvt_again"]["reached"] == "failed"
+    assert record["refused_or_failed_calls"] >= 1 and len(record["deviations"]) == 2
+    assert any("MANDATE_DECISION" in d for d in record["deviations"])  # a preview only looks
 
 
 # (a value as a file writes it, the researcher's constraint, met)
