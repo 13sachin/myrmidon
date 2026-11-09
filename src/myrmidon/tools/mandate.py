@@ -664,14 +664,16 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
     questions += params.questions
     from myrmidon.core.contracts import includes_of
 
-    files = [mandates.SystemFile(path=ws.relpath(ws.resolve(f.path)), kind=f.kind)
+    files = [mandates.SystemFile(path=ws.relpath(ws.resolve(f.path)), kind=f.kind,
+                                 source=ws.sibling_path(ws.resolve(f.path)))
              for f in params.system_files]
     if any(s.qm_region is not None for s in params.stages):
         files += _selection_files(ws, {f.kind for f in files})
     for f in list(files):  # what a topology includes is the system too
         for path in includes_of(f.kind, ws.resolve(f.path)):
             if ws.relpath(path) not in {x.path for x in files}:
-                files.append(mandates.SystemFile(path=ws.relpath(path), kind="itp"))
+                files.append(mandates.SystemFile(path=ws.relpath(path), kind="itp",
+                                                 source=ws.sibling_path(path)))
     # a topology a stage runs on, by the path its system file is held at
     names = {s.name for s in params.stages}
     params = params.model_copy(update={"stages": [

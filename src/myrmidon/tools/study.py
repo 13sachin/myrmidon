@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC
 from pathlib import Path
 
@@ -18,9 +17,11 @@ from myrmidon.core.studies import (
     mark_active,
     other_project,
     project_dir,
+    project_studies,
     resolve_study_path,
     studies_dir,
     study_dir,
+    study_lines,
 )
 from myrmidon.core.tool import ToolContext, tool
 from myrmidon.core.workspace import META_FILENAME, Workspace
@@ -220,13 +221,26 @@ def study_open(ctx: ToolContext, params: WorkspaceOpenParams) -> Observation:
                     obs.summary = f"{note}. {obs.summary}"
                 return obs
             ctx.workspace = active
-            return _ws_observation(
-                ctx, f"Active study: {ctx.workspace.root}{_whose(ctx.workspace)}")
-        return _ws_observation(ctx, "Study status")
+            return _with_studies(ctx, _ws_observation(
+                ctx, f"Active study: {ctx.workspace.root}{_whose(ctx.workspace)}"))
+        return _with_studies(ctx, _ws_observation(ctx, "Study status"))
     ws = Workspace.open(resolve_study_path(studies_dir(ctx), params.path))
     ctx.workspace = ws
     mark_active(ctx, ws)
     return _ws_observation(ctx, f"Study active: {ws.root}{_whose(ws)}")
+
+
+def _with_studies(ctx: ToolContext, obs: Observation) -> Observation:
+    """The observation with what this project's other studies asked and wrote, each output by
+    the ``<study>/<path>`` this study reads it by."""
+    ws = ctx.workspace
+    studies = [s for s in project_studies(ws.root.parent, ws.origin) if s["name"] != ws.root.name]
+    obs.studies = studies
+    lines = study_lines(studies)
+    if lines:
+        obs.summary += ("\n  this project's other studies, each output named as this study "
+                        "reads it:\n  " + "\n  ".join(lines))
+    return obs
 
 
 def _no_study(ctx: ToolContext) -> Observation:
@@ -235,22 +249,17 @@ def _no_study(ctx: ToolContext) -> Observation:
     researcher's files live in some workspace only the researcher can name; it stops, or
     guesses paths."""
     project = project_dir()
-    earlier = []
-    try:
-        for meta in sorted(studies_dir(ctx).glob(f"*/{META_FILENAME}")):
-            if not other_project(json.loads(meta.read_text()).get("origin", "")):
-                earlier.append(meta.parent)
-    except (OSError, ValueError):
-        pass
+    earlier = project_studies(studies_dir(ctx), str(project))
     summary = (f"No study is open. A new one reads this project's files: a relative path "
-               f"resolves in the study, then in the project directory {project}. "
-               "study_create starts one for this question.")
+               f"resolves in the study, then in the project directory {project}, then as "
+               "<study>/<path> in this project's other studies. study_create starts one for "
+               "this question.")
     if earlier:
-        summary += (" This project's earlier studies: "
-                    + ", ".join(str(p) for p in earlier[:5])
-                    + " — study_open with a path continues one.")
+        summary += (" This project's earlier studies, under " + str(studies_dir(ctx))
+                    + " (study_open with a name continues one):\n  "
+                    + "\n  ".join(study_lines(earlier)))
     return Observation(
-        ok=False, summary=summary,
+        ok=False, summary=summary, studies=earlier,
         error=ToolError(code="NO_STUDY", message="no study is open",
                         hint="study_create with a name and description for this question"
                         + ("; study_open with one of the paths above continues it"

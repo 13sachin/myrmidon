@@ -79,9 +79,10 @@ def consumed_inputs(params: dict, root: Path, origin: Path | str = "") -> list[A
 
     The role is where the value sat in the params: ``topology``, ``frames[3]``,
     ``extra_files.index``. A file in the project directory the study was made from
-    (``origin``) is the researcher's own input and is recorded by its absolute path, as
-    tools resolve it (``Workspace.resolve``). Other paths outside the study
-    (a GROMACS library file) and harness state are not study inputs and are skipped.
+    (``origin``), or in another study of that project (``<study>/<path>``), is an input of
+    the researcher's project and is recorded by its absolute path, as tools resolve it
+    (``Workspace.resolve``). Other paths outside the study (a GROMACS library file) and
+    harness state are not study inputs and are skipped.
     """
     root = root.resolve()
     project = Path(origin).resolve() if origin else None
@@ -96,7 +97,8 @@ def consumed_inputs(params: dict, root: Path, origin: Path | str = "") -> list[A
                 except OSError:
                     return
             elif rel is None and project is not None:
-                there = _project_file(value, root, project)
+                there = (_project_file(value, root, project)
+                         or _sibling_file(value, root, str(project)))
                 if there is not None and there not in found:
                     try:
                         found[there] = ArtifactRef.from_path(Path(there), role)
@@ -130,6 +132,28 @@ def _project_file(value: str, root: Path, project: Path) -> str | None:
     except (OSError, ValueError):
         return None
     return str(p)
+
+
+def _sibling_file(value: str, root: Path, origin: str) -> str | None:
+    """The absolute path of the file this string names in another study of the project,
+    given as ``<study>/<path>`` or absolute (``core.workspace.sibling_file``)."""
+    from myrmidon.core.workspace import sibling_file
+
+    if not value or len(value) > _MAX_PATH_CHARS or "\n" in value or "\x00" in value:
+        return None
+    try:
+        p = Path(value).expanduser()
+        if p.is_absolute():
+            p = Path(os.path.abspath(p))
+            if not p.is_relative_to(root.parent):
+                return None
+            p = p.relative_to(root.parent)
+        found = sibling_file(root, origin, p)
+        if found is None or not found.is_file():
+            return None
+    except (OSError, ValueError):
+        return None
+    return str(Path(os.path.abspath(found)))
 
 
 def _relative_file(value: str, root: Path) -> str | None:

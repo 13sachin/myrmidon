@@ -112,6 +112,67 @@ def other_project(origin: str, cwd: Path | None = None) -> str:
         return ""
 
 
+def project_studies(studies_root: Path, origin: str, limit: int = 8,
+                    per_study: int = 12) -> list[dict]:
+    """The studies of the project ``origin`` names under ``studies_root``, newest first, each
+    ``{name, question, reported, outputs}``: its mandate's question (else the question it was
+    created with), whether it has written its report, and what the latest collected run of
+    each of its mandate's stages wrote, each ``{stage, role, path}`` by the role its collection
+    recorded and the ``<study>/<path>`` a study of the same project reads it by
+    (``Workspace.resolve``)."""
+    from myrmidon.core.lineage import stage_run
+    from myrmidon.core.mandate import read_mandate
+    from myrmidon.core.workspace import META_FILENAME
+    from myrmidon.errors import WorkspaceError
+
+    if not origin:
+        return []
+    found = []
+    try:
+        metas = sorted(studies_root.glob(f"*/{META_FILENAME}"),
+                       key=lambda m: m.stat().st_mtime, reverse=True)
+    except OSError:
+        return []
+    for meta in metas:
+        try:
+            theirs = json.loads(meta.read_text()).get("origin", "")
+            if not theirs or Path(theirs).resolve() != Path(origin).resolve():
+                continue
+            ws = Workspace.open(meta.parent)
+        except (OSError, ValueError, WorkspaceError):
+            continue
+        mandate = read_mandate(ws)
+        outputs: list[dict] = []
+        for stage in (mandate.method.stages if mandate is not None else []):
+            run = stage_run(ws, stage.name)
+            seen: set[str] = set()
+            for art in (run[0] if run else []):
+                if art.role in seen:
+                    continue
+                seen.add(art.role)
+                path = art.path if Path(art.path).is_absolute() else f"{ws.root.name}/{art.path}"
+                outputs.append({"stage": stage.name, "role": art.role, "path": path})
+        found.append({
+            "name": ws.root.name,
+            "question": mandate.question if mandate is not None
+            else str(ws.meta.get("description", "")),
+            "reported": (ws.root / "report.json").is_file(),
+            "outputs": outputs[:per_study]})
+        if len(found) == limit:
+            break
+    return found
+
+
+def study_lines(studies: list[dict]) -> list[str]:
+    """Each study as one line and its outputs below it."""
+    lines = []
+    for s in studies:
+        lines.append(f"{s['name']}: \"{s['question']}\" — "
+                     + ("reported" if s["reported"] else "no report yet"))
+        lines += [f"    {o['stage']} {o['role']}: {o['path']}" for o in s["outputs"]]
+    return lines
+
+
 def free_name(root: Path, name: str) -> str:
     """The first `<name>-N` that is nobody's."""
     n = 2

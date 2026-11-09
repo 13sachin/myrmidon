@@ -96,6 +96,9 @@ class SystemFile(_Strict):
     path: str
     kind: str
     sha256: str = ""
+    #: ``<study>/<path>``: the earlier study of this project the file was adopted from, whose
+    #: ledger says how it came to be; "" for the researcher's own file
+    source: str = ""
 
 
 SubsystemKind = Literal["protein", "ligand", "nucleic", "membrane", "cofactor", "solvent",
@@ -873,7 +876,8 @@ def render(mandate: Mandate, spent_core_h: float = 0.0,
     lines.append(f"SYSTEM        {mandate.system.description or '(not described)'}")
     if detail and mandate.system.files:
         lines.append(pad + "files: " + "  ".join(
-            f"{f.path} [{f.kind}]" for f in mandate.system.files))
+            f"{f.path} [{f.kind}]" + (f" from {f.source}" if f.source else "")
+            for f in mandate.system.files))
     for name, sub in mandate.system.subsystems.items():
         lines.append(f"{pad}{name}: {sub.kind}, " + (", ".join(sub.names()) or "unnamed")
                      + (f", charge {sub.charge:g}" if sub.charge is not None else ""))

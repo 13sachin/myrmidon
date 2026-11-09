@@ -575,25 +575,37 @@ def test_a_coupled_stage_is_priced_from_the_seconds_a_qmmm_step_took_here():
     assert booked_minutes(booked) == 195
 
 
-def test_a_file_the_topology_includes_is_the_system_and_an_input(ws_ctx, complex_system):
+@pytest.mark.parametrize("home", ["study", "earlier study"])
+def test_a_file_the_topology_includes_is_the_system_and_an_input(ws_ctx, complex_system, home):
     """A molecule's .itp the topology includes is in the mandate's system files and among
-    the inputs of each call that reads the topology: editing it lapses the approval."""
+    the inputs of each call that reads the topology: editing it lapses the approval. A system
+    adopted from an earlier study of the project, named <study>/<path>, records where it came
+    from and runs as the study's own does."""
     from myrmidon.core import mandate as mandates
+    from myrmidon.core.workspace import Workspace
 
     ws = ws_ctx.workspace
     top = ws.root / complex_system["topology"]
+    if home == "earlier study":
+        earlier = Workspace.create(ws.root.parent / "equil", "equil", origin=ws.origin)
+        shutil.move(top.parent, earlier.root / top.parent.name)
+        complex_system = {kind: f"equil/{path}" for kind, path in complex_system.items()}
+        top = earlier.root / top.relative_to(ws.root)
     text = top.read_text()
     head, ligand = text.split("[ moleculetype ]\nJZ4")
     ligand, rest = ligand.split("[ system ]")
     (top.parent / "jz4.itp").write_text("[ moleculetype ]\nJZ4" + ligand)
     top.write_text(head + '#include "jz4.itp"\n\n[ system ]' + rest)
+    itp = ws.relpath(top.parent / "jz4.itp")
 
     written = _approved(ws_ctx, complex_system)
     held = mandates.holding(ws)
-    assert {f.path: f.kind for f in held.system.files}["01_input/jz4.itp"] == "itp"
+    assert {f.path: f.kind for f in held.system.files}[itp] == "itp"
+    assert {f.kind: f.source for f in held.system.files if f.kind != "itp"} == (
+        complex_system if home == "earlier study" else {"structure": "", "topology": ""})
     _run_input(ws_ctx, complex_system, {"stage": "nvt"}, "nvt")
     prepared = [e for e in ws.ledger.events() if e.tool == "stage_prepare"][-1]
-    assert {i.path: i.role for i in prepared.inputs}["01_input/jz4.itp"] == "topology.include"
+    assert {i.path: i.role for i in prepared.inputs}[itp] == "topology.include"
     obs = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "preview": True})
     assert obs.ok, obs.summary
 

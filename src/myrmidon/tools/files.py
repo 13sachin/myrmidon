@@ -85,7 +85,8 @@ def file_write(ctx: ToolContext, params: FileWriteParams) -> Observation:
 class FileReadParams(BaseModel):
     path: str = Field(
         description="the path as the researcher gave it: relative to the study or to "
-        "the project directory it was made from, or absolute inside either; a directory "
+        "the project directory it was made from, or absolute inside either, or "
+        "<study>/<path> in another study of the project; a directory "
         "lists what is in it, and an empty path lists the study")
     max_chars: int = Field(default=8000, ge=1, le=100_000)
 
@@ -95,7 +96,8 @@ class FileReadParams(BaseModel):
     navigation=True,
     description="Read a text file (inputs, mdps, small logs), truncated at max_chars, or list a "
                 "directory. A relative path is looked up in the study, then in the project "
-                "directory it was made from. Read-only.",
+                "directory it was made from, then as <study>/<path> in the project's other "
+                "studies. Read-only.",
     tags={"workspace", "files"},
 )
 def file_read(ctx: ToolContext, params: FileReadParams) -> Observation:
@@ -112,6 +114,8 @@ def file_read(ctx: ToolContext, params: FileReadParams) -> Observation:
     if inside is not None and inside != allowed[0] and any(
             part.startswith(".") for part in target.relative_to(inside).parts):
         inside = None
+    if inside is None and ctx.workspace.sibling_path(target):
+        inside = root.parent  # another study of this project, as its own files read
     if inside is None:
         return Observation(
             ok=False,

@@ -35,6 +35,12 @@ def project(ws_ctx, tmp_path, monkeypatch):
     monkeypatch.chdir(project)
     assert REGISTRY.call("study_create", ws_ctx, {"name": "nvt", "description": "x"}).ok
     (ws_ctx.workspace.root / "mine.txt").write_text("the study's")
+    # an earlier study of this project, and one of another project, beside it
+    from myrmidon.core.workspace import Workspace
+
+    for name, origin in (("equil", project), ("theirs", tmp_path / "other")):
+        made = Workspace.create(ws_ctx.workspace.root.parent / name, name, origin=origin)
+        (made.root / "report.md").write_text("what it found")
     return project
 
 
@@ -51,6 +57,8 @@ CONFINEMENT = [
     ("file_read", "{tmp}/elsewhere.txt", False),
     ("file_read", "../elsewhere.txt", False),
     ("file_read", "/etc/passwd", False),
+    ("file_read", "equil/report.md", True),  # an earlier study of the project
+    ("file_read", "theirs/report.md", False),  # another project's
     ("file_write", "notes.txt", True),
     ("file_write", "../outside.txt", False),
     ("file_write", "a/../../outside.txt", False),

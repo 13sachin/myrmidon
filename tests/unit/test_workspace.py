@@ -1,5 +1,8 @@
 """Workspace layout, ledger append and read-back."""
 
+from pathlib import Path
+
+import pytest
 
 from myrmidon.core.provenance import ProvenanceEvent, ProvenanceLedger, shquote
 
@@ -24,3 +27,32 @@ def test_shquote():
     assert shquote("has space") == "'has space'"
     assert shquote("it's") == "'it'\\''s'"
 
+
+
+# (what a study of the project names, where it resolves: in the study, the project, or the
+# study beside it of the same project — never another project's, never a bare name searched
+# across studies)
+RESOLVES = [
+    ("mine.txt", "{study}/mine.txt"),
+    ("box/heat.gro", "{project}/box/heat.gro"),
+    ("equil/01_npt/confout.gro", "{studies}/equil/01_npt/confout.gro"),
+    ("theirs/01_npt/confout.gro", "{study}/theirs/01_npt/confout.gro"),
+    ("confout.gro", "{study}/confout.gro"),
+]
+
+
+@pytest.mark.parametrize("named,resolves", RESOLVES)
+def test_a_path_resolves_in_the_study_its_project_and_the_projects_studies(tmp_path, named,
+                                                                           resolves):
+    from myrmidon.core.workspace import Workspace
+
+    project, studies = tmp_path / "project", tmp_path / "studies"
+    (project / "box").mkdir(parents=True)
+    (project / "box" / "heat.gro").write_text("x")
+    ws = Workspace.create(studies / "prod", "prod", origin=project)
+    (ws.root / "mine.txt").write_text("x")
+    for name, origin in (("equil", project), ("theirs", tmp_path / "other")):
+        made = Workspace.create(studies / name, name, origin=origin)
+        (made.stage("npt") / "confout.gro").write_text("x")
+    fill = {"study": ws.root, "project": project, "studies": studies.resolve()}
+    assert ws.resolve(named) == Path(resolves.format(**fill))

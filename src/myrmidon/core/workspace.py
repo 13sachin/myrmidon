@@ -79,7 +79,8 @@ class Workspace:
         """Where a path a tool is given points: an absolute one as given; a relative one
         under the study, or — when nothing is there — under the directory the study was
         made from, which is where the researcher who typed it is; a new study is empty,
-        and the researcher's own files are not in it. A bare file name neither holds that
+        and the researcher's own files are not in it. ``<study>/<path>`` names a file of
+        another study of the same project (``sibling_file``). A bare file name neither holds that
         exactly one file directly in a stage of the study bears is that file: a call names
         what an earlier one wrote without the stage it landed in. The project's file of
         that name wins over a stage's; two stages' files of one name are two inputs, and
@@ -94,6 +95,9 @@ class Workspace:
             there = Path(self.origin) / p
             if there.exists():
                 return there
+        beside = sibling_file(self.root, self.origin, p)
+        if beside is not None:
+            return beside
         if p.name == str(p):
             found = [self.root / stage / p.name for stage in self.stages()
                      if (self.root / stage / p.name).is_file()]
@@ -143,8 +147,39 @@ class Workspace:
         path.mkdir()
         return path
 
+    def sibling_path(self, path: Path) -> str:
+        """``<study>/<path>`` when ``path`` is a file of another study of this project; ""
+        otherwise."""
+        try:
+            rel = path.resolve().relative_to(self.root.parent)
+        except ValueError:
+            return ""
+        if len(rel.parts) < 2 or sibling_file(self.root, self.origin, rel) is None:
+            return ""
+        return str(rel)
+
     def relpath(self, path: Path) -> str:
         try:
             return str(path.resolve().relative_to(self.root))
         except ValueError:
             return str(path)
+
+
+def sibling_file(root: Path, origin: str, path: Path) -> Path | None:
+    """The file ``<study>/<rest>`` names in another study of the project ``root``'s study was
+    made from: a study beside it under the same studies root whose manifest records the same
+    origin. None for a bare name, a study of another project, or a study recording no
+    origin, which no project can claim."""
+    if not origin or path.is_absolute() or len(path.parts) < 2:
+        return None
+    study = root.parent / path.parts[0]
+    if study.resolve() == root.resolve():
+        return None
+    try:
+        theirs = json.loads((study / META_FILENAME).read_text()).get("origin", "")
+    except (OSError, ValueError):
+        return None
+    if not theirs or Path(theirs).resolve() != Path(origin).resolve():
+        return None
+    found = study / Path(*path.parts[1:])
+    return found if found.exists() else None

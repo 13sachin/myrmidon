@@ -64,6 +64,33 @@ def test_every_file_a_call_reads_is_an_input_and_an_output_is_the_next_calls_inp
     assert (consumed["inputs.tpr"].path, consumed["inputs.tpr"].sha256) == (tpr.path, tpr.sha256)
 
 
+def test_a_later_study_of_the_project_is_told_what_an_earlier_one_wrote_and_reads_it(ws_ctx):
+    """What an earlier study's collected runs wrote is listed by study_open in a later study of
+    the same project, each file by the <study>/<path> the later study names it by; a call there
+    reads it and records it, hashed, as its input."""
+    from tests.conftest import NVT_STAGE, approved_study, wait_for
+
+    ws = ws_ctx.workspace
+    _plant(ws)
+    approved_study(ws_ctx, "01_input/conf.gro", "01_input/topol.top", [NVT_STAGE])
+    assert REGISTRY.call("stage_prepare", ws_ctx, {"stage": "nvt"}).ok
+    run = REGISTRY.call("stage_run", ws_ctx, {"stage": "nvt", "walltime_min": 5})
+    done = wait_for(ws_ctx, run.job_id)
+    assert done.ok, done.summary
+    assert REGISTRY.call("study_create", ws_ctx, {"name": "later", "description": "x"}).ok
+    opened = REGISTRY.call("study_open", ws_ctx, {})
+    (earlier,) = opened.studies
+    assert (earlier["name"], earlier["question"], earlier["reported"]) == (
+        ws.root.name, "Run the stages", False)
+    wrote = {a.role: a for a in done.artifacts}
+    named = {o["role"]: o["path"] for o in earlier["outputs"] if o["stage"] == "nvt"}
+    assert set(named) == set(wrote)
+    later = ws_ctx.workspace
+    (read,) = consumed_inputs({"structure": named["structure"]}, later.root, later.origin)
+    assert (read.path, read.sha256) == (str(ws.root / wrote["structure"].path),
+                                        wrote["structure"].sha256)
+
+
 @pytest.fixture
 def study_and_project(ws_ctx, tmp_path):
     """A study with planted inputs, harness state, and a project directory beside it
@@ -77,6 +104,12 @@ def study_and_project(ws_ctx, tmp_path):
     (project / "box").mkdir(parents=True)
     (project / "box" / "heat.gro").write_text(GRO)
     (tmp_path / "elsewhere.mdp").write_text(MDP)
+    # an earlier study of the project, and a study of another project, beside this one
+    from myrmidon.core.workspace import Workspace
+
+    for name, origin in (("equil", project), ("theirs", tmp_path / "other")):
+        made = Workspace.create(ws.root.parent / name, name, origin=origin)
+        (made.stage("npt") / "confout.gro").write_text(GRO)
     return ws.root, project, tmp_path
 
 
@@ -94,6 +127,14 @@ CONSUMED = [
     # the researcher's own file, named relative to the project or absolutely
     ({"structure": "box/heat.gro"}, {"structure": "{project}/box/heat.gro"}),
     ({"structure": "{project}/box/heat.gro"}, {"structure": "{project}/box/heat.gro"}),
+    # an earlier study's file, named <study>/<path> or absolutely; not another project's,
+    # and a bare name is never searched for across studies
+    ({"structure": "equil/01_npt/confout.gro"},
+     {"structure": "{studies}/equil/01_npt/confout.gro"}),
+    ({"structure": "{studies}/equil/01_npt/confout.gro"},
+     {"structure": "{studies}/equil/01_npt/confout.gro"}),
+    ({"structure": "theirs/01_npt/confout.gro"}, {}),
+    ({"structure": "confout.gro"}, {}),
 ]
 
 
@@ -103,9 +144,11 @@ def test_what_a_call_consumes_is_recorded_with_where_it_sat(study_and_project, p
     import json
 
     root, project, tmp = study_and_project
-    fill = {"project": str(project), "elsewhere": str(tmp / "elsewhere.mdp")}
+    fill = {"project": str(project), "elsewhere": str(tmp / "elsewhere.mdp"),
+            "studies": str(root.parent)}
     params = json.loads(json.dumps(params).replace("{project}", fill["project"])
-                        .replace("{elsewhere}", fill["elsewhere"]))
+                        .replace("{elsewhere}", fill["elsewhere"])
+                        .replace("{studies}", fill["studies"]))
     recorded = {k: v.format(**fill) for k, v in recorded.items()}
     refs = consumed_inputs(params, root, project)
     assert {r.role: r.path for r in refs} == recorded
