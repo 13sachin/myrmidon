@@ -28,7 +28,6 @@ def test_shquote():
     assert shquote("it's") == "'it'\\''s'"
 
 
-
 # (what a study of the project names, where it resolves: in the study, the project, or the
 # study beside it of the same project — never another project's, never a bare name searched
 # across studies)
@@ -38,6 +37,7 @@ RESOLVES = [
     ("equil/01_npt/confout.gro", "{studies}/equil/01_npt/confout.gro"),
     ("theirs/01_npt/confout.gro", "{study}/theirs/01_npt/confout.gro"),
     ("confout.gro", "{study}/confout.gro"),
+    ("equil/../../outside.txt", "{study}/equil/../../outside.txt"),  # never out of a study
 ]
 
 
@@ -49,6 +49,7 @@ def test_a_path_resolves_in_the_study_its_project_and_the_projects_studies(tmp_p
     project, studies = tmp_path / "project", tmp_path / "studies"
     (project / "box").mkdir(parents=True)
     (project / "box" / "heat.gro").write_text("x")
+    (tmp_path / "outside.txt").write_text("x")
     ws = Workspace.create(studies / "prod", "prod", origin=project)
     (ws.root / "mine.txt").write_text("x")
     for name, origin in (("equil", project), ("theirs", tmp_path / "other")):

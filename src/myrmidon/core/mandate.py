@@ -96,8 +96,8 @@ class SystemFile(_Strict):
     path: str
     kind: str
     sha256: str = ""
-    #: ``<study>/<path>``: the earlier study of this project the file was adopted from, whose
-    #: ledger says how it came to be; "" for the researcher's own file
+    #: ``<study>/<path>``: the file as another study of this project wrote it, whose ledger
+    #: says how it came to be; "" for the researcher's own file
     source: str = ""
 
 
@@ -451,6 +451,8 @@ class Mandate(_Strict):
         if self.schema_version >= 2:
             return _pruned(body)
         # a schema 1 file is hashed as it was written then: every field, none of the later
+        for f in body["system"]["files"]:
+            f.pop("source", None)
         for deliverable in body.get("deliverables", []):
             if not deliverable.get("params"):
                 deliverable.pop("params", None)
@@ -876,8 +878,7 @@ def render(mandate: Mandate, spent_core_h: float = 0.0,
     lines.append(f"SYSTEM        {mandate.system.description or '(not described)'}")
     if detail and mandate.system.files:
         lines.append(pad + "files: " + "  ".join(
-            f"{f.path} [{f.kind}]" + (f" from {f.source}" if f.source else "")
-            for f in mandate.system.files))
+            f"{f.source or f.path} [{f.kind}]" for f in mandate.system.files))
     for name, sub in mandate.system.subsystems.items():
         lines.append(f"{pad}{name}: {sub.kind}, " + (", ".join(sub.names()) or "unnamed")
                      + (f", charge {sub.charge:g}" if sub.charge is not None else ""))

@@ -234,7 +234,7 @@ def _with_studies(ctx: ToolContext, obs: Observation) -> Observation:
     """The observation with what this project's other studies asked and wrote, each output by
     the ``<study>/<path>`` this study reads it by."""
     ws = ctx.workspace
-    studies = [s for s in project_studies(ws.root.parent, ws.origin) if s["name"] != ws.root.name]
+    studies = project_studies(ws.root.parent, ws.origin, exclude=ws.root.name)
     obs.studies = studies
     lines = study_lines(studies)
     if lines:
@@ -262,7 +262,7 @@ def _no_study(ctx: ToolContext) -> Observation:
         ok=False, summary=summary, studies=earlier,
         error=ToolError(code="NO_STUDY", message="no study is open",
                         hint="study_create with a name and description for this question"
-                        + ("; study_open with one of the paths above continues it"
+                        + ("; study_open with one of the names above continues it"
                            if earlier else "")))
 
 

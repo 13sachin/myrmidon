@@ -271,7 +271,8 @@ def _with_run_input(ctx: ToolContext, params: StagePrepareParams, stage, stage_d
         inputs += [ArtifactRef.from_path(ctx.workspace.resolve(prepared[kind]), kind, root=root),
                    *(ArtifactRef.from_path(path, k, root=root) for k, path in files.items())]
         if "topology" in files:  # what the topology includes, the engine reads with it
-            # the project's own includes, its studies' included, not the engine's library
+            # the includes of the study, its project and the project's other studies, not the
+            # engine's force-field library
             own = [root.resolve(), *([Path(ctx.workspace.origin).resolve()]
                                      if ctx.workspace.origin else [])]
             inputs += [ArtifactRef.from_path(path, "topology.include", root=root)

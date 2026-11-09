@@ -114,8 +114,10 @@ def file_read(ctx: ToolContext, params: FileReadParams) -> Observation:
     if inside is not None and inside != allowed[0] and any(
             part.startswith(".") for part in target.relative_to(inside).parts):
         inside = None
-    if inside is None and ctx.workspace.sibling_path(target):
-        inside = root.parent  # another study of this project, as its own files read
+    beside = ctx.workspace.sibling_path(target)
+    if inside is None and beside and not any(part.startswith(".")
+                                             for part in Path(beside).parts):
+        inside = root.parent  # another study of this project's files, not its state
     if inside is None:
         return Observation(
             ok=False,
@@ -162,6 +164,9 @@ def _where(ctx: ToolContext, target: Path) -> str:
     resolves (the absolute one) rather than the one that found it."""
     if target.is_relative_to(ctx.workspace.root.resolve()):
         return ""
+    beside = ctx.workspace.sibling_path(target)
+    if beside:
+        return f" (in the study {Path(beside).parts[0]} of this project, not in this study)"
     return f" (in the project directory {ctx.workspace.origin}, not in the study)"
 
 

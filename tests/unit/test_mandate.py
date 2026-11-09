@@ -251,7 +251,9 @@ def test_a_run_of_another_stage_stands_in_for_no_deliverable_and_no_stage(
 def test_a_schema_1_file_reads_and_hashes_as_it_was_written():
     from myrmidon.core.mandate import Mandate
 
-    written = {"schema": 1, "question": "q", "system": {"description": "", "files": []},
+    written = {"schema": 1, "question": "q",
+               "system": {"description": "", "files": [
+                   {"path": "01_input/topol.top", "kind": "topology", "sha256": "a" * 64}]},
                "method": {"protocol": "", "stages": ["minimise", "NPT 200 ps"]},
                "decisions": {"yours": [{"said": "300 K", "target": "gromacs.npt",
                                         "keys": {"ref_t": 300}}], "proposed": []},

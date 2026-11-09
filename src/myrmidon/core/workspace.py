@@ -170,7 +170,7 @@ def sibling_file(root: Path, origin: str, path: Path) -> Path | None:
     made from: a study beside it under the same studies root whose manifest records the same
     origin. None for a bare name, a study of another project, or a study recording no
     origin, which no project can claim."""
-    if not origin or path.is_absolute() or len(path.parts) < 2:
+    if not origin or path.is_absolute() or len(path.parts) < 2 or ".." in path.parts:
         return None
     study = root.parent / path.parts[0]
     if study.resolve() == root.resolve():
@@ -182,4 +182,8 @@ def sibling_file(root: Path, origin: str, path: Path) -> Path | None:
     if not theirs or Path(theirs).resolve() != Path(origin).resolve():
         return None
     found = study / Path(*path.parts[1:])
-    return found if found.exists() else None
+    try:
+        inside = found.resolve().is_relative_to(study.resolve())
+    except OSError:
+        return None
+    return found if inside and found.exists() else None

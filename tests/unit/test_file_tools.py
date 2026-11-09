@@ -41,6 +41,7 @@ def project(ws_ctx, tmp_path, monkeypatch):
     for name, origin in (("equil", project), ("theirs", tmp_path / "other")):
         made = Workspace.create(ws_ctx.workspace.root.parent / name, name, origin=origin)
         (made.root / "report.md").write_text("what it found")
+        (made.state_dir / "session.txt").write_text("its state")
     return project
 
 
@@ -59,6 +60,7 @@ CONFINEMENT = [
     ("file_read", "/etc/passwd", False),
     ("file_read", "equil/report.md", True),  # an earlier study of the project
     ("file_read", "theirs/report.md", False),  # another project's
+    ("file_read", "equil/.myrmidon/session.txt", False),  # its state, not its files
     ("file_write", "notes.txt", True),
     ("file_write", "../outside.txt", False),
     ("file_write", "a/../../outside.txt", False),

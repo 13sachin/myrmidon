@@ -113,8 +113,9 @@ def other_project(origin: str, cwd: Path | None = None) -> str:
 
 
 def project_studies(studies_root: Path, origin: str, limit: int = 8,
-                    per_study: int = 12) -> list[dict]:
-    """The studies of the project ``origin`` names under ``studies_root``, newest first, each
+                    exclude: str = "") -> list[dict]:
+    """The studies of the project ``origin`` names under ``studies_root`` but ``exclude``,
+    newest first, each
     ``{name, question, reported, outputs}``: its mandate's question (else the question it was
     created with), whether it has written its report, and what the latest collected run of
     each of its mandate's stages wrote, each ``{stage, role, path}`` by the role its collection
@@ -134,6 +135,8 @@ def project_studies(studies_root: Path, origin: str, limit: int = 8,
     except OSError:
         return []
     for meta in metas:
+        if meta.parent.name == exclude:
+            continue
         try:
             theirs = json.loads(meta.read_text()).get("origin", "")
             if not theirs or Path(theirs).resolve() != Path(origin).resolve():
@@ -157,19 +160,32 @@ def project_studies(studies_root: Path, origin: str, limit: int = 8,
             "question": mandate.question if mandate is not None
             else str(ws.meta.get("description", "")),
             "reported": (ws.root / "report.json").is_file(),
-            "outputs": outputs[:per_study]})
+            "outputs": outputs})
         if len(found) == limit:
             break
     return found
 
 
 def study_lines(studies: list[dict]) -> list[str]:
-    """Each study as one line and its outputs below it."""
+    """Each study as one line, and a line per stage below it: the directory its latest run's
+    outputs are in, and each output's role and name there."""
+    import os
+
     lines = []
     for s in studies:
         lines.append(f"{s['name']}: \"{s['question']}\" — "
                      + ("reported" if s["reported"] else "no report yet"))
-        lines += [f"    {o['stage']} {o['role']}: {o['path']}" for o in s["outputs"]]
+        stages: dict[str, list[dict]] = {}
+        for o in s["outputs"]:
+            stages.setdefault(o["stage"], []).append(o)
+        for stage, outputs in stages.items():
+            try:
+                where = os.path.commonpath([os.path.dirname(o["path"]) for o in outputs])
+            except ValueError:  # a study's file and one outside it: each named in full
+                where = ""
+            lines.append(f"    {stage}: " + (f"{where}/ — " if where else "") + ", ".join(
+                f"{o['role']} {os.path.relpath(o['path'], where) if where else o['path']}"
+                for o in outputs))
     return lines
 
 
