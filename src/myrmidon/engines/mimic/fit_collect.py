@@ -46,7 +46,7 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
     """What a fit reads besides the files its preparation rendered (its input and its classical
     rerun's): the system's files, the selection, and the latest reference dataset with the
     trajectory collected beside it."""
-    from myrmidon.core.lineage import latest_dataset, system_file
+    from myrmidon.core.lineage import latest_dataset, stage_parameters, system_file
 
     begins = mandate.method.starts_from(stage)
 
@@ -55,6 +55,8 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
     reads = begins.name if begins is not None else stage.name
     for kind in ("topology", "structure", "index", "qm_selection"):
         named = system_file(ctx.workspace, mandate, kind, reads)
+        if kind == "topology" and stage.parameters_from:  # a refit of an earlier fit's set
+            named = stage_parameters(ctx.workspace, mandate, stage)[0]
         if named and kind not in prepared:
             out[kind] = named
     dataset = latest_dataset(ctx.workspace, begins.name if begins is not None else None)
@@ -89,11 +91,10 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
             suggestion="stage_prepare the fit, which renders its input and its classical "
             "rerun's; dataset_collect the reference run it fits against; qm_region writes the "
             "selection and the index")]
-    findings = list(itp_atomtypes_warnings(inputs["topology"]))
-    if "mdp" in inputs:
-        from myrmidon.engines.gromacs.mdp import parse_mdp_file
+    from myrmidon.engines.gromacs.mdp import parse_mdp_file
 
-        findings += rerun_mdp_warnings(parse_mdp_file(inputs["mdp"]))
+    findings = list(itp_atomtypes_warnings(inputs["topology"]))
+    findings += rerun_mdp_warnings(parse_mdp_file(inputs["mdp"]))
     keys = parse_fminput(inputs["fm_input"])
     held = fm_dataset_frames(ctx, inputs["reference_dataset"])
     stride = str(keys.get("stride", "")).strip("[] ").split(",")
@@ -129,7 +130,7 @@ def size_walltime(ctx: ToolContext, stage, inputs: dict[str, Path], layout, core
 
     fixed = next((t.pricing["walltime_min"] for t in templates_for(
         stage.model_dump(mode="json"), TemplateStore.default())
-        if "walltime_min" in t.pricing), None)
+        if "walltime_min" in t.pricing and not t.auxiliary), None)
     return fixed, f"{fixed} min, the template's for a parameter fit"
 
 
@@ -144,6 +145,8 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
             "-n_processes", str(layout.cpus_per_task), *gmx_data_flags(ctx)]
     argv += ["-mdp", str(inputs["mdp"])]
     flag = {"charges": "-dresp", "bonded": "-opt_ff"}.get(request.fit_mode)
+    moves = {"charges": "the charges", "bonded": "the bonded terms"}.get(
+        request.fit_mode, "the charges and the bonded terms")
     if flag:
         argv.append(flag)
     return StageJob(
@@ -151,8 +154,8 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
                      resources=request.resources()),
         kind="parameter_fit", label=f"stage:{stage.name}",
         meta={"topology": ctx.workspace.relpath(inputs["topology"])},
-        summary=f"fit of {'the ' + request.fit_mode if flag else 'charges and bonded terms'} "
-        f"by {layout.cpus_per_task} workers in {ctx.workspace.relpath(run_dir)}")
+        summary=f"fit of {moves} by {layout.cpus_per_task} workers in "
+        f"{ctx.workspace.relpath(run_dir)}")
 
 
 def collect_fit(ctx: ToolContext, stage_dir: Path, original_itp: str | None = None,

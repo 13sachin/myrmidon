@@ -306,7 +306,7 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
     """What a coupled stage's run reads besides what was prepared: the restart and the geometry
     the run it starts from left, when its input asks to restart, and the structure its layout
     divides. An input with no RESTART line starts fresh and reads neither."""
-    from myrmidon.core.lineage import stage_left, stage_run, system_file
+    from myrmidon.core.lineage import stage_left, stage_parameters, stage_run, system_file
     from myrmidon.engines.mimic.batch import frames_in, is_scan
     from myrmidon.engines.mimic.cpmd_input import has_keyword
 
@@ -326,7 +326,7 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
             written[0] if written else None)
         out |= {k: v for k, v in (
             ("trajectory", found),
-            ("topology", system_file(ctx.workspace, mandate, "topology", stage.name)),
+            ("topology", stage_parameters(ctx.workspace, mandate, stage)[0]),
             ("qm_selection", system_file(ctx.workspace, mandate, "qm_selection", stage.name)))
             if v and k not in prepared}
         return out

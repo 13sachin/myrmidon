@@ -445,9 +445,12 @@ def stage_parameters(ws, mandate, stage) -> tuple[str | None, str]:
     if fit is None:
         return named, ""
     run = stage_run(ws, fit.name)
-    found = next((a.path for a in (run[0] if run else []) if a.role == "topology"), None)
-    return found, "" if found else (f"{fit.name}'s run has not been collected with a "
-                                    "candidate topology, and this stage runs on it")
+    if run is None:
+        return None, f"{fit.name}'s run has not been collected, and this stage runs on its topology"
+    found = next((a.path for a in run[0] if a.role == "topology"), None)
+    return found, "" if found else (f"{fit.name}'s collected run assembled no candidate "
+                                    "topology (its job_status summary says why), and this stage "
+                                    "runs on it")
 
 
 def latest_dataset(ws, stage: str | None = None) -> str | None:

@@ -136,8 +136,10 @@ def test_a_fit_that_fails_is_reported_from_its_log(ws_ctx, monkeypatch):
     assert res.log_tail
 
 
-#: a fit and its comparison: an arm on the fitted parameters, and one on the system's
+#: a coupled reference, a fit of it and its comparison: an arm on the fitted parameters, and
+#: one on the system's
 FIT_AND_ARMS = [
+    {"name": "reference", "kind": "single_point", "regime": "qmmm", "qm_region": REGION},
     {"name": "fit", "kind": "parameter_fit", "qm_region": REGION, "fit_mode": "charges"},
     {"name": "eval_fitted", "kind": "single_point", "regime": "mm", "starts_from": "fit",
      "parameters_from": "fit"},
@@ -151,7 +153,7 @@ def test_a_fit_and_its_arms_run_on_the_parameter_sets_the_mandate_names(ws_ctx, 
     runs on them, names its fitted file after the include it rewrote, and its collection
     assembles the candidate topology, which the lineage traces to the approved system. The arm
     the mandate puts on the fit's parameters waits for that candidate and then runs on it; the
-    other runs on the system's topology; both start where the fit did."""
+    other runs on the system's topology; both start on the structure the fit reads."""
     import MDAnalysis as mda
     from tests.conftest import coupled_study
 
@@ -177,7 +179,9 @@ def test_a_fit_and_its_arms_run_on_the_parameter_sets_the_mandate_names(ws_ctx, 
     assert "STAGE_RUN_INPUT_LATER" in {f.id for f in early.findings}
     prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit"})
     assert prepared.ok, prepared.summary
-    # the stage says what the fit moves: the charges
+    # the stage says what the fit moves: the charges, and a call asking otherwise is refused
+    other = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit", "cores": 2, "fit_mode": "both"})
+    assert (other.ok, other.error.code) == (False, "STAGE_FIT_MODE")
     job = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit", "cores": 2})
     assert job.ok, job.summary
     res = _wait(ws_ctx, job.job_id)

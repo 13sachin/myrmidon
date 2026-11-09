@@ -427,21 +427,17 @@ class Mandate(_Strict):
     def _parameter_sets(self) -> Mandate:
         """Each stage runs on a parameter set the researcher can read in the mandate: an
         earlier parameter fit's, or a topology among the system's files."""
-        names = [s.name for s in self.method.stages]
-        fits = set()
+        fits: list[str] = []  # the parameter fits before the stage
         topologies = {f.path for f in self.system.files if f.kind == "topology"}
-        for i, stage in enumerate(self.method.stages):
-            if stage.kind == "parameter_fit":
-                fits.add(stage.name)
+        for stage in self.method.stages:
             named = stage.parameters_from
-            if named and named not in topologies and not (
-                    named in fits and named in names[:i]):
+            if named and named not in topologies and named not in fits:
                 raise ValueError(
                     f"stage {stage.name} runs on parameters from {named!r}, which is neither "
-                    "an earlier parameter_fit stage ("
-                    + (", ".join(sorted(f for f in fits if f != stage.name)) or "none")
-                    + ") nor a system file of kind topology ("
-                    + (", ".join(sorted(topologies)) or "none") + ")")
+                    f"an earlier parameter_fit stage ({', '.join(fits) or 'none'}) nor a system "
+                    f"file of kind topology ({', '.join(sorted(topologies)) or 'none'})")
+            if stage.kind == "parameter_fit":
+                fits.append(stage.name)
         return self
 
     def body(self) -> dict:

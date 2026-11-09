@@ -60,16 +60,16 @@ def _starting_structure(ctx: ToolContext, mandate, stage) -> tuple[str | None, s
     starts from what the stage before it left. A coupled stage continuing a coupled one takes its
     coordinates from the restart, so it compiles against what the first of them did: the last
     classical structure before the chain. A parameter fit moves no atom: a stage after one starts
-    where the fit did."""
+    on the structure the fit reads."""
     seen: set[str] = {stage.name}
     names = [s.name for s in mandate.method.stages]
     begins = mandate.method.starts_from(stage)
     if begins is not None and begins.name == stage.name:
         at = names.index(stage.name)
         begins = mandate.method.stages[at - 1] if at else None
-    while begins is not None and begins.kind == "parameter_fit" and begins.name not in seen:
-        seen.add(begins.name)
-        begins = mandate.method.starts_from(begins)
+    if begins is not None and begins.kind == "parameter_fit":
+        reads = mandate.method.starts_from(begins) or begins  # as the fit's run reads it
+        return system_file(ctx, mandate, "structure", reads.name), ""
     while stage.regime != "mm" and begins is not None and begins.regime != "mm":
         if begins.name in seen:
             begins = None
@@ -371,7 +371,10 @@ class StageRunParams(BaseModel):
         frames = (engine.scan_frames(ctx, stage, self.frames) if engine.scan_frames
                   else None)
         return self.model_copy(update={
-            "fit_mode": stage.fit_mode or self.fit_mode,
+            # what the stage states the fit moves, unless the call says otherwise, which is
+            # refused
+            "fit_mode": (self.fit_mode if "fit_mode" in self.model_fields_set
+                         else stage.fit_mode or self.fit_mode),
             "frames": self.frames if frames is None else frames,
             "inputs": inputs, "cores": cores, "walltime_min": minutes,
             "continue_run": continuing, "snapshot": snapshot,
@@ -430,6 +433,12 @@ def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:
             "job not yet collected", needs=["frames"],
             suggestion=f"job_status on a running one; dataset_collect stage={stage.name}; or "
             "name frames to compute again")]
+    if stage.fit_mode and params.fit_mode != stage.fit_mode:
+        return [Precondition(
+            id="STAGE_FIT_MODE",
+            message=f"stage {stage.name} fits {stage.fit_mode}, as the mandate states; this "
+            f"call asks for {params.fit_mode}", needs=["fit_mode"],
+            suggestion="leave fit_mode out, or revise the mandate with the researcher's reason")]
     if params.extend_ps and not params.continue_run:
         return [Precondition(
             id="STAGE_EXTEND_WITHOUT_CONTINUE",
