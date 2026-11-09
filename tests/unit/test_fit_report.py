@@ -105,8 +105,9 @@ def test_a_fit_studys_report_states_its_rounds_stages_and_deliverables(ws_ctx, p
     from tests.conftest import REGION, coupled_study
     from tests.unit.test_fm import _dataset_files
 
-    coupled_study(ws_ctx, [{"name": "rerun", "kind": "single_point", "regime": "mm"},
-                           {"name": "fit", "kind": "parameter_fit", "qm_region": REGION}],
+    coupled_study(ws_ctx, [{"name": "fit", "kind": "parameter_fit", "qm_region": REGION},
+                           {"name": "rerun", "kind": "single_point", "regime": "mm",
+                            "parameters_from": "fit"}],
                   deliverables=[{"name": "it", "property": prop, "over": over}])
     files = _dataset_files(ws_ctx.workspace)
     assert REGISTRY.call("dataset_collect", ws_ctx, {
@@ -129,6 +130,8 @@ def test_a_fit_studys_report_states_its_rounds_stages_and_deliverables(ws_ctx, p
     assert {row["stage"]: row["reached"] != "not run" for row in record["stages"]} == {
         "rerun": False, "fit": True}
     assert record["deliverables"]["it"]["property"] == prop
+    # the parameter set its stage runs on, as the mandate names it
+    assert record["deliverables"]["it"]["parameters_from"] == ("fit" if over == "rerun" else "")
     assert record["deliverables"]["it"]["measured"] is False  # nothing has measured it yet
     measure = REGISTRY.call("observable_measure", ws_ctx, {"deliverable": "it"})
     assert measure.ok is measurable, measure.summary

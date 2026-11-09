@@ -170,6 +170,8 @@ UNWRITTEN = [
     ({"decisions_yours": [{"said": "x", "locks": {"nvt.production_ns": 1}}]}, "MANDATE_STAGE"),
     ({"stages": [*STAGES[:3], {**STAGES[3], "steps": 100}]}, "INVALID_PARAMS"),
     ({"stages": [*STAGES[:3], {**STAGES[3], "fit_mode": "charges"}]}, "INVALID_PARAMS"),
+    # a stage runs on a parameter fit's topology or a system topology, not on another stage's
+    ({"stages": [*STAGES[:3], {**STAGES[3], "parameters_from": "em"}]}, "MANDATE_STAGE"),
     # a lock that contradicts its stage is refused, whether or not anything compiled reads it
     ({"decisions_yours": [{"said": "the em as dynamics", "locks": {"em.kind": "dynamics"}}]},
      "MANDATE_STAGE", 2),  # it disagrees with the stage, and binds nothing compiled
@@ -629,6 +631,9 @@ WRITTEN = [
           (QMMM_WRITE, {"hot.qm_region.padding_nm": 0.4}, {}),
           (QMMM_WRITE, {"*.qm_region": {"subsystems": ["ligand"], "charge": 0}},
            {"*.qm_region": {"charge": 0}}))),
+    # a topology a stage runs on, by the path its system file is held at
+    ({"stages": [*STAGES[:3], {**STAGES[3], "parameters_from": "01_input/./topol.top"}]},
+     lambda m, o: m.method.stages[3].parameters_from == "01_input/topol.top"),
     # the estimate names what it leaves out
     ({"stages": [*STAGES, QM_STAGE]},
      lambda m, o: m.cost.unpriced == ["qmmm"] and m.cost.estimate_core_h > 0),

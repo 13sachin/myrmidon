@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from myrmidon.core.artifacts import ArtifactRef, fresh_path, sha256_file
 from myrmidon.core.contracts import Contract, includes_of
-from myrmidon.core.lineage import stage_files, stage_left
+from myrmidon.core.lineage import stage_files, stage_left, stage_parameters
 from myrmidon.core.lineage import stage_run as collected_run
 from myrmidon.core.mandate import read_mandate
 from myrmidon.core.observation import Observation, ToolError
@@ -40,8 +40,9 @@ class StagePrepareParams(BaseModel):
     structure: str | None = Field(
         default=None, description="what the stage starts from; default: the structure the run "
         "it starts from left, or for a coupled stage and the first stage the system's")
-    topology: str | None = Field(default=None, description="default: the system's; a topology "
-                                 "a fit produced, to run a stage on it")
+    topology: str | None = Field(default=None, description="default: the one the stage's "
+                                 "parameters_from names, else the system's; another, to run "
+                                 "this one render on it")
     index: str | None = Field(default=None, description="default: the system's")
     restraint_reference: str | None = Field(
         default=None, description="coordinates position restraints hold atoms at; default: the "
@@ -58,13 +59,17 @@ def _starting_structure(ctx: ToolContext, mandate, stage) -> tuple[str | None, s
     one the run it starts from left; the first stage's, the system's. A stage extending itself
     starts from what the stage before it left. A coupled stage continuing a coupled one takes its
     coordinates from the restart, so it compiles against what the first of them did: the last
-    classical structure before the chain."""
+    classical structure before the chain. A parameter fit moves no atom: a stage after one starts
+    where the fit did."""
     seen: set[str] = {stage.name}
     names = [s.name for s in mandate.method.stages]
     begins = mandate.method.starts_from(stage)
     if begins is not None and begins.name == stage.name:
         at = names.index(stage.name)
         begins = mandate.method.stages[at - 1] if at else None
+    while begins is not None and begins.kind == "parameter_fit" and begins.name not in seen:
+        seen.add(begins.name)
+        begins = mandate.method.starts_from(begins)
     while stage.regime != "mm" and begins is not None and begins.regime != "mm":
         if begins.name in seen:
             begins = None
@@ -168,7 +173,10 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
                         f"{stage.regime}, {stage.ensemble})", "MANDATE_STAGE_TEMPLATE", [])
     structure, later = _starting_structure(ctx, mandate, stage)
     structure = params.structure or structure
-    partitioned = _partition(ctx, mandate, stage, structure, params.topology)
+    topology, waits = ((params.topology, "") if params.topology
+                       else stage_parameters(ctx.workspace, mandate, stage))
+    later = later or waits
+    partitioned = _partition(ctx, mandate, stage, structure, topology)
     if partitioned is not None and not partitioned.ok:
         return _refused(f"stage {stage.name}'s QM region could not be partitioned: "
                         + partitioned.summary,
@@ -178,7 +186,6 @@ def stage_prepare(ctx: ToolContext, params: StagePrepareParams) -> Observation:
     if stopping:
         return _refused(stopping[0].message, stopping[0].id, stopping,
                         stopping[0].suggestion or "")
-    topology = params.topology or system_file(ctx, mandate, "topology", stage.name)
     index = params.index or system_file(ctx, mandate, "index", stage.name)
     stage_dir = ctx.workspace.stage(stage.name)
     prepared: dict[str, str] = {}

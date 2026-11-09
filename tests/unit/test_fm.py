@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 import pytest
+from tests.conftest import REGION
 
 from myrmidon.core.tool import REGISTRY
 from myrmidon.engines.mimic.fm import (
@@ -135,31 +136,45 @@ def test_a_fit_that_fails_is_reported_from_its_log(ws_ctx, monkeypatch):
     assert res.log_tail
 
 
+#: a fit and its comparison: an arm on the fitted parameters, and one on the system's
+FIT_AND_ARMS = [
+    {"name": "fit", "kind": "parameter_fit", "qm_region": REGION, "fit_mode": "charges"},
+    {"name": "eval_fitted", "kind": "single_point", "regime": "mm", "starts_from": "fit",
+     "parameters_from": "fit"},
+    {"name": "eval_start", "kind": "single_point", "regime": "mm", "starts_from": "fit"}]
+
+
 @pytest.mark.parametrize("home", ["study", "project"])
-def test_a_fit_assembles_its_candidate_from_the_system_wherever_it_lies(ws_ctx, tmp_path,
-                                                                         home):
+def test_a_fit_and_its_arms_run_on_the_parameter_sets_the_mandate_names(ws_ctx, tmp_path,
+                                                                        home):
     """The system's files in the study, or in the project directory it was made from: the fit
     runs on them, names its fitted file after the include it rewrote, and its collection
-    assembles the candidate topology, which the lineage traces to the approved system."""
-    from tests.conftest import REGION, coupled_study
+    assembles the candidate topology, which the lineage traces to the approved system. The arm
+    the mandate puts on the fit's parameters waits for that candidate and then runs on it; the
+    other runs on the system's topology; both start where the fit did."""
+    import MDAnalysis as mda
+    from tests.conftest import coupled_study
 
     from myrmidon.core.lineage import lineage
 
     project = tmp_path / "project" if home == "project" else None
     if project is not None:
         project.mkdir()
-    held = coupled_study(ws_ctx, [{"name": "fit", "kind": "parameter_fit", "qm_region": REGION,
-                                   "fit_mode": "charges"}], project=project,
+    held = coupled_study(ws_ctx, FIT_AND_ARMS, project=project,
                          decisions_yours=[{"said": "fit the charges only",
                                            "locks": {"fit.fit_mode": "charges"}}])
     # the lock binds the fit, whose command reads it
     assert held.decisions.yours[0].locks == {"fit.fit_mode": "charges"}
-    files = _dataset_files(ws_ctx.workspace)
+    ws = ws_ctx.workspace
+    files = _dataset_files(ws)
     collected = REGISTRY.call("dataset_collect", ws_ctx, {
         "fmdata": files["fmdata"], "trajectory": files["trajectory"],
         "topology": files["topology"], "coords": files["coords"],
         "selection": files["selection"]})
     assert collected.ok, collected.summary
+    early = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "eval_fitted"})
+    assert early.ok and "tpr" not in early.files, early.summary
+    assert "STAGE_RUN_INPUT_LATER" in {f.id for f in early.findings}
     prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit"})
     assert prepared.ok, prepared.summary
     # the stage says what the fit moves: the charges
@@ -171,9 +186,26 @@ def test_a_fit_assembles_its_candidate_from_the_system_wherever_it_lies(ws_ctx, 
     assert roles["resp_acetone.itp"].role == "fitted_topology"
     candidate = roles["candidate.top"]
     assert candidate.role == "topology"
-    traced = lineage(ws_ctx.workspace).fits(candidate.path, candidate.sha256, "topology",
-                                            {f.sha256 for f in held.system.files})
+    system = {f.sha256 for f in held.system.files}
+    traced = lineage(ws).fits(candidate.path, candidate.sha256, "topology", system)
     assert (traced.ok, traced.reached) == (True, True)
+
+    structure = next(f.path for f in held.system.files if f.kind == "structure")
+    topology = next(f.path for f in held.system.files if f.kind == "topology")
+    atoms = mda.Universe(str(ws.resolve(structure))).atoms
+    frames = ws.stage("frames") / "heldout.trr"
+    with mda.Writer(str(frames), n_atoms=atoms.n_atoms) as writer:
+        writer.write(atoms)
+    for arm, runs_on in (("eval_fitted", candidate.path), ("eval_start", topology)):
+        ready = REGISTRY.call("stage_prepare", ws_ctx, {"stage": arm})
+        assert ready.ok and "tpr" in ready.files, ready.summary
+        assert {i.path for i in ready.inputs if i.role == "topology"} == {runs_on}
+        ran = REGISTRY.call("stage_run", ws_ctx, {
+            "stage": arm, "cores": 2, "inputs": {"trajectory": ws.relpath(frames)}})
+        assert ran.ok, ran.summary  # the gate holds it, and the fit's lock binds the fit alone
+        submitted = next(e for e in reversed(list(ws.ledger.events()))
+                         if e.tool == "stage_run" and e.ok)
+        assert {i.path for i in submitted.inputs if i.role == "inputs.topology"} == {runs_on}
 
 
 def test_parse_cpmd_series_real_nose_log():

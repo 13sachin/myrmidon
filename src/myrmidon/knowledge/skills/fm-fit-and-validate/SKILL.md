@@ -35,31 +35,35 @@ candidates and what "better" means, as one constraint listing every candidate va
 sweep is one mandate); whether a fitted term is defensible chemistry; the ceiling. Into
 `decisions_proposed`, with the source: the QM total charge the reference's stage states, and
 the restraint weights the fit's input takes from its template, each with its rationale. Yours,
-recorded: the held-out frames, the starting topology as an arm, a topology edit the fit
-needs (with `file_write`).
+recorded: the held-out frames, and the starting topology as an arm.
 
 ## Drive
 
-1. `mandate_write`: the files the fit and the arms start from as the system; the fit as a
-   `parameter_fit` stage with its `qm_region` (the QM total charge) and `fit_mode`, each comparison of an arm
-   as a `single_point` stage with `regime: mm`, and, when the minimised geometry is asked for,
-   a `minimize` stage with `regime: mm` and a `scan` of `frames`; the deliverables (`force_rmse`
-   over a comparison); the ceiling. It prices each stage.
+1. `mandate_write`: the files the fit and the arms start from as the system (the starting
+   topology first, a topology the user brought as a further `topology` file); the fit as a
+   `parameter_fit` stage with its `qm_region` (the QM total charge) and `fit_mode`; each arm as
+   a `single_point` stage with `regime: mm` and `starts_from: <the fit>`, whose parameter set is
+   its `parameters_from`: `<the fit>` for the fitted topology, a brought topology's path for
+   that one, unset for the starting topology; when the minimised geometry is asked for, a
+   `minimize` stage with `regime: mm` and a `scan` of `frames`; the deliverables (`force_rmse`
+   over each arm); the ceiling. It prices each stage.
    The approval is the researcher's: `/approve` in Hermes, the dialog in Pi, or
    `myrmidon approve` at a terminal. Say the stages and their core-hours and end the turn.
 2. `stage_prepare` with `stage=<the fit>` writes its input and its classical rerun's: every
-   frame of the collected dataset unless `overrides` narrows the `stride`. Say which of its weights you accept. An edit it asks
-   of the topology goes through `file_write`, then `file_check`.
+   frame of the collected dataset unless `overrides` narrows the `stride`. Say which of its
+   weights you accept. An edit it asks of the topology goes through `file_write`, then
+   `file_check`.
 3. `stage_run` with `stage=<the fit>`, `preview=true` first if the price is in doubt; it finds
    the dataset, the selection and the index itself. `job_status` collects the fitted topologies
-   and the candidate.
-4. Per arm, the starting topology included: `snapshot_select` with `output: trajectory` writes
-   the held-out frames once; `stage_prepare` with `stage=<the comparison>` and that arm's
-   `topology`, then `stage_run` with `inputs: {trajectory: <the frames>}`, then
-   `observable_measure` with `deliverable=<its force_rmse>` and the same `frames`. For the
-   minimised geometry, `stage_run` on the `minimize` stage, then `observable_measure` with
-   `property: pair_distance` against the reference trajectory.
-5. `study_report` for the parameter table.
+   and the candidate topology (`candidate.top`), the fitted arm's parameter set.
+4. `snapshot_select` with `output: trajectory` writes the held-out frames once. Per arm:
+   `stage_prepare` with `stage=<the arm>` and nothing else (its topology is the one its
+   `parameters_from` names, its structure the one the fit started from), then `stage_run` with
+   `inputs: {trajectory: <the frames>}`, then `observable_measure` with
+   `deliverable=<its force_rmse>` and the same `frames`. For the minimised geometry, `stage_run`
+   on the `minimize` stage, then `observable_measure` with `property: pair_distance` against
+   the reference trajectory.
+5. `study_report` for the parameter table; each deliverable names its arm's parameter set.
 
 ## Stop
 

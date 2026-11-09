@@ -28,7 +28,7 @@ A study is a directory:
 | `mandate.yaml` | the study's mandate, written by `mandate_write` (below) |
 | `<file>.myrmidon.json` | beside an engine input `inputset_apply` rendered: where each of its values came from (below) |
 | `report.md` | the study's report, written by `study_report` from the mandate and the trace: the harness's sections, the model's prose after each, and any section of the model's own after them |
-| `report.json` | the report's data beside it, written with every `report.md`: `question`, `mandate_digest`, `revision`, `approval_event`, `core_h_booked`, `core_h_ceiling`, `deliverables` (name -> `{property, stage, measured, event, file, quantities}`), `stages` (each mandate stage's `{stage, kind, target, reached, checks, jobs, core_h_booked}`), `refused_or_failed_calls` (how many since the first approval), `deviations` (those not made good, each `{kind, ...}`: `unapproved` with its `revision`; `never_ran` with `stage`, `locked_by`; `failed_job` with `stage`, `job`, `state`, `exit_code`; `refused` or `failed_call` with `tool`, `stage`, `event`, `finding`; `revision` with `approver`, `event`), `values` (every value the report states, with its event and file) and a fit's `rounds` (`[]` without one, with the fit's tables' data beside them) |
+| `report.json` | the report's data beside it, written with every `report.md`: `question`, `mandate_digest`, `revision`, `approval_event`, `core_h_booked`, `core_h_ceiling`, `deliverables` (name -> `{property, stage, parameters_from, measured, event, file, quantities}`), `stages` (each mandate stage's `{stage, kind, target, reached, checks, jobs, core_h_booked}`), `refused_or_failed_calls` (how many since the first approval), `deviations` (those not made good, each `{kind, ...}`: `unapproved` with its `revision`; `never_ran` with `stage`, `locked_by`; `failed_job` with `stage`, `job`, `state`, `exit_code`; `refused` or `failed_call` with `tool`, `stage`, `event`, `finding`; `revision` with `approver`, `event`), `values` (every value the report states, with its event and file) and a fit's `rounds` (`[]` without one, with the fit's tables' data beside them) |
 | `journal.jsonl` | the journal (below): decisions, ruled-out causes, suspicions, intentions |
 | `inbox.jsonl` | parked questions and notices, and the answers to them (below) |
 | `NN_name/.receipt-*/` | a job's node receipt (below) |
@@ -53,8 +53,10 @@ omitted; `hamiltonian`: `mm` method id read from the topology's force field, plu
 `name`, `kind` — `minimize`, `dynamics`, `single_point`, `parameter_fit` — `regime`,
 `starts_from` (the stage whose collected run it continues: by default the one before it, an
 earlier one when stages branch, itself to extend a finished run), `ensemble`, `temperature_k`, `pressure_bar`, `duration_ps`, `steps`, `restraints`,
-`sampling_ps`, and optional `qm_region`, `scan`, `converge` and `fit_mode` (what a
-`parameter_fit` moves: `both`, `charges` or `bonded`), compiled on the fly by
+`sampling_ps`, and optional `qm_region`, `scan`, `converge`, `fit_mode` (what a
+`parameter_fit` moves: `both`, `charges` or `bonded`) and `parameters_from` (the parameter set
+the stage runs on: an earlier `parameter_fit` stage, whose collected run's candidate topology it
+is, or the path of a system file of kind `topology`; unset, the system's), compiled on the fly by
 `knowledge/stage.py`), `decisions` (`yours`: each `said`, the researcher's words, and
 `locks`, a mapping of `<stage>.<field>` or `*.<field>` paths — or a `target` and `keys` —
 to a scalar, a list of allowed values or `{min, max}`; `proposed`: each `what`, `locks` or

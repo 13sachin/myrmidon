@@ -58,7 +58,10 @@ class MandateWriteParams(BaseModel):
         "mm|qmmm|qm, starts_from: <stage it continues, default the one before>, ensemble: "
         "NVE|NVT|NPT, temperature_k, pressure_bar, duration_ps or "
         "steps, restraints: [subsystems held], sampling_ps, qm_region {subsystems, charge, "
-        "multiplicity, padding_nm}, scan {parameter, values}, converge}. Each stage's "
+        "multiplicity, padding_nm}, scan {parameter, values}, converge, fit_mode: "
+        "both|charges|bonded (what a parameter_fit moves), parameters_from: <an earlier "
+        "parameter_fit stage, or a system topology's path: the parameter set it runs on, "
+        "default the system's>}. Each stage's "
         "engine file is compiled from these; stage_prepare stage=<name> writes them")
     decisions_yours: list[mandates.Decision] = Field(
         default_factory=list, description="what the researcher decided in this "
@@ -669,6 +672,12 @@ def mandate_write(ctx: ToolContext, params: MandateWriteParams) -> Observation:
         for path in includes_of(f.kind, ws.resolve(f.path)):
             if ws.relpath(path) not in {x.path for x in files}:
                 files.append(mandates.SystemFile(path=ws.relpath(path), kind="itp"))
+    # a topology a stage runs on, by the path its system file is held at
+    names = {s.name for s in params.stages}
+    params = params.model_copy(update={"stages": [
+        s.model_copy(update={"parameters_from": ws.relpath(ws.resolve(s.parameters_from))})
+        if s.parameters_from and s.parameters_from not in names else s
+        for s in params.stages]})
     try:
         mandate = _built(params, files, questions, existing, approved)
     except ValidationError as exc:  # the parts do not hold together: a stage order, say

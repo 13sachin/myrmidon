@@ -79,8 +79,7 @@ def test_force_matching_on_reference_dataset(ctx, approve_mandate):
     call(ctx, "study_create", name="acetone-fm", description="real FM integration")
     ws = ctx.workspace
     inputs = ws.stage("inputs")
-    for name in ("acetone.top", "acetone.itp", "acetone.gro", "index.ndx",
-                 "sele.dat", "mimic.mdp"):
+    for name in ("acetone.top", "acetone.itp", "acetone.gro", "index.ndx", "sele.dat"):
         shutil.copy(DATASET / name, inputs / name)
     rel = lambda name: ws.relpath(inputs / name)  # noqa: E731
 
@@ -103,8 +102,10 @@ def test_force_matching_on_reference_dataset(ctx, approve_mandate):
         structure=rel("acetone.gro"), topology=rel("acetone.top"), index=rel("index.ndx"),
         qm_selection=rel("sele.dat"))
     prepared = call(ctx, "stage_prepare", stage="fit")
+    # the fit's input and its classical rerun's, rendered by the one call
     assert prepared.files["fm_input"].endswith("fminput.dat")
-    job = call(ctx, "stage_run", stage="fit", inputs={"mdp": rel("mimic.mdp")})
+    assert prepared.files["mdp"].endswith("fit.mdp")
+    job = call(ctx, "stage_run", stage="fit", walltime_min=30)
     done = wait_job(ctx, job.job_id)
     assert done.state == "COMPLETED", f"{done.summary}\n{done.log_tail or ''}"
 
@@ -113,7 +114,12 @@ def test_force_matching_on_reference_dataset(ctx, approve_mandate):
     assert done.validation_sdf is not None and done.validation_sdf > 0
     assert done.n_charges == 10
     assert done.max_abs_charge_delta is not None and 0 < done.max_abs_charge_delta < 1.0
-    assert {a.role for a in done.artifacts} >= {"fm_log", "fitted_topology"}
+    assert {a.role for a in done.artifacts} >= {"fm_log", "fitted_topology", "topology"}
+    # mimicpy names a fitted file after the include it rewrote, as the mock does, and the
+    # candidate topology is assembled from it
+    fitted = {Path(a.path).name for a in done.artifacts if a.role == "fitted_topology"}
+    assert fitted & {"opt_acetone.itp", "resp_acetone.itp"}, fitted
+    assert any(Path(a.path).name == "candidate.top" for a in done.artifacts if a.role == "topology")
 
     report = call(ctx, "study_report")
     assert report.rounds and report.rounds[0]["clean"]

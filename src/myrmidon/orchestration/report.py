@@ -406,9 +406,18 @@ def deliverable_measurement(d, events, digests, since):
     return found[-1] if found else None
 
 
-def deliverable_record(d, ev) -> dict:
-    """A deliverable as report.json states it: its property and stage, and what measured it."""
-    return {"property": d.property, "stage": d.over, "measured": ev is not None,
+def parameter_source(mandate, d) -> str:
+    """The parameter set the stage a deliverable is measured over runs on, as the mandate
+    names it; "" for the system's."""
+    stage = mandate.method.stage(d.over)
+    return stage.parameters_from if stage is not None else ""
+
+
+def deliverable_record(d, ev, parameters_from: str = "") -> dict:
+    """A deliverable as report.json states it: its property, its stage and the parameter set
+    that stage runs on, and what measured it."""
+    return {"property": d.property, "stage": d.over, "parameters_from": parameters_from,
+            "measured": ev is not None,
             "event": ev.event_id if ev is not None else "",
             "file": ev.measured.get("file", "") if ev is not None else "",
             "quantities": ev.measured.get("quantities", []) if ev is not None else []}
@@ -427,16 +436,18 @@ def deliverable_rows(mandate, events, digests, since) -> tuple[list[str], list, 
     record: dict = {}
     for d in mandate.deliverables:
         ev = deliverable_measurement(d, events, digests, since)
-        record[d.name] = deliverable_record(d, ev)
+        source = parameter_source(mandate, d)
+        record[d.name] = deliverable_record(d, ev, source)
+        over = (d.over or "—") + (f", parameters from {source}" if source else "")
         quantities = ev.measured.get("quantities", []) if ev is not None else []
         if ev is None or not quantities:
-            lines.append(f"| {d.name} | {d.over or '—'} | "
+            lines.append(f"| {d.name} | {over} | "
                          f"{'NOT measured' if ev is None else 'made by its own call'} | |")
             continue
         for q in quantities:
             name = d.name if len(quantities) == 1 else f"{d.name}: {q['name']}"
             said = ", ".join(f"{k} {_fmt(v)}" for k, v in q["statistics"].items())
-            lines.append(f"| {name} | {d.over or '—'} | {said} | {q['unit']} |")
+            lines.append(f"| {name} | {over} | {said} | {q['unit']} |")
             values += [ReportValue(step=f"deliverable:{d.name}", label=k, value=v,
                                    unit=q["unit"], quantity=q["name"], event=ev.event_id,
                                    file=ev.measured.get("file", ""))

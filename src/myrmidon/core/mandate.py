@@ -221,6 +221,9 @@ class Stage(_Strict):
     #: a parameter fit's parameters that move: the charges, the bonded terms, or both; unset,
     #: what its run is asked
     fit_mode: Literal["both", "charges", "bonded"] | None = None
+    #: the parameter set this stage runs on: an earlier parameter_fit stage, whose collected
+    #: run's topology it is, or the path of a system file of kind topology; unset, the system's
+    parameters_from: str = ""
 
     @model_validator(mode="after")
     def _physical(self) -> Stage:
@@ -419,6 +422,27 @@ class Mandate(_Strict):
     #: why this revision was written, when it revises an earlier one
     reason: str = ""
     digest: str = ""
+
+    @model_validator(mode="after")
+    def _parameter_sets(self) -> Mandate:
+        """Each stage runs on a parameter set the researcher can read in the mandate: an
+        earlier parameter fit's, or a topology among the system's files."""
+        names = [s.name for s in self.method.stages]
+        fits = set()
+        topologies = {f.path for f in self.system.files if f.kind == "topology"}
+        for i, stage in enumerate(self.method.stages):
+            if stage.kind == "parameter_fit":
+                fits.add(stage.name)
+            named = stage.parameters_from
+            if named and named not in topologies and not (
+                    named in fits and named in names[:i]):
+                raise ValueError(
+                    f"stage {stage.name} runs on parameters from {named!r}, which is neither "
+                    "an earlier parameter_fit stage ("
+                    + (", ".join(sorted(f for f in fits if f != stage.name)) or "none")
+                    + ") nor a system file of kind topology ("
+                    + (", ".join(sorted(topologies)) or "none") + ")")
+        return self
 
     def body(self) -> dict:
         """The file's fields without the digest, in the order the file has them. What a

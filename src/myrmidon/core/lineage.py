@@ -434,6 +434,22 @@ def system_file(ws, mandate, kind: str, stage: str | None = None) -> str | None:
     return named
 
 
+def stage_parameters(ws, mandate, stage) -> tuple[str | None, str]:
+    """(the topology a stage runs on, why when there is none yet): the one its
+    ``parameters_from`` names, the topology an earlier parameter fit's collected run wrote or
+    a topology among the system's files; unset, the system's."""
+    named = stage.parameters_from
+    if not named:
+        return system_file(ws, mandate, "topology", stage.name), ""
+    fit = mandate.method.stage(named)
+    if fit is None:
+        return named, ""
+    run = stage_run(ws, fit.name)
+    found = next((a.path for a in (run[0] if run else []) if a.role == "topology"), None)
+    return found, "" if found else (f"{fit.name}'s run has not been collected with a "
+                                    "candidate topology, and this stage runs on it")
+
+
 def latest_dataset(ws, stage: str | None = None) -> str | None:
     """The path of the reference dataset a parameter fit reads: the latest collected from the
     stage it starts from, else the latest in the study."""

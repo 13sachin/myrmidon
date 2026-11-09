@@ -306,8 +306,8 @@ def checkpoint_output_names(ctx: ToolContext, cpt) -> list[str]:
 def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: bool) -> dict:
     """What a classical stage's run reads besides what was prepared: to continue, the checkpoint
     its last run left; a frame batch, the trajectory of the run it starts from, with the
-    topology and structure it builds each frame from."""
-    from myrmidon.core.lineage import stage_left, stage_run
+    topology it runs on and the structure it builds each frame from."""
+    from myrmidon.core.lineage import stage_left, stage_parameters, stage_run
 
     out: dict[str, str] = {}
     if continuing:
@@ -325,6 +325,8 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
     if frame_batch(stage):
         for kind in ("topology", "structure", "index"):
             named = next((f.path for f in mandate.system.files if f.kind == kind), None)
+            if kind == "topology" and stage.parameters_from:  # the parameter set it runs on
+                named = stage_parameters(ctx.workspace, mandate, stage)[0]
             if named and kind not in prepared:
                 out[kind] = named
     return out
