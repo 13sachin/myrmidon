@@ -138,14 +138,44 @@ def test_a_fit_that_fails_is_reported_from_its_log(ws_ctx, monkeypatch):
     assert not res.ok
     assert res.optimizer_success is False
     assert res.log_tail
-    # a fit of the charges alone leaves its topology under its own prefix
-    monkeypatch.delenv("MOCK_FM_FAIL")
+
+
+@pytest.mark.parametrize("home", ["study", "project"])
+def test_a_fit_assembles_its_candidate_from_the_system_wherever_it_lies(ws_ctx, tmp_path,
+                                                                         home):
+    """The system's files in the study, or in the project directory it was made from: the fit
+    runs on them, names its fitted file after the include it rewrote, and its collection
+    assembles the candidate topology, which the lineage traces to the approved system."""
+    from tests.conftest import REGION, coupled_study
+
+    from myrmidon.core.lineage import lineage
+
+    project = tmp_path / "project" if home == "project" else None
+    if project is not None:
+        project.mkdir()
+    held = coupled_study(ws_ctx, [{"name": "rerun", "kind": "single_point", "regime": "mm"},
+                                  {"name": "fit", "kind": "parameter_fit", "qm_region": REGION}],
+                         project=project)
+    files = _dataset_files(ws_ctx.workspace)
+    collected = REGISTRY.call("dataset_collect", ws_ctx, {
+        "fmdata": files["fmdata"], "trajectory": files["trajectory"],
+        "topology": files["topology"], "coords": files["coords"],
+        "selection": files["selection"]})
+    assert collected.ok, collected.summary
+    for stage in ("rerun", "fit"):
+        prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": stage})
+        assert prepared.ok, prepared.summary
     job = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit", "cores": 2, "fit_mode": "charges"})
     assert job.ok, job.summary
     res = _wait(ws_ctx, job.job_id)
     assert res.ok, res.summary
-    assert [Path(a.path).name for a in res.artifacts if a.role == "fitted_topology"] == [
-        "resp_mock.itp"]
+    roles = {Path(a.path).name: a for a in res.artifacts}
+    assert roles["resp_acetone.itp"].role == "fitted_topology"
+    candidate = roles["candidate.top"]
+    assert candidate.role == "topology"
+    traced = lineage(ws_ctx.workspace).fits(candidate.path, candidate.sha256, "topology",
+                                            {f.sha256 for f in held.system.files})
+    assert (traced.ok, traced.reached) == (True, True)
 
 
 def test_parse_cpmd_series_real_nose_log():

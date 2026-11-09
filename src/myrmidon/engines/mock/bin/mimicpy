@@ -208,10 +208,11 @@ def selected_resnames(sele, coords):
 
 
 def fitted_molecule(topology, resnames):
-    """The file that defines the molecule holding the QM atoms, its charges refitted: every
-    charge shifted, the molecule's total kept, every other line as written. None when the
+    """The file that defines the molecule holding the QM atoms, as (its name, its text with
+    the charges refitted): every charge shifted, the molecule's total kept, every other line as
+    written. (the name of the first include the mock could not read, or None; None) when the
     topology's includes do not lead to it."""
-    search, seen, files = [os.path.dirname(os.path.abspath(topology))], set(), []
+    search, seen, files, unread = [os.path.dirname(os.path.abspath(topology))], set(), [], []
 
     def follow(path):
         path = os.path.abspath(path)
@@ -227,6 +228,9 @@ def fitted_molecule(topology, resnames):
                     if os.path.exists(os.path.join(base, name)):
                         follow(os.path.join(base, name))
                         break
+                else:  # the engine's force-field library is not the molecule's file
+                    if ".ff/" not in name:
+                        unread.append(os.path.basename(name))
 
     follow(topology)
     for path in files:
@@ -247,8 +251,9 @@ def fitted_molecule(topology, resnames):
             cols = body.split()
             cols[6] = f"{float(cols[6]) + shifts[k] - mean:.6f}"
             lines[i] = " " + " ".join(cols) + (f" ;{comment}" if sep else "\n")
-        return "; Created by mimicpy (mock): charges refitted\n" + "".join(lines)
-    return None
+        return (os.path.basename(path),
+                "; Created by mimicpy (mock): charges refitted\n" + "".join(lines))
+    return (unread[0] if unread else None), None
 
 
 def main():
@@ -329,14 +334,15 @@ def main():
                          "        message: `xtol` termination condition NOT satisfied. \n")
             sys.stderr.write("mock fm: optimization failed\n")
             return 1
-        fitted = "resp_mock.itp" if "-dresp" in sys.argv else "opt_mock.itp"
-        # the molecule holding the QM atoms as it was given, refitted; a topology the mock
-        # cannot follow gets the mock's own three-atom molecule
+        # the molecule holding the QM atoms as it was given, refitted, in a file named after
+        # the one it was read from, as mimicpy names it; a topology the mock cannot follow gets
+        # the mock's own three-atom molecule, named after the include it could not read
         try:
-            written = fitted_molecule(arg("-top"), selected_resnames(arg("-sele"),
-                                                                     arg("-coords")))
+            source, written = fitted_molecule(arg("-top"), selected_resnames(arg("-sele"),
+                                                                             arg("-coords")))
         except Exception:  # noqa: BLE001 — placeholder coordinates or selection
-            written = None
+            source, written = None, None
+        fitted = ("resp_" if "-dresp" in sys.argv else "opt_") + (source or "mock.itp")
         with open(fitted, "w") as fh:
             fh.write(written or "; Created by mimicpy (mock)\n[ moleculetype ]\n ACT 3\n\n"
                      "[ atoms ]\n"

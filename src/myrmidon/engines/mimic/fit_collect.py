@@ -154,12 +154,11 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
     flag = {"charges": "-dresp", "bonded": "-opt_ff"}.get(request.fit_mode)
     if flag:
         argv.append(flag)
-    root = ctx.workspace.root
     return StageJob(
         spec=JobSpec(argv=argv, cwd=run_dir, stdout="fm.stdout", stderr="fm.stderr",
                      resources=request.resources()),
         kind="parameter_fit", label=f"stage:{stage.name}",
-        meta={"topology": str(inputs["topology"].relative_to(root))},
+        meta={"topology": ctx.workspace.relpath(inputs["topology"])},
         summary=f"fit of {layout.cpus_per_task} workers in {ctx.workspace.relpath(run_dir)}")
 
 

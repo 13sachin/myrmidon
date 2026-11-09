@@ -197,18 +197,25 @@ QM_HAMILTONIAN = {"mm": "amber", "qm": {"method": "blyp_mt", "cutoff_ry": 70},
                   "coupling": {"scheme": "mimic"}}
 
 
-def coupled_study(ws_ctx, stages, **extra):
-    """Acetone in water, its QM region selected, under an approved mandate of these stages."""
+def coupled_study(ws_ctx, stages, project: Path | None = None, **extra):
+    """Acetone in water, its QM region selected, under an approved mandate of these stages;
+    its files in the study, or in ``project``, the directory the study was made from."""
+    import json
     import shutil
 
     from myrmidon.core import mandate as mandates
+    from myrmidon.core.workspace import META_FILENAME
 
     ws = ws_ctx.workspace
-    stage = ws.stage("input")
+    stage = ws.stage("input") if project is None else project
     for name in ("acetone_equilibrated.top", "acetone.itp", "acetone_equilibrated.gro"):
         (stage / name).write_text((ACETONE / name).read_text())
     shutil.copytree(ACETONE / "amber03.ff", stage / "amber03.ff")
     rel = ws.relpath
+    if project is not None:  # named as the researcher names them, from the project
+        meta = json.loads((ws.root / META_FILENAME).read_text())
+        (ws.root / META_FILENAME).write_text(json.dumps(meta | {"origin": str(project)}))
+        rel = lambda path: str(path.relative_to(project))  # noqa: E731
     top, gro = rel(stage / "acetone_equilibrated.top"), rel(stage / "acetone_equilibrated.gro")
     selected = _registry().call("qm_region", ws_ctx, {
         "topology": top, "coords": gro, "selections": ["add resname is ACT"], "padding_nm": 0.4})

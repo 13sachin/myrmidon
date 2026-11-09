@@ -353,7 +353,6 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
                  extend_ps: float | None = None, continuing: bool = False) -> list[Finding]:
     """What stops a coupled stage's run: the gate on its input, its compiled MM half, and the
     state it restarts from. A continuation's RESTART line is added when its job is built."""
-    root = ctx.workspace.root
     from myrmidon.engines.mimic.batch import frames_in, is_scan
 
     if is_scan(stage):
@@ -382,7 +381,7 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
             suggestion=f"stage_prepare stage={stage.name}")]
 
     def rel(kind: str) -> str | None:
-        return str(inputs[kind].relative_to(root)) if kind in inputs else None
+        return ctx.workspace.relpath(inputs[kind]) if kind in inputs else None
 
     found, _ = coupled_findings(ctx, rel("cpmd_input"), rel("tpr"), rel("restart"),
                                 rel("geometry"))
@@ -547,7 +546,7 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
     if any(line.strip().upper().startswith("RESTART") and "GEOFILE" in line.upper()
            for line in sections.get("CPMD", [])):
         geometry = inputs.get("geometry") or coupled_geometry(
-            ctx, None, str(inputs["restart"].relative_to(root)) if "restart" in inputs else None)
+            ctx, None, ctx.workspace.relpath(inputs["restart"]) if "restart" in inputs else None)
         staged.append(stage_geometry(geometry, run_dir))
     threads = {"OMP_NUM_THREADS": str(layout.cpus_per_task)}
     spec = JobSpec(

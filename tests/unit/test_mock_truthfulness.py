@@ -272,7 +272,7 @@ def test_the_mock_fit_chain_counts_and_refits_what_it_is_given(tmp_path):
                           cwd=tmp_path, capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     before = parse_itp_atoms((top.parent / "acetone.itp").read_text())["ACT"]
-    after = parse_itp_atoms((tmp_path / "resp_mock.itp").read_text())["ACT"]
+    after = parse_itp_atoms((tmp_path / "resp_acetone.itp").read_text())["ACT"]
     assert [a["name"] for a in after] == [a["name"] for a in before]
     assert [a["charge"] for a in after] != [a["charge"] for a in before]
     assert sum(a["charge"] for a in after) == pytest.approx(sum(a["charge"] for a in before),
