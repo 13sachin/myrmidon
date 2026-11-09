@@ -1,0 +1,15 @@
+id: gromacs.fit_rerun
+extends: gromacs.single_point
+engine: gromacs
+renders: mdp
+kinds: [parameter_fit]
+regimes: [mm, qmmm, qm]
+auxiliary: true
+title: The classical rerun a parameter fit's engine runs itself
+applicability: A force-matching fit recomputes the classical forces of the reference frames
+  under the topology it fits (mdrun -rerun), with this input; the fit runs it, never the stage.
+sources:
+- kind: engine_manual
+  text: GROMACS reference manual, mdrun -rerun.
+  locator: https://manual.gromacs.org/2021.6/onlinehelp/gmx-mdrun.html
+version: 1

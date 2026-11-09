@@ -169,6 +169,7 @@ UNWRITTEN = [
     ({"decisions_yours": [{"said": "x", "locks": {"heat.duration_ps": 500}}]}, "MANDATE_STAGE"),
     ({"decisions_yours": [{"said": "x", "locks": {"nvt.production_ns": 1}}]}, "MANDATE_STAGE"),
     ({"stages": [*STAGES[:3], {**STAGES[3], "steps": 100}]}, "INVALID_PARAMS"),
+    ({"stages": [*STAGES[:3], {**STAGES[3], "fit_mode": "charges"}]}, "INVALID_PARAMS"),
     # a lock that contradicts its stage is refused, whether or not anything compiled reads it
     ({"decisions_yours": [{"said": "the em as dynamics", "locks": {"em.kind": "dynamics"}}]},
      "MANDATE_STAGE", 2),  # it disagrees with the stage, and binds nothing compiled
@@ -1021,6 +1022,8 @@ def test_a_coupled_stage_writes_both_engines_at_one_stride(ws_ctx):
         for template in templates_for(view, templates):
             by_engine[template.engine] = compile_stage(
                 mandate, stage, template, templates=templates, methods=methods).values
+        # a coupled stage is told to its two engines, and to no classical rerun's input
+        assert len(by_engine) == len(templates_for(view, templates)) == 2
         stride = wanted[stage.name]
         cpmd = by_engine["cpmd"]
         assert cpmd.get("&CPMD/FORCE_MATCHING", cpmd.get("&CPMD/TRAJECTORY SAMPLE")) == stride

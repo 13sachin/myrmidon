@@ -107,8 +107,7 @@ def test_a_fit_that_fails_is_reported_from_its_log(ws_ctx, monkeypatch):
     and the index the QM region wrote. Its stride past the dataset refuses before it books."""
     from tests.conftest import REGION, coupled_study
 
-    coupled_study(ws_ctx, [{"name": "rerun", "kind": "single_point", "regime": "mm"},
-                           {"name": "fit", "kind": "parameter_fit", "qm_region": REGION}])
+    coupled_study(ws_ctx, [{"name": "fit", "kind": "parameter_fit", "qm_region": REGION}])
     files = _dataset_files(ws_ctx.workspace)
     collected = REGISTRY.call("dataset_collect", ws_ctx, {
         "fmdata": files["fmdata"], "trajectory": files["trajectory"],
@@ -118,12 +117,8 @@ def test_a_fit_that_fails_is_reported_from_its_log(ws_ctx, monkeypatch):
     too_far = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit",
                                                       "overrides": {"stride": "[0,50,1]"}})
     assert too_far.ok, too_far.summary
-    # a fit's bonded target needs its classical rerun input, the rerun stage's
-    no_rerun = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit"})
-    assert not no_rerun.ok and no_rerun.error.code == "STAGE_NOT_PREPARED"
-    rerun = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "rerun",
-                                                    "structure": files["coords"]})
-    assert rerun.ok, rerun.summary
+    # the fit's own input and its classical rerun's, rendered by the one call
+    assert set(too_far.files) == {"fm_input", "mdp"}
     refused = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit"})
     assert not refused.ok and refused.error.code == "FM_STRIDE_BEYOND_DATASET"
     prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit",
@@ -153,19 +148,22 @@ def test_a_fit_assembles_its_candidate_from_the_system_wherever_it_lies(ws_ctx, 
     project = tmp_path / "project" if home == "project" else None
     if project is not None:
         project.mkdir()
-    held = coupled_study(ws_ctx, [{"name": "rerun", "kind": "single_point", "regime": "mm"},
-                                  {"name": "fit", "kind": "parameter_fit", "qm_region": REGION}],
-                         project=project)
+    held = coupled_study(ws_ctx, [{"name": "fit", "kind": "parameter_fit", "qm_region": REGION,
+                                   "fit_mode": "charges"}], project=project,
+                         decisions_yours=[{"said": "fit the charges only",
+                                           "locks": {"fit.fit_mode": "charges"}}])
+    # the lock binds the fit, whose command reads it
+    assert held.decisions.yours[0].locks == {"fit.fit_mode": "charges"}
     files = _dataset_files(ws_ctx.workspace)
     collected = REGISTRY.call("dataset_collect", ws_ctx, {
         "fmdata": files["fmdata"], "trajectory": files["trajectory"],
         "topology": files["topology"], "coords": files["coords"],
         "selection": files["selection"]})
     assert collected.ok, collected.summary
-    for stage in ("rerun", "fit"):
-        prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": stage})
-        assert prepared.ok, prepared.summary
-    job = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit", "cores": 2, "fit_mode": "charges"})
+    prepared = REGISTRY.call("stage_prepare", ws_ctx, {"stage": "fit"})
+    assert prepared.ok, prepared.summary
+    # the stage says what the fit moves: the charges
+    job = REGISTRY.call("stage_run", ws_ctx, {"stage": "fit", "cores": 2})
     assert job.ok, job.summary
     res = _wait(ws_ctx, job.job_id)
     assert res.ok, res.summary

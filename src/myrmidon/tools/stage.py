@@ -243,7 +243,7 @@ def _with_run_input(ctx: ToolContext, params: StagePrepareParams, stage, stage_d
     command = None
     for template in templates:
         engine = adapter(template.engine)
-        if engine.compile_run_input is None:
+        if engine.compile_run_input is None or template.auxiliary:
             continue
         kind = RENDERED_FILES[template.renders][0]
         files = {k: resolve_in_ws(ctx, v) for k, v in system.items() if v}
@@ -301,7 +301,7 @@ class StageRunParams(BaseModel):
                                 "run, instead of the machine config's")
     fit_mode: Literal["both", "charges", "bonded"] = Field(
         default="both", description="a parameter_fit: what it fits, charges (DRESP), bonded "
-        "parameters, or both")
+        "parameters, or both; a stage that states its fit_mode runs that")
     continue_run: bool = Field(
         default=False, description="go on from what this stage's last run left: a run stopped at "
         "its walltime, or one a stage that starts from itself extends")
@@ -364,6 +364,7 @@ class StageRunParams(BaseModel):
         frames = (engine.scan_frames(ctx, stage, self.frames) if engine.scan_frames
                   else None)
         return self.model_copy(update={
+            "fit_mode": stage.fit_mode or self.fit_mode,
             "frames": self.frames if frames is None else frames,
             "inputs": inputs, "cores": cores, "walltime_min": minutes,
             "continue_run": continuing, "snapshot": snapshot,
@@ -377,7 +378,7 @@ def _engine_of(stage):
     if stage is None:
         return None
     templates = templates_for(stage.model_dump(mode="json"), TemplateStore.default())
-    return adapter_running([t.engine for t in templates])
+    return adapter_running([t.engine for t in templates if not t.auxiliary])
 
 
 def _run_findings(ctx: ToolContext, params: StageRunParams) -> list[Finding]:

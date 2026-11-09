@@ -53,7 +53,8 @@ omitted; `hamiltonian`: `mm` method id read from the topology's force field, plu
 `name`, `kind` — `minimize`, `dynamics`, `single_point`, `parameter_fit` — `regime`,
 `starts_from` (the stage whose collected run it continues: by default the one before it, an
 earlier one when stages branch, itself to extend a finished run), `ensemble`, `temperature_k`, `pressure_bar`, `duration_ps`, `steps`, `restraints`,
-`sampling_ps`, and optional `qm_region`, `scan` and `converge`, compiled on the fly by
+`sampling_ps`, and optional `qm_region`, `scan`, `converge` and `fit_mode` (what a
+`parameter_fit` moves: `both`, `charges` or `bonded`), compiled on the fly by
 `knowledge/stage.py`), `decisions` (`yours`: each `said`, the researcher's words, and
 `locks`, a mapping of `<stage>.<field>` or `*.<field>` paths — or a `target` and `keys` —
 to a scalar, a list of allowed values or `{min, max}`; `proposed`: each `what`, `locks` or

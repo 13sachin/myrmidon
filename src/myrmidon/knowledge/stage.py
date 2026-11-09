@@ -143,6 +143,11 @@ class Template(BaseModel):
     #: relaxation times, so the ions reach the target before the stage ends; none, the
     #: ramp ends at the stage's last step
     ramp_hold_au: float | None = None
+    #: a file another engine's command reads, rendered with the stage and never run or
+    #: compiled on its own: a fit's classical rerun input, which the fit runs itself
+    auxiliary: bool = False
+    #: the stage fields the engine's command line reads, beside the file it renders
+    command_follows: list[str] = Field(default_factory=list)
     parameters: dict[str, Form] = Field(default_factory=dict)
     sources: list[Source] = Field(min_length=1)
     pitfalls: list[str] = Field(default_factory=list)  # finding ids that bite this
@@ -761,7 +766,8 @@ def unread_locks(mandate: Mandate, templates: TemplateStore
             items = ([f"{field}.{k}" for k in constraint] if isinstance(constraint, dict)
                      and not set(constraint) <= {"min", "max"} else [field])
             for item in items:
-                if stages and not any(_bound(t, templates, item) for s in stages
+                if stages and not any(_bound(t, templates, item) or item in t.command_follows
+                                      for s in stages
                                       for t in templates_for(s.model_dump(mode="json"),
                                                              templates)):
                     out.append((at, path, item.removeprefix(f"{field}.") if item != field
@@ -902,7 +908,7 @@ def price_stage(mandate: Mandate, stage: Stage, *, templates: TemplateStore,
     machine's reference step scaled to its QM region. A walltime is capped at what the
     partition grants."""
     view = stage.model_dump(mode="json")
-    chosen = templates_for(view, templates)
+    chosen = [t for t in templates_for(view, templates) if not t.auxiliary]
     pricing = next((t.pricing for t in chosen if t.pricing.get("throughput")),
                    next((t.pricing for t in chosen if t.pricing), {}))
     _, billing = compute.billing()

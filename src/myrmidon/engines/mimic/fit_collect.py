@@ -43,8 +43,9 @@ FITTED_PREFIXES = ("opt_", "resp_")
 
 
 def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: bool) -> dict:
-    """What a fit reads besides its input: the system's files, the selection, and the latest
-    reference dataset with the trajectory collected beside it."""
+    """What a fit reads besides the files its preparation rendered (its input and its classical
+    rerun's): the system's files, the selection, and the latest reference dataset with the
+    trajectory collected beside it."""
     from myrmidon.core.lineage import latest_dataset, system_file
 
     begins = mandate.method.starts_from(stage)
@@ -56,15 +57,6 @@ def stage_inputs(ctx: ToolContext, mandate, stage, prepared: dict, continuing: b
         named = system_file(ctx.workspace, mandate, kind, reads)
         if named and kind not in prepared:
             out[kind] = named
-    # the bonded target's classical rerun: the input of a classical single point of the method
-    from myrmidon.core.lineage import stage_files
-
-    rerun = next((s for s in mandate.method.stages
-                  if s.kind == "single_point" and s.regime == "mm"), None)
-    if rerun is not None and "mdp" not in prepared:
-        found = stage_files(ctx.workspace, rerun.name).get("mdp")
-        if found:
-            out["mdp"] = found
     dataset = latest_dataset(ctx.workspace, begins.name if begins is not None else None)
     if dataset:
         out["reference_dataset"] = dataset
@@ -94,9 +86,9 @@ def job_findings(ctx: ToolContext, stage, inputs: dict[str, Path], walltime_min:
         return [Precondition(
             id="STAGE_NOT_PREPARED",
             message=f"stage {stage.name} has no {', '.join(missing)}",
-            suggestion="stage_prepare the fit and a classical single_point stage, whose mdp is "
-            "the fit's rerun, or name one in inputs.mdp; dataset_collect the reference run it "
-            "fits against; qm_region writes the selection and the index")]
+            suggestion="stage_prepare the fit, which renders its input and its classical "
+            "rerun's; dataset_collect the reference run it fits against; qm_region writes the "
+            "selection and the index")]
     findings = list(itp_atomtypes_warnings(inputs["topology"]))
     if "mdp" in inputs:
         from myrmidon.engines.gromacs.mdp import parse_mdp_file
@@ -159,7 +151,8 @@ def build_job(ctx: ToolContext, stage, inputs: dict[str, Path], layout, request)
                      resources=request.resources()),
         kind="parameter_fit", label=f"stage:{stage.name}",
         meta={"topology": ctx.workspace.relpath(inputs["topology"])},
-        summary=f"fit of {layout.cpus_per_task} workers in {ctx.workspace.relpath(run_dir)}")
+        summary=f"fit of {'the ' + request.fit_mode if flag else 'charges and bonded terms'} "
+        f"by {layout.cpus_per_task} workers in {ctx.workspace.relpath(run_dir)}")
 
 
 def collect_fit(ctx: ToolContext, stage_dir: Path, original_itp: str | None = None,

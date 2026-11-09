@@ -8,6 +8,7 @@ title: A force-matching fit of a topology's parameters against QM/MM reference f
 applicability: The fit's own input. It reads every frame of the reference dataset unless the
   call narrows the stride; the charge is the QM region's, the weights the published fit's.
 pricing: {walltime_min: 120}
+command_follows: [fit_mode]
 parameters:
   stride:
     from_system: reference_dataset

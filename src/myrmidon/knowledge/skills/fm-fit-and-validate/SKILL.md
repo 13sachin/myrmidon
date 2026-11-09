@@ -29,7 +29,8 @@ a fitting engine on this machine, `tool_lookup` names the missing one: say so an
 
 ## The researcher decides
 
-Into `decisions_yours`, quoted: which parameters the fit may move and the strategy; the
+Into `decisions_yours`, quoted: which parameters the fit may move, the fit stage's
+`fit_mode` (`charges`, `bonded` or `both`) locked as `<fit>.fit_mode`, and the strategy; the
 candidates and what "better" means, as one constraint listing every candidate value (a
 sweep is one mandate); whether a fitted term is defensible chemistry; the ceiling. Into
 `decisions_proposed`, with the source: the QM total charge the reference's stage states, and
@@ -40,14 +41,14 @@ needs (with `file_write`).
 ## Drive
 
 1. `mandate_write`: the files the fit and the arms start from as the system; the fit as a
-   `parameter_fit` stage with its `qm_region` (the QM total charge), each comparison of an arm
+   `parameter_fit` stage with its `qm_region` (the QM total charge) and `fit_mode`, each comparison of an arm
    as a `single_point` stage with `regime: mm`, and, when the minimised geometry is asked for,
    a `minimize` stage with `regime: mm` and a `scan` of `frames`; the deliverables (`force_rmse`
    over a comparison); the ceiling. It prices each stage.
    The approval is the researcher's: `/approve` in Hermes, the dialog in Pi, or
    `myrmidon approve` at a terminal. Say the stages and their core-hours and end the turn.
-2. `stage_prepare` with `stage=<the fit>` writes its input: every frame of the collected dataset
-   unless `overrides` narrows the `stride`. Say which of its weights you accept. An edit it asks
+2. `stage_prepare` with `stage=<the fit>` writes its input and its classical rerun's: every
+   frame of the collected dataset unless `overrides` narrows the `stride`. Say which of its weights you accept. An edit it asks
    of the topology goes through `file_write`, then `file_check`.
 3. `stage_run` with `stage=<the fit>`, `preview=true` first if the price is in doubt; it finds
    the dataset, the selection and the index itself. `job_status` collects the fitted topologies

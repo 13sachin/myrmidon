@@ -218,6 +218,9 @@ class Stage(_Strict):
     qm_region: QMRegion | None = None
     scan: Scan | None = None
     converge: Converge | None = None
+    #: a parameter fit's parameters that move: the charges, the bonded terms, or both; unset,
+    #: what its run is asked
+    fit_mode: Literal["both", "charges", "bonded"] | None = None
 
     @model_validator(mode="after")
     def _physical(self) -> Stage:
@@ -237,6 +240,8 @@ class Stage(_Strict):
             said.append("NPT holds a pressure: pressure_bar")
         if self.regime in ("qmmm", "qm") and self.qm_region is None:
             said.append(f"a {self.regime} stage names its QM region: qm_region")
+        if self.fit_mode is not None and self.kind != "parameter_fit":
+            said.append("fit_mode says what a parameter_fit moves")
         if said:
             raise ValueError(f"stage {self.name}: " + "; ".join(said))
         return self
@@ -244,7 +249,7 @@ class Stage(_Strict):
 
 #: the stage fields a decision may lock
 LOCKABLE = ("kind", "regime", "ensemble", "temperature_k", "pressure_bar", "duration_ps",
-            "steps", "restraints", "sampling_ps", "qm_region", "scan", "converge")
+            "steps", "restraints", "sampling_ps", "qm_region", "scan", "converge", "fit_mode")
 
 
 class Method(_Strict):
